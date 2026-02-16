@@ -17,7 +17,6 @@ import {
   Trash2,
   FileCode,
   Info,
-  Lightbulb,
   ListChecks,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
