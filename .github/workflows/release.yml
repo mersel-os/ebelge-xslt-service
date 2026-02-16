@@ -39,6 +39,21 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: Setup .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Pack .NET Client (NuGet)
+        run: |
+          dotnet pack clients/dotnet-client/MERSEL.Services.XsltService.Client.csproj \
+            -c Release \
+            -o ./nupkgs \
+            /p:PackageVersion=${{ steps.version.outputs.VERSION }}
+
+      - name: Push .NET Client to NuGet.org
+        run: dotnet nuget push "./nupkgs/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source "https://api.nuget.org/v3/index.json" --skip-duplicate
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:

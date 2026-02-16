@@ -45,3 +45,7 @@ xslt-web-ui/node_modules/
 xslt-web-ui/dist/
 xslt-web-ui/src/api/generated/
 xslt-web-api/src/main/resources/static/
+
+# ── Dotnet Client ──────────────────────────────────────────────────
+clients/**/bin/
+clients/**/obj/

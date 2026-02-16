@@ -13,4 +13,4 @@ logging:
 # Springdoc production'da kapalı
 springdoc:
   api-docs:
-    enabled: false
+    enabled: true
