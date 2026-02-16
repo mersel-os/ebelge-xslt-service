@@ -9,5 +9,6 @@ public enum TransformType {
     DESPATCH_ADVICE,
     RECEIPT_ADVICE,
     EMM,
+    ESMM,
     ECHECK
 }

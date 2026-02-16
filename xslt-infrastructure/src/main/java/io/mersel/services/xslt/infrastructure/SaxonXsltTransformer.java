@@ -42,7 +42,8 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
             TransformType.ARCHIVE_INVOICE, "default_transformers/eArchive_Base.xslt",
             TransformType.DESPATCH_ADVICE, "default_transformers/eDespatch_Base.xslt",
             TransformType.RECEIPT_ADVICE, "default_transformers/eDespatch_Answer_Base.xslt",
-            TransformType.EMM, "default_transformers/eMM_Base.xslt"
+            TransformType.EMM, "default_transformers/eMM_Base.xslt",
+            TransformType.ESMM, "default_transformers/eSMM_Base.xslt"
     );
 
     /**

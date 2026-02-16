@@ -34,7 +34,8 @@ custom-assets/
 │   ├── eArchive_Base.xslt
 │   ├── eDespatch_Base.xslt
 │   ├── eDespatch_Answer_Base.xslt
-│   └── eMM_Base.xslt
+│   ├── eMM_Base.xslt
+│   └── eSMM_Base.xslt
 └── validator/
     ├── ubl-tr-package/                # UBL-TR paket dosyaları
     │   ├── schematron/                # GİB kaynak Schematron XML'leri
