@@ -43,8 +43,11 @@ jobs:
         working-directory: xslt-web-ui
         run: pnpm build
 
+      - name: Ensure Static Resources Directory Exists
+        run: mkdir -p xslt-web-api/src/main/resources/static
+
       - name: Copy UI to Static Resources
-        run: cp -r xslt-web-ui/dist/* xslt-web-api/src/main/resources/static/
+        run: cp -r xslt-web-ui/dist/. xslt-web-api/src/main/resources/static/
 
       - name: Grant Gradle Wrapper Permissions
         run: chmod +x gradlew
