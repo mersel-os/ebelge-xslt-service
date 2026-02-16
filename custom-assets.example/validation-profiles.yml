@@ -1,0 +1,113 @@
+# ═══════════════════════════════════════════════════════════════════
+# Özel Doğrulama Profilleri (Custom Validation Profiles)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Bu dosyayı custom-assets/ dizinine kopyalayarak kendi profillerinizi
+# tanımlayabilirsiniz. Bundled profilleri (signed, unsigned) override
+# edebilir veya yeni profiller ekleyebilirsiniz.
+#
+# "extends" anahtar kelimesi ile mevcut profillerden kalıtım yapabilirsiniz.
+# Üst profilin tüm bastırma kuralları otomatik olarak miras alınır.
+#
+# Bastırma kuralları (suppressions) üç eşleşme modunu destekler:
+#   - ruleId : Soyut Schematron kural kimliğine göre (tercih edilen)
+#   - test   : XPath test ifadesine göre
+#   - text   : Hata mesajı metnine göre (fallback)
+#
+# Kapsam (scope) desteği:
+#   Her kuralda opsiyonel "scope" alanı ile bastırma belirli belge
+#   tiplerine kısıtlanabilir. scope belirtilmezse kural TÜM belge
+#   tiplerine uygulanır.
+#
+#   Kabul edilen scope değerleri:
+#     Schema Tipleri:     INVOICE, DESPATCH_ADVICE, RECEIPT_ADVICE,
+#                         CREDIT_NOTE, FREELANCER_VOUCHER, EARCHIVE_REPORT
+#     Schematron Tipleri: UBLTR_MAIN, EARCHIVE_REPORT, EDEFTER_YEVMIYE,
+#                         EDEFTER_KEBIR, EDEFTER_BERAT, EDEFTER_RAPOR,
+#                         ENVANTER_BERAT, ENVANTER_DEFTER
+#
+# XSD Override desteği (xsd-overrides):
+#   GIB orijinal XSD dosyalarını değiştirmeden minOccurs/maxOccurs
+#   kısıtlamalarını profil bazlı olarak esnetebilirsiniz.
+#   Key: Schema tipi (INVOICE, DESPATCH_ADVICE, vb.)
+#   element: XSD'deki <xsd:element ref="..."> değeri
+#   minOccurs: Yeni minimum tekrar sayısı (opsiyonel)
+#   maxOccurs: Yeni maksimum tekrar sayısı (opsiyonel)
+#
+# Kullanım:
+#   curl -F "source=@fatura.xml" -F "profile=my-company" \
+#        -F "schemaValidationType=INVOICE" \
+#        -F "schematronValidationType=UBLTR_MAIN" \
+#        localhost:8080/v1/validate
+# ═══════════════════════════════════════════════════════════════════
+
+profiles:
+
+  # ── Özel firma profili — unsigned'dan miras alır ────────────────
+  my-company:
+    extends: unsigned
+    description: "Firma ozel profili - imza + fatura ID kontrolu bastiriliyor"
+    suppressions:
+      # Sadece INVOICE belgelerinde fatura ID kontrolünü atla
+      - match: ruleId
+        pattern: "InvoiceIDCheck"
+        scope: [INVOICE]
+        description: "Fatura ID format kontrolunu atla (sadece fatura)"
+
+      # Sadece CREDIT_NOTE belgelerinde kredi notu referans kontrolünü atla
+      - match: ruleId
+        pattern: "CreditNoteReferenceCheck"
+        scope: [CREDIT_NOTE]
+        description: "Kredi notu referans kontrolunu atla"
+
+    # GIB XSD'lerinde normalde zorunlu olan alanları opsiyonel yap
+    xsd-overrides:
+      INVOICE:
+        - element: "cac:Signature"
+          minOccurs: "0"
+        - element: "ext:UBLExtensions"
+          minOccurs: "0"
+        - element: "cbc:UUID"
+          minOccurs: "0"
+      DESPATCH_ADVICE:
+        - element: "cac:Signature"
+          minOccurs: "0"
+
+  # ── İrsaliye profili — DespatchAdvice'a özel bastırma ───────────
+  # despatch-flexible:
+  #   description: "Irsaliye dogrulamasinda esnek kurallar"
+  #   suppressions:
+  #     - match: ruleId
+  #       pattern: "DespatchQuantityCheck"
+  #       scope: [DESPATCH_ADVICE]
+  #       description: "Irsaliye miktar kontrolunu atla"
+  #     - match: ruleId
+  #       pattern: ".*Signature.*"
+  #       # scope yok = tum belgeler icin imza kontrolu bastirilir
+  #       description: "Tum belgeler icin imza kontrolu bastirilir"
+
+  # ── e-Defter profili — sadece e-Defter schematron'larına özel ───
+  # edefter-relaxed:
+  #   description: "e-Defter dogrulamasinda esnek kurallar"
+  #   suppressions:
+  #     - match: ruleId
+  #       pattern: "KebırIDCheck"
+  #       scope: [EDEFTER_KEBIR]
+  #       description: "Sadece Kebir defterinde ID kontrolunu atla"
+  #     - match: ruleId
+  #       pattern: "YevmiyeReferenceCheck"
+  #       scope: [EDEFTER_YEVMIYE]
+  #       description: "Sadece Yevmiye defterinde referans kontrolunu atla"
+
+  # ── Geliştirme ortamı profili ───────────────────────────────────
+  # development:
+  #   extends: unsigned
+  #   description: "Gelistirme ortami - esnek dogrulama"
+  #   suppressions:
+  #     - match: ruleId
+  #       pattern: "UBLVersionIDCheck"
+  #       description: "UBL versiyon kontrolunu atla (tum tipler)"
+  #     - match: ruleId
+  #       pattern: "CustomizationIDCheck"
+  #       scope: [INVOICE, DESPATCH_ADVICE]
+  #       description: "Customization ID kontrolunu atla (fatura + irsaliye)"

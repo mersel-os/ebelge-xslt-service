@@ -1,0 +1,328 @@
+package io.mersel.services.xslt.infrastructure;
+
+import io.mersel.services.xslt.application.enums.SchematronValidationType;
+import io.mersel.services.xslt.application.interfaces.ISchematronValidator;
+import io.mersel.services.xslt.application.interfaces.Reloadable;
+import io.mersel.services.xslt.application.interfaces.ReloadResult;
+import io.mersel.services.xslt.application.models.SchematronError;
+import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
+import net.sf.saxon.s9api.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.stream.StreamSource;
+import java.io.ByteArrayInputStream;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.util.*;
+
+/**
+ * Saxon HE tabanlı Schematron doğrulama implementasyonu.
+ * <p>
+ * Schematron kaynaklarını üç kategoride yönetir:
+ * <ul>
+ *   <li><b>Source XML</b> — Runtime'da ISO pipeline ile derlenir (örn: ubl-tr-package)</li>
+ *   <li><b>Source SCH</b> — ISO Schematron (.sch) dosyaları, runtime'da ISO pipeline ile derlenir (örn: e-Defter)</li>
+ *   <li><b>Pre-compiled XSL</b> — Doğrudan Saxon'a yüklenir (örn: e-Arşiv)</li>
+ * </ul>
+ * <p>
+ * {@link Reloadable} arayüzü ile hot-reload destekler.
+ * <p>
+ * Doğrulama sonuçları yapılandırılmış {@link SchematronError} nesneleri olarak döner.
+ * Runtime'da derlenen Schematron'lar ({@code ruleId} ve {@code test} metadata'sı içerir),
+ * pre-compiled XSL'ler ise sadece mesaj metni içerebilir.
+ */
+@Service
+public class SaxonSchematronValidator implements ISchematronValidator, Reloadable {
+
+    private static final Logger log = LoggerFactory.getLogger(SaxonSchematronValidator.class);
+
+    private final AssetManager assetManager;
+    private final SchematronRuntimeCompiler runtimeCompiler;
+    private final XsltMetrics metrics;
+    private final Processor processor;
+
+    /**
+     * Derlenmesi gereken Schematron source XML dosyaları.
+     * ubl-tr-package'daki ham Schematron XML → runtime'da XSLT'ye derlenir.
+     */
+    private static final Map<SchematronValidationType, String> SOURCE_XML_MAP = Map.of(
+            SchematronValidationType.UBLTR_MAIN, "validator/ubl-tr-package/schematron/UBL-TR_Main_Schematron.xml"
+    );
+
+    /**
+     * Derlenmesi gereken Schematron source SCH (ISO Schematron) dosyaları.
+     * GIB'in dağıttığı ham .sch dosyaları → runtime'da ISO pipeline ile XSLT'ye derlenir.
+     */
+    private static final Map<SchematronValidationType, String> SOURCE_SCH_MAP = Map.of(
+            SchematronValidationType.EDEFTER_YEVMIYE, "validator/eledger/schematron/edefter_yevmiye.sch",
+            SchematronValidationType.EDEFTER_KEBIR, "validator/eledger/schematron/edefter_kebir.sch",
+            SchematronValidationType.EDEFTER_BERAT, "validator/eledger/schematron/edefter_berat.sch",
+            SchematronValidationType.EDEFTER_RAPOR, "validator/eledger/schematron/edefter_rapor.sch",
+            SchematronValidationType.ENVANTER_BERAT, "validator/eledger/schematron/envanter_berat.sch",
+            SchematronValidationType.ENVANTER_DEFTER, "validator/eledger/schematron/envanter_defter.sch"
+    );
+
+    /**
+     * Önceden derlenmiş Schematron XSL dosyaları. Doğrudan Saxon'a yüklenir.
+     */
+    private static final Map<SchematronValidationType, String> PRECOMPILED_XSL_MAP = Map.of(
+            SchematronValidationType.EARCHIVE_REPORT, "validator/earchive/schematron/earsiv_schematron.xsl"
+    );
+
+    /**
+     * Derlenmiş Schematron cache — volatile ile atomic swap.
+     */
+    private volatile Map<SchematronValidationType, XsltExecutable> compiledSchematrons = Map.of();
+
+    public SaxonSchematronValidator(AssetManager assetManager,
+                                   SchematronRuntimeCompiler runtimeCompiler,
+                                   XsltMetrics metrics) {
+        this.assetManager = assetManager;
+        this.runtimeCompiler = runtimeCompiler;
+        this.metrics = metrics;
+        this.processor = new Processor(false);
+    }
+
+    /**
+     * Derlenmiş Schematron kural sayısını döndürür.
+     */
+    public int getLoadedCount() {
+        return compiledSchematrons.size();
+    }
+
+    // ── Reloadable ──────────────────────────────────────────────────
+
+    @Override
+    public String getName() {
+        return "Schematron Rules";
+    }
+
+    @Override
+    public ReloadResult reload() {
+        long startTime = System.currentTimeMillis();
+        var newCache = new HashMap<SchematronValidationType, XsltExecutable>();
+        var errors = new ArrayList<String>();
+        var compiler = processor.newXsltCompiler();
+
+        // Auto-generated dizinini temizle (önceki derleme çıktıları)
+        assetManager.clearAutoGenerated("schematron");
+
+        // 1. Source XML'leri runtime'da derle (ubl-tr-package)
+        //    sch:include çözümlemesi için dosya disk üzerinde olmalı (resolve-uri + document() gereksinimi)
+        for (var entry : SOURCE_XML_MAP.entrySet()) {
+            try {
+                if (assetManager.assetExists(entry.getValue())) {
+                    var sourceFile = assetManager.resolveAssetOnDisk(entry.getValue());
+                    var result = runtimeCompiler.compileAndReturn(sourceFile);
+                    newCache.put(entry.getKey(), result.executable());
+
+                    // Pipeline XSLT çıktısını diske yaz
+                    writeSchematronOutput(entry.getKey(), result.generatedXslt());
+
+                    log.debug("  {} Schematron XML → XSLT derlendi (path={})", entry.getKey(), sourceFile);
+                } else {
+                    String error = entry.getKey() + " kaynak dosyası bulunamadı: " + entry.getValue();
+                    errors.add(error);
+                    log.warn("  {}", error);
+                }
+            } catch (Exception e) {
+                String error = entry.getKey() + " derleme hatası: " + e.getMessage();
+                errors.add(error);
+                log.warn("  {}", error);
+            }
+        }
+
+        // 2. Source SCH'leri runtime'da derle (e-Defter ISO Schematron)
+        //    Disk üzerinden derleme — sch:include olsa bile çözümlenir
+        for (var entry : SOURCE_SCH_MAP.entrySet()) {
+            try {
+                if (assetManager.assetExists(entry.getValue())) {
+                    var sourceFile = assetManager.resolveAssetOnDisk(entry.getValue());
+                    var result = runtimeCompiler.compileAndReturn(sourceFile);
+                    newCache.put(entry.getKey(), result.executable());
+
+                    // Pipeline XSLT çıktısını diske yaz
+                    writeSchematronOutput(entry.getKey(), result.generatedXslt());
+
+                    log.debug("  {} Schematron SCH → XSLT derlendi (path={})", entry.getKey(), sourceFile);
+                } else {
+                    String error = entry.getKey() + " kaynak dosyası bulunamadı: " + entry.getValue();
+                    errors.add(error);
+                    log.warn("  {}", error);
+                }
+            } catch (Exception e) {
+                String detail = e.getMessage();
+                if (e.getCause() != null) {
+                    detail += " — " + e.getCause().getMessage();
+                }
+                String error = entry.getKey() + " SCH derleme hatası: " + detail;
+                errors.add(error);
+                log.warn("  {}", error, e);
+            }
+        }
+
+        // 3. Pre-compiled XSL'leri doğrudan yükle
+        for (var entry : PRECOMPILED_XSL_MAP.entrySet()) {
+            try {
+                if (assetManager.assetExists(entry.getValue())) {
+                    try (var is = assetManager.getAssetStream(entry.getValue())) {
+                        var executable = compiler.compile(new StreamSource(is));
+                        newCache.put(entry.getKey(), executable);
+                        log.debug("  {} pre-compiled XSL yüklendi", entry.getKey());
+                    }
+                } else {
+                    String error = entry.getKey() + " XSL dosyası bulunamadı: " + entry.getValue();
+                    errors.add(error);
+                    log.warn("  {}", error);
+                }
+            } catch (Exception e) {
+                String error = entry.getKey() + " XSL yükleme hatası: " + e.getMessage();
+                errors.add(error);
+                log.warn("  {}", error);
+            }
+        }
+
+        // Atomic swap
+        compiledSchematrons = Map.copyOf(newCache);
+
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        if (errors.isEmpty()) {
+            return ReloadResult.success(getName(), newCache.size(), elapsed);
+        } else if (!newCache.isEmpty()) {
+            return ReloadResult.partial(getName(), newCache.size(), elapsed, errors);
+        } else {
+            return ReloadResult.failed(getName(), elapsed, String.join("; ", errors));
+        }
+    }
+
+    /**
+     * Derlenen Schematron XSLT çıktısını auto-generated dizinine yazar.
+     */
+    private void writeSchematronOutput(SchematronValidationType type, byte[] xsltBytes) {
+        try {
+            String fileName = type.name() + ".xsl";
+            assetManager.writeAutoGenerated("schematron", fileName, xsltBytes);
+            log.info("  {} derlenmiş XSLT yazıldı: auto-generated/schematron/{}", type, fileName);
+        } catch (Exception e) {
+            log.warn("  {} derlenmiş XSLT diske yazılamadı: {}", type, e.getMessage());
+        }
+    }
+
+    // ── Doğrulama ───────────────────────────────────────────────────
+
+    @Override
+    public List<SchematronError> validate(byte[] source, SchematronValidationType schematronType,
+                                          String ublTrMainSchematronType, String sourceFileName) {
+        long startTime = System.currentTimeMillis();
+        List<SchematronError> errors = new ArrayList<>();
+
+        try {
+            XsltExecutable executable = compiledSchematrons.get(schematronType);
+            if (executable == null) {
+                errors.add(new SchematronError(null, null,
+                        schematronType + " için Schematron kuralları yüklenemedi. " +
+                        "GIB paket sync çalıştırın veya Schematron dosyalarını external-path dizinine kopyalayın."));
+                metrics.recordValidation("schematron", schematronType.name(), "error", System.currentTimeMillis() - startTime);
+                return errors;
+            }
+
+            Xslt30Transformer transformer = executable.load30();
+
+            // UBL-TR Main schematron için tip parametresi ayarla
+            if (schematronType == SchematronValidationType.UBLTR_MAIN) {
+                String typeParam = (ublTrMainSchematronType != null && !ublTrMainSchematronType.isBlank())
+                        ? ublTrMainSchematronType : "efatura";
+                transformer.setStylesheetParameters(Map.of(
+                        new QName("type"), new XdmAtomicValue(typeParam)
+                ));
+            }
+
+            // StreamSource oluştur
+            var streamSource = new StreamSource(new ByteArrayInputStream(source));
+
+            // Dosya adı varsa systemId olarak set et —
+            // e-Defter Schematron base-uri() ile dosya adını kontrol eder
+            // (örn: VKN/TCKN eşleştirmesi: contains($dosyaAdi, concat(xbrli:identifier,'-'))).
+            if (sourceFileName != null && !sourceFileName.isBlank()) {
+                streamSource.setSystemId(sourceFileName);
+            }
+
+            // Dönüşümü çalıştır
+            var resultWriter = new StringWriter();
+            var serializer = processor.newSerializer(resultWriter);
+            transformer.transform(streamSource, serializer);
+
+            // Sonucu parse et ve Error elementlerini çıkar
+            String result = resultWriter.toString();
+            if (result != null && !result.isBlank()) {
+                errors.addAll(extractSchematronErrors(result));
+            }
+
+            String validationResult = errors.isEmpty() ? "valid" : "invalid";
+            metrics.recordValidation("schematron", schematronType.name(), validationResult, System.currentTimeMillis() - startTime);
+
+        } catch (Exception e) {
+            errors.add(new SchematronError(null, null,
+                    "Schematron doğrulama hatası: " + e.getMessage()));
+            metrics.recordValidation("schematron", schematronType.name(), "error", System.currentTimeMillis() - startTime);
+            log.warn("Schematron doğrulama başarısız: {} - {}", schematronType, e.getMessage());
+        }
+
+        return errors;
+    }
+
+    /**
+     * Schematron XSLT çıktısından yapılandırılmış hata nesnelerini çıkarır.
+     * <p>
+     * Pipeline'a eklenen {@code ruleId} ve {@code test} attribute'larını parse eder.
+     * Bu attribute'lar runtime'da derlenen Schematron'larda mevcuttur;
+     * pre-compiled XSL'lerde bulunmayabilir (bu durumda {@code null} döner).
+     */
+    private List<SchematronError> extractSchematronErrors(String schematronOutput) {
+        List<SchematronError> errors = new ArrayList<>();
+        try {
+            var factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            // XXE koruma
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setExpandEntityReferences(false);
+            var builder = factory.newDocumentBuilder();
+            Document doc = builder.parse(new InputSource(new StringReader(schematronOutput)));
+
+            NodeList errorNodes = doc.getElementsByTagName("Error");
+            for (int i = 0; i < errorNodes.getLength(); i++) {
+                Element errorElement = (Element) errorNodes.item(i);
+                String errorText = errorElement.getTextContent();
+                if (errorText != null && !errorText.isBlank()) {
+                    String ruleId = getAttributeOrNull(errorElement, "ruleId");
+                    String test = getAttributeOrNull(errorElement, "test");
+                    errors.add(new SchematronError(ruleId, test, errorText.strip()));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Schematron çıktısı XML olarak parse edilemedi: {}", e.getMessage());
+            if (!schematronOutput.isBlank()) {
+                errors.add(new SchematronError(null, null, schematronOutput.strip()));
+            }
+        }
+        return errors;
+    }
+
+    /**
+     * Element'ten attribute değerini döndürür, yoksa veya boşsa {@code null}.
+     */
+    private static String getAttributeOrNull(Element element, String attributeName) {
+        String value = element.getAttribute(attributeName);
+        return (value != null && !value.isBlank()) ? value : null;
+    }
+}

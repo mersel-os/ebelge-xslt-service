@@ -1,0 +1,116 @@
+spring:
+  application:
+    name: mersel-xslt-service
+
+  servlet:
+    multipart:
+      max-file-size: 110MB
+      max-request-size: 130MB
+      file-size-threshold: 10MB
+
+# ── Actuator (Health + Prometheus) ─────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus, info
+  endpoint:
+    health:
+      show-details: when-authorized
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# ── Sunucu ─────────────────────────────────────────────────────────
+server:
+  port: 8080
+  tomcat:
+    max-swallow-size: 300MB
+    connection-timeout: 120s
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml
+    min-response-size: 1024
+
+# ── SpringDoc / Scalar ─────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: false
+  # Scalar UI'ı /scalar adresinden sunmak için aşağıdaki konfigürasyon
+  # Scalar CDN ile otomatik yüklenir
+
+# ── Asset Yönetimi ────────────────────────────────────────────────
+# Dışarıdan asset dosyası override'ı için external path.
+# Boş bırakılırsa sadece classpath:assets/ (bundled) kullanılır.
+# Docker'da volume mount ile: /opt/xslt-assets
+# Env variable: XSLT_ASSETS_EXTERNAL_PATH
+#
+# watch-enabled: External dizindeki dosya değişikliklerini otomatik algıla
+# watch-debounce-ms: Toplu değişikliklerde tek reload için bekleme süresi
+xslt:
+  assets:
+    external-path: ${XSLT_ASSETS_EXTERNAL_PATH:}
+    watch-enabled: ${XSLT_ASSETS_WATCH_ENABLED:true}
+    watch-debounce-ms: ${XSLT_ASSETS_WATCH_DEBOUNCE_MS:500}
+  cache:
+    xsd-override-max-size: ${XSLT_CACHE_XSD_OVERRIDE_MAX_SIZE:50}
+    xsd-override-ttl-hours: ${XSLT_CACHE_XSD_OVERRIDE_TTL_HOURS:1}
+  watcher:
+    debounce-ms: ${XSLT_WATCHER_DEBOUNCE_MS:500}
+  # ── Güvenlik Başlıkları ────────────────────────────────────────────
+  security:
+    csp: ${XSLT_SECURITY_CSP:default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'}
+  # ── Filigran (Watermark) ─────────────────────────────────────────
+  watermark:
+    count: ${XSLT_WATERMARK_COUNT:3}
+  # ── Boyut Limitleri ──────────────────────────────────────────────
+  limits:
+    max-document-size-mb: ${XSLT_MAX_DOCUMENT_SIZE_MB:100}
+    max-validation-size-mb: ${XSLT_MAX_VALIDATION_SIZE_MB:100}
+  # ── Rate Limiting ─────────────────────────────────────────────────
+  # IP bazlı istek sınırlama. Dakika başına maksimum istek sayısı.
+  # Env: XSLT_RATE_LIMIT_ENABLED, XSLT_RATE_LIMIT_VALIDATE, XSLT_RATE_LIMIT_TRANSFORM
+  rate-limit:
+    enabled: ${XSLT_RATE_LIMIT_ENABLED:true}
+    validate: ${XSLT_RATE_LIMIT_VALIDATE:30}
+    transform: ${XSLT_RATE_LIMIT_TRANSFORM:20}
+    # Reverse proxy (nginx, Traefik, ALB) arkasındaysa true yapın.
+    # false (varsayılan): X-Forwarded-For/X-Real-IP header'ları yok sayılır,
+    # sadece TCP remoteAddr kullanılır — header spoofing koruması.
+    behind-proxy: ${XSLT_RATE_LIMIT_BEHIND_PROXY:false}
+  # ── Admin Güvenlik ──────────────────────────────────────────────
+  # /v1/admin/** ve /v1/auth/** endpoint'leri HTTP Basic Auth ile korunur.
+  # Diğer tüm endpoint'ler (validate, transform) herkese açıktır.
+  # Env: XSLT_ADMIN_USERNAME, XSLT_ADMIN_PASSWORD
+  admin:
+    username: ${XSLT_ADMIN_USERNAME:admin}
+    password: ${XSLT_ADMIN_PASSWORD:changeme}
+    token-cache-max-size: ${XSLT_ADMIN_TOKEN_CACHE_MAX_SIZE:10000}
+
+# ── GİB Paket Otomatik Sync ──────────────────────────────────────
+# GİB resmi web sitesinden e-Fatura, UBL-TR XSD, e-Arşiv ve e-Defter
+# paketlerini indirip asset dizinine yerleştirme.
+# POST /v1/admin/packages/sync ile tetiklenir.
+#
+# enabled: Sync özelliğini aç/kapa
+# target-path: İndirilen dosyaların yazılacağı dizin
+#   - Boş bırakılırsa xslt.assets.external-path kullanılır
+# connect-timeout-ms: HTTP bağlantı zaman aşımı (ms)
+# read-timeout-ms: HTTP okuma zaman aşımı (ms)
+validation-assets:
+  gib:
+    sync:
+      enabled: ${VALIDATION_ASSETS_GIB_SYNC_ENABLED:true}
+      target-path: ${VALIDATION_ASSETS_GIB_SYNC_PATH:}
+      connect-timeout-ms: 10000
+      read-timeout-ms: 60000
+
+# ── Loglama ────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    io.mersel.services.xslt: ${XSLT_LOG_LEVEL:INFO}
+    net.sf.saxon: WARN

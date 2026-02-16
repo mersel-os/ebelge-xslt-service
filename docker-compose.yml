@@ -1,0 +1,36 @@
+# ══════════════════════════════════════════════════════════════════════
+# MERSEL XSLT Service - Docker Compose
+# ══════════════════════════════════════════════════════════════════════
+#
+# Kullanım:
+#   docker compose up --build
+#
+# Servis Adresleri:
+#   - API:     http://localhost:8080
+#   - Scalar:  http://localhost:8080/scalar.html
+#   - Health:  http://localhost:8080/actuator/health
+#   - Metrics: http://localhost:8080/actuator/prometheus
+# ══════════════════════════════════════════════════════════════════════
+
+services:
+  xslt-service:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./custom-assets:/opt/xslt-assets:ro
+    environment:
+      - JAVA_OPTS=-Xms512m -Xmx2g -XX:+UseZGC -XX:+ZGenerational -XX:MaxDirectMemorySize=512m -XX:+ExitOnOutOfMemoryError
+      - SPRING_PROFILES_ACTIVE=prod
+      - XSLT_ADMIN_PASSWORD=${XSLT_ADMIN_PASSWORD:-admin}
+      - XSLT_ASSETS_EXTERNAL_PATH=/opt/xslt-assets
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3

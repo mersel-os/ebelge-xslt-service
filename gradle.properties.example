@@ -1,0 +1,24 @@
+# ══════════════════════════════════════════════════════════════
+# MERSEL XSLT Service — Gradle Properties
+# ══════════════════════════════════════════════════════════════
+#
+# Bu dosyayı gradle.properties olarak kopyalayın:
+#   cp gradle.properties.example gradle.properties
+#
+# Kendi JDK 21 yolunuzu yazın. Örnekler:
+#   macOS (Homebrew):  /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+#   macOS (SDKMAN):    /Users/<user>/.sdkman/candidates/java/21-tem
+#   Linux:             /usr/lib/jvm/java-21-openjdk-amd64
+#   Windows:           C:/Program Files/Eclipse Adoptium/jdk-21
+#
+# Not: Java Toolchain yapılandırması sayesinde Gradle doğru JDK'yı
+# otomatik indirebilir. Bu dosya opsiyoneldir.
+# ══════════════════════════════════════════════════════════════
+
+# org.gradle.java.home=/path/to/your/jdk-21
+
+# Gradle daemon performansı
+org.gradle.daemon=true
+org.gradle.parallel=true
+org.gradle.caching=true
+org.gradle.jvmargs=-Xmx1g -XX:+UseZGC -Dfile.encoding=UTF-8

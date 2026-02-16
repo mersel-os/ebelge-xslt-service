@@ -1,0 +1,497 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Genel Bakış",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "mappings": [
+            { "options": { "0": { "text": "KAPALI", "color": "red" }, "1": { "text": "AÇIK", "color": "green" } }, "type": "value" }
+          ]
+        }
+      },
+      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value" },
+      "title": "Servis Durumu",
+      "type": "stat",
+      "targets": [
+        { "expr": "up{application=\"mersel-xslt-service\"}", "legendFormat": "Status" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "blue" } } },
+      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "textMode": "auto" },
+      "title": "Toplam Doğrulama",
+      "type": "stat",
+      "targets": [
+        { "expr": "sum(xslt_document_type_validations_total{application=\"mersel-xslt-service\"}) or vector(0)", "legendFormat": "Validations" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "purple" } } },
+      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 1 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "textMode": "auto" },
+      "title": "Toplam Dönüşüm",
+      "type": "stat",
+      "targets": [
+        { "expr": "sum(xslt_transforms_total{application=\"mersel-xslt-service\"}) or vector(0)", "legendFormat": "Transforms" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "red" } } },
+      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 1 },
+      "id": 5,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "textMode": "auto" },
+      "title": "Toplam Hata",
+      "type": "stat",
+      "targets": [
+        { "expr": "sum(xslt_errors_total{application=\"mersel-xslt-service\"}) or vector(0)", "legendFormat": "Errors" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "orange" } } },
+      "gridPos": { "h": 4, "w": 3, "x": 12, "y": 1 },
+      "id": 6,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "textMode": "auto" },
+      "title": "Rate Limit Aşımı",
+      "type": "stat",
+      "targets": [
+        { "expr": "sum(xslt_rate_limit_exceeded_total{application=\"mersel-xslt-service\"}) or vector(0)", "legendFormat": "Exceeded" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "semi-dark-green" } } },
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 1 },
+      "id": 7,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto" },
+      "title": "Profil Kullanımı",
+      "type": "stat",
+      "targets": [
+        { "expr": "sum(xslt_profile_usage_total{application=\"mersel-xslt-service\"}) or vector(0)", "legendFormat": "Profiles" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 1 },
+      "id": 8,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "textMode": "auto" },
+      "title": "JVM Heap Kullanımı",
+      "type": "stat",
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{application=\"mersel-xslt-service\", area=\"heap\"}", "legendFormat": "Heap" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 1 },
+      "id": 9,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "textMode": "auto" },
+      "title": "XSD Cache Boyutu",
+      "type": "stat",
+      "targets": [
+        { "expr": "xslt_xsd_override_cache_size{application=\"mersel-xslt-service\"} or vector(0)", "legendFormat": "Cache" }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 10,
+      "title": "Doğrulama Metrikleri",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "pointSize": 5, "showPoints": "auto" } } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 6 },
+      "id": 11,
+      "title": "Doğrulama İstekleri / dk",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_validations_total{application=\"mersel-xslt-service\"}[5m])) by (type, result)", "legendFormat": "{{type}} — {{result}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 6 },
+      "id": 12,
+      "title": "Doğrulama Süresi (p95)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(xslt_validation_duration_seconds_bucket{application=\"mersel-xslt-service\"}[5m])) by (le, type)) * 1000", "legendFormat": "p95 {{type}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": { "mode": "normal", "group": "A" } } } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
+      "id": 13,
+      "title": "Belge Tipine Göre Doğrulama",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_document_type_validations_total{application=\"mersel-xslt-service\"}[5m])) by (document_type)", "legendFormat": "{{document_type}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
+      "id": 14,
+      "title": "Doğrulama Hataları / dk",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_validation_errors_total{application=\"mersel-xslt-service\"}[5m])) by (type)", "legendFormat": "{{type}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": { "mode": "normal", "group": "A" } } }
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
+      "id": 15,
+      "title": "Profil Kullanım Dağılımı",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_profile_usage_total{application=\"mersel-xslt-service\"}[5m])) by (profile)", "legendFormat": "{{profile}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1, "stacking": { "mode": "normal", "group": "A" } } } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
+      "id": 16,
+      "title": "Bastırılan Hatalar (Profil Bazlı)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_suppressed_errors_total{application=\"mersel-xslt-service\"}[5m])) by (profile)", "legendFormat": "{{profile}}" }
+      ]
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "id": 17,
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "pieType": "donut",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }
+      },
+      "title": "XSD Şema Tipi Dağılımı",
+      "description": "Hangi XSD şemaları ile doğrulama yapılıyor (INVOICE, DESPATCH_ADVICE, CREDIT_NOTE, EARCHIVE, EDEFTER, EENVANTER)",
+      "type": "piechart",
+      "targets": [
+        { "expr": "sum(xslt_validation_total{application=\"mersel-xslt-service\"}) by (schema_type)", "legendFormat": "{{schema_type}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "id": 18,
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "pieType": "donut",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }
+      },
+      "title": "Schematron Tipi Dağılımı",
+      "description": "Hangi Schematron kuralları ile doğrulama yapılıyor (UBLTR_MAIN, EARCHIVE, EDEFTER_YEVMIYE, EDEFTER_KEBIR, EDEFTER_BERAT vb.)",
+      "type": "piechart",
+      "targets": [
+        { "expr": "sum(xslt_validation_total{application=\"mersel-xslt-service\"}) by (schematron_type)", "legendFormat": "{{schematron_type}}" }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+      "id": 20,
+      "title": "Dönüşüm Metrikleri",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 31 },
+      "id": 21,
+      "title": "Dönüşüm İstekleri / dk (Tip Bazlı)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_transforms_total{application=\"mersel-xslt-service\"}[5m])) by (transform_type)", "legendFormat": "{{transform_type}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 31 },
+      "id": 22,
+      "title": "Dönüşüm Süresi (p95, Tip Bazlı)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(xslt_transform_duration_seconds_bucket{application=\"mersel-xslt-service\"}[5m])) by (le, transform_type)) * 1000", "legendFormat": "p95 {{transform_type}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "decbytes", "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 31 },
+      "id": 23,
+      "title": "Dönüşüm Çıktı Boyutu (Tip Bazlı)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_transform_output_bytes_sum{application=\"mersel-xslt-service\"}[5m])) by (transform_type)", "legendFormat": "{{transform_type}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": { "mode": "normal", "group": "A" } } }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
+      "id": 24,
+      "title": "XSLT Kaynağı Dağılımı (Özel / Varsayılan / Gömülü)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_transforms_total{application=\"mersel-xslt-service\", custom_xslt=\"true\"}[5m]))", "legendFormat": "Özel XSLT" },
+        { "expr": "sum(rate(xslt_transforms_total{application=\"mersel-xslt-service\", default_used=\"true\"}[5m]))", "legendFormat": "Varsayılan" },
+        { "expr": "sum(rate(xslt_embedded_xslt_total{application=\"mersel-xslt-service\", result=\"success\"}[5m]))", "legendFormat": "Gömülü XSLT" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 39 },
+      "id": 25,
+      "title": "Gömülü XSLT Sonuçları",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_embedded_xslt_total{application=\"mersel-xslt-service\"}[5m])) by (result)", "legendFormat": "{{result}}" }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "id": 30,
+      "title": "Güvenlik ve Rate Limiting",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": { "mode": "normal", "group": "A" } } } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 48 },
+      "id": 31,
+      "title": "Rate Limit Aşımları / dk",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_rate_limit_exceeded_total{application=\"mersel-xslt-service\"}[5m])) by (endpoint)", "legendFormat": "{{endpoint}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "stacking": { "mode": "normal", "group": "A" } } } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 48 },
+      "id": 32,
+      "title": "Giriş Denemeleri",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_auth_login_total{application=\"mersel-xslt-service\"}[5m])) by (result)", "legendFormat": "{{result}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2, "stacking": { "mode": "normal", "group": "A" } } } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 48 },
+      "id": 33,
+      "title": "Hatalar (İşlem Bazlı)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_errors_total{application=\"mersel-xslt-service\"}[5m])) by (operation)", "legendFormat": "{{operation}}" }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 56 },
+      "id": 40,
+      "title": "Operasyon (Asset Reload / GİB Sync / Schematron Derleme)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 57 },
+      "id": 41,
+      "title": "Asset Reload Sayısı",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_asset_reload_total{application=\"mersel-xslt-service\"}[5m])) by (status)", "legendFormat": "{{status}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 57 },
+      "id": 42,
+      "title": "Asset Reload Süresi",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "rate(xslt_asset_reload_duration_seconds_sum{application=\"mersel-xslt-service\"}[5m]) / rate(xslt_asset_reload_duration_seconds_count{application=\"mersel-xslt-service\"}[5m]) * 1000", "legendFormat": "ortalama ms" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 57 },
+      "id": 43,
+      "title": "GİB Paket Sync",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(xslt_gib_sync_total{application=\"mersel-xslt-service\"}[5m])) by (status)", "legendFormat": "{{status}}" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 65 },
+      "id": 44,
+      "title": "GİB Sync Süresi",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "rate(xslt_gib_sync_duration_seconds_sum{application=\"mersel-xslt-service\"}[5m]) / rate(xslt_gib_sync_duration_seconds_count{application=\"mersel-xslt-service\"}[5m]) * 1000", "legendFormat": "ortalama ms" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 65 },
+      "id": 45,
+      "title": "Schematron Derleme (Sayı ve Süre)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "rate(xslt_schematron_compilation_duration_seconds_sum{application=\"mersel-xslt-service\"}[5m]) / rate(xslt_schematron_compilation_duration_seconds_count{application=\"mersel-xslt-service\"}[5m]) * 1000", "legendFormat": "ortalama ms" },
+        { "expr": "sum(rate(xslt_schematron_compilations_total{application=\"mersel-xslt-service\"}[5m]))", "legendFormat": "derleme/dk" }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 73 },
+      "id": 50,
+      "title": "JVM ve Sistem",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 74 },
+      "id": 51,
+      "title": "JVM Bellek (Heap / Non-Heap)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{application=\"mersel-xslt-service\", area=\"heap\"}", "legendFormat": "Heap Kullanılan" },
+        { "expr": "jvm_memory_committed_bytes{application=\"mersel-xslt-service\", area=\"heap\"}", "legendFormat": "Heap Ayrılmış" },
+        { "expr": "jvm_memory_used_bytes{application=\"mersel-xslt-service\", area=\"nonheap\"}", "legendFormat": "Non-Heap" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 74 },
+      "id": 52,
+      "title": "JVM Thread Sayısı",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "jvm_threads_live_threads{application=\"mersel-xslt-service\"}", "legendFormat": "Aktif" },
+        { "expr": "jvm_threads_daemon_threads{application=\"mersel-xslt-service\"}", "legendFormat": "Daemon" },
+        { "expr": "jvm_threads_peak_threads{application=\"mersel-xslt-service\"}", "legendFormat": "Tepe" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 74 },
+      "id": 53,
+      "title": "GC Duraklamaları",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "rate(jvm_gc_pause_seconds_sum{application=\"mersel-xslt-service\"}[5m])", "legendFormat": "{{action}} — {{cause}}" }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "text": "Prometheus", "value": "prometheus" },
+        "hide": 0,
+        "includeAll": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "MERSEL XSLT Service",
+  "uid": "mersel-xslt-service",
+  "version": 2
+}

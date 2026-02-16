@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Design Tokens ─────────────────────────────────────────────── */
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --animate-fade-in: fade-in 0.5s ease-out both;
+  --animate-slide-up: slide-up 0.5s ease-out both;
+  --animate-scale-in: scale-in 0.3s ease-out both;
+}
+
+/* ── Light Theme ───────────────────────────────────────────────── */
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.98 0.003 270);
+  --foreground: oklch(0.15 0.02 270);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.02 270);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.02 270);
+  --primary: oklch(0.50 0.20 275);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.96 0.015 275);
+  --secondary-foreground: oklch(0.35 0.12 275);
+  --muted: oklch(0.965 0.005 270);
+  --muted-foreground: oklch(0.46 0.02 270);
+  --accent: oklch(0.95 0.025 275);
+  --accent-foreground: oklch(0.30 0.12 275);
+  --destructive: oklch(0.55 0.24 27);
+  --destructive-foreground: oklch(0.98 0 0);
+  --success: oklch(0.55 0.19 155);
+  --success-foreground: oklch(0.98 0 0);
+  --warning: oklch(0.80 0.15 75);
+  --warning-foreground: oklch(0.30 0.08 60);
+  --border: oklch(0.92 0.005 270);
+  --input: oklch(0.92 0.005 270);
+  --ring: oklch(0.50 0.20 275);
+}
+
+/* ── Dark Theme ────────────────────────────────────────────────── */
+
+.dark {
+  --background: oklch(0.14 0.005 285);
+  --foreground: oklch(0.985 0.002 0);
+  --card: oklch(0.205 0.008 285);
+  --card-foreground: oklch(0.985 0.002 0);
+  --popover: oklch(0.22 0.008 285);
+  --popover-foreground: oklch(0.985 0.002 0);
+  --primary: oklch(0.70 0.18 275);
+  --primary-foreground: oklch(0.14 0.005 285);
+  --secondary: oklch(0.27 0.01 285);
+  --secondary-foreground: oklch(0.92 0.002 0);
+  --muted: oklch(0.27 0.008 285);
+  --muted-foreground: oklch(0.68 0.008 285);
+  --accent: oklch(0.30 0.025 275);
+  --accent-foreground: oklch(0.92 0.01 275);
+  --destructive: oklch(0.65 0.22 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --success: oklch(0.68 0.18 155);
+  --success-foreground: oklch(0.14 0 0);
+  --warning: oklch(0.82 0.13 75);
+  --warning-foreground: oklch(0.14 0 0);
+  --border: oklch(0.32 0.008 285);
+  --input: oklch(0.32 0.008 285);
+  --ring: oklch(0.70 0.18 275);
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────── */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ── Base ──────────────────────────────────────────────────────── */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}

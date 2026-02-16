@@ -1,0 +1,16 @@
+# ══════════════════════════════════════════════════════════════════════
+# Production Profile — SPRING_PROFILES_ACTIVE=prod
+# ══════════════════════════════════════════════════════════════════════
+# Bu profil aktifken varsayılan admin şifresi kabul edilmez.
+# XSLT_ADMIN_PASSWORD environment variable'ı zorunludur.
+
+logging:
+  level:
+    root: WARN
+    io.mersel.services.xslt: ${XSLT_LOG_LEVEL:INFO}
+    net.sf.saxon: WARN
+
+# Springdoc production'da kapalı
+springdoc:
+  api-docs:
+    enabled: false

@@ -1,0 +1,39 @@
+[versions]
+java = "21"
+spring-boot = "3.4.1"
+spring-dependency-management = "1.1.7"
+saxon-he = "12.5"
+caffeine = "3.1.8"
+springdoc = "2.7.0"
+micrometer-prometheus = "1.14.2"
+logback = "1.5.12"
+
+# Test
+junit = "5.11.4"
+assertj = "3.27.2"
+mockito = "5.14.2"
+wiremock = "3.9.2"
+awaitility = "4.2.2"
+
+[libraries]
+# Saxon HE
+saxon-he = { module = "net.sf.saxon:Saxon-HE", version.ref = "saxon-he" }
+
+# Caffeine cache
+caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
+
+# SpringDoc OpenAPI
+springdoc-openapi-starter = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
+
+# Test
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+mockito-junit = { module = "org.mockito:mockito-junit-jupiter", version.ref = "mockito" }
+wiremock-jre8 = { module = "org.wiremock:wiremock-standalone", version.ref = "wiremock" }
+awaitility = { module = "org.awaitility:awaitility", version.ref = "awaitility" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }
