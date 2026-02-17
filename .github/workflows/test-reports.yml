@@ -1,0 +1,256 @@
+name: Test Reports → GitHub Pages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  test-and-publish:
+    name: Run Tests & Publish Reports
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant Gradle Wrapper Permissions
+        run: chmod +x gradlew
+
+      - name: Run Tests
+        run: ./gradlew test --no-daemon
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=dev" >> $GITHUB_OUTPUT
+            echo "TAG=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Collect Test Results
+        id: results
+        run: |
+          INFRA_TESTS=$(grep -h 'testsuite ' xslt-infrastructure/build/test-results/test/*.xml 2>/dev/null | sed 's/.*tests="\([0-9]*\)".*/\1/' | awk '{s+=$1} END {print s+0}')
+          INFRA_FAILURES=$(grep -h 'testsuite ' xslt-infrastructure/build/test-results/test/*.xml 2>/dev/null | sed 's/.*failures="\([0-9]*\)".*/\1/' | awk '{s+=$1} END {print s+0}')
+          WEB_TESTS=$(grep -h 'testsuite ' xslt-web-api/build/test-results/test/*.xml 2>/dev/null | sed 's/.*tests="\([0-9]*\)".*/\1/' | awk '{s+=$1} END {print s+0}')
+          WEB_FAILURES=$(grep -h 'testsuite ' xslt-web-api/build/test-results/test/*.xml 2>/dev/null | sed 's/.*failures="\([0-9]*\)".*/\1/' | awk '{s+=$1} END {print s+0}')
+          TOTAL=$((INFRA_TESTS + WEB_TESTS))
+          TOTAL_FAILURES=$((INFRA_FAILURES + WEB_FAILURES))
+          echo "INFRA_TESTS=$INFRA_TESTS" >> $GITHUB_OUTPUT
+          echo "WEB_TESTS=$WEB_TESTS" >> $GITHUB_OUTPUT
+          echo "TOTAL=$TOTAL" >> $GITHUB_OUTPUT
+          echo "TOTAL_FAILURES=$TOTAL_FAILURES" >> $GITHUB_OUTPUT
+
+      - name: Build GitHub Pages Site
+        run: |
+          mkdir -p _site/infrastructure
+          mkdir -p _site/web-api
+
+          # Copy test reports
+          cp -r xslt-infrastructure/build/reports/tests/test/. _site/infrastructure/ 2>/dev/null || true
+          cp -r xslt-web-api/build/reports/tests/test/. _site/web-api/ 2>/dev/null || true
+
+          # Copy screenshots if available
+          if [ -d "docs/screenshots" ]; then
+            cp -r docs/screenshots _site/screenshots
+          fi
+
+          # Generate index page
+          cat > _site/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html lang="tr">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>MERSEL XSLT Service — Test Reports</title>
+            <style>
+              :root {
+                --bg: #0d1117;
+                --card: #161b22;
+                --border: #30363d;
+                --text: #e6edf3;
+                --text-muted: #8b949e;
+                --accent: #58a6ff;
+                --green: #3fb950;
+                --red: #f85149;
+                --yellow: #d29922;
+              }
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Noto Sans, Helvetica, Arial, sans-serif;
+                background: var(--bg);
+                color: var(--text);
+                line-height: 1.6;
+                min-height: 100vh;
+              }
+              .container { max-width: 900px; margin: 0 auto; padding: 48px 24px; }
+              .header { text-align: center; margin-bottom: 48px; }
+              .header h1 { font-size: 28px; font-weight: 600; margin-bottom: 8px; }
+              .header p { color: var(--text-muted); font-size: 15px; }
+              .badge {
+                display: inline-flex; align-items: center; gap: 6px;
+                padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 500;
+                margin-top: 12px;
+              }
+              .badge-green { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
+              .badge-red { background: rgba(248, 81, 73, 0.15); color: var(--red); border: 1px solid rgba(248, 81, 73, 0.3); }
+              .badge-blue { background: rgba(88, 166, 255, 0.15); color: var(--accent); border: 1px solid rgba(88, 166, 255, 0.3); }
+              .stats {
+                display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+                margin-bottom: 32px;
+              }
+              .stat {
+                background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+                padding: 20px; text-align: center;
+              }
+              .stat-value { font-size: 32px; font-weight: 700; }
+              .stat-label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+              .cards { display: grid; gap: 16px; margin-bottom: 32px; }
+              .card {
+                background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+                padding: 24px; display: flex; align-items: center; gap: 20px;
+                text-decoration: none; color: inherit; transition: border-color 0.2s, transform 0.2s;
+              }
+              .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+              .card-icon {
+                width: 48px; height: 48px; border-radius: 10px;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 22px; flex-shrink: 0;
+              }
+              .card-icon.infra { background: rgba(88, 166, 255, 0.15); }
+              .card-icon.web { background: rgba(163, 113, 247, 0.15); }
+              .card-info h3 { font-size: 16px; font-weight: 600; }
+              .card-info p { font-size: 13px; color: var(--text-muted); }
+              .card-meta {
+                margin-left: auto; text-align: right; flex-shrink: 0;
+              }
+              .card-meta .count { font-size: 24px; font-weight: 600; color: var(--green); }
+              .card-meta .label { font-size: 12px; color: var(--text-muted); }
+              .footer {
+                text-align: center; padding-top: 32px; border-top: 1px solid var(--border);
+                color: var(--text-muted); font-size: 13px;
+              }
+              .footer a { color: var(--accent); text-decoration: none; }
+              .footer a:hover { text-decoration: underline; }
+              .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+              .dot-green { background: var(--green); }
+              .dot-red { background: var(--red); }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>MERSEL XSLT Service</h1>
+                <p>Test Reports</p>
+                <div style="display: flex; gap: 8px; justify-content: center; margin-top: 12px;">
+          HTMLEOF
+
+          VERSION="${{ steps.version.outputs.TAG }}"
+          TOTAL="${{ steps.results.outputs.TOTAL }}"
+          FAILURES="${{ steps.results.outputs.TOTAL_FAILURES }}"
+          INFRA="${{ steps.results.outputs.INFRA_TESTS }}"
+          WEB="${{ steps.results.outputs.WEB_TESTS }}"
+          PASSED=$((TOTAL - FAILURES))
+          DATE=$(date -u +"%d.%m.%Y %H:%M UTC")
+
+          if [ "$FAILURES" = "0" ]; then
+            STATUS_CLASS="badge-green"
+            STATUS_DOT="dot-green"
+            STATUS_TEXT="Tum testler gecti"
+          else
+            STATUS_CLASS="badge-red"
+            STATUS_DOT="dot-red"
+            STATUS_TEXT="$FAILURES test basarisiz"
+          fi
+
+          cat >> _site/index.html << DYNEOF
+                  <span class="badge badge-blue">${VERSION}</span>
+                  <span class="badge ${STATUS_CLASS}"><span class="dot ${STATUS_DOT}"></span> ${STATUS_TEXT}</span>
+                </div>
+              </div>
+
+              <div class="stats">
+                <div class="stat">
+                  <div class="stat-value" style="color: var(--green);">${TOTAL}</div>
+                  <div class="stat-label">Toplam Test</div>
+                </div>
+                <div class="stat">
+                  <div class="stat-value" style="color: var(--green);">${PASSED}</div>
+                  <div class="stat-label">Basarili</div>
+                </div>
+                <div class="stat">
+                  <div class="stat-value" style="color: ${FAILURES:+var(--red)}${FAILURES:-var(--green)};">${FAILURES}</div>
+                  <div class="stat-label">Basarisiz</div>
+                </div>
+              </div>
+
+              <div class="cards">
+                <a href="infrastructure/" class="card">
+                  <div class="card-icon infra">🔧</div>
+                  <div class="card-info">
+                    <h3>Infrastructure Tests</h3>
+                    <p>SchematronValidator, SchemaValidator, ProfileRegistry, AssetDiffService, AssetManager</p>
+                  </div>
+                  <div class="card-meta">
+                    <div class="count">${INFRA}</div>
+                    <div class="label">test</div>
+                  </div>
+                </a>
+
+                <a href="web-api/" class="card">
+                  <div class="card-icon web">🌐</div>
+                  <div class="card-info">
+                    <h3>Web API Tests</h3>
+                    <p>AdminController, ValidationController, AuthController, Integration Tests</p>
+                  </div>
+                  <div class="card-meta">
+                    <div class="count">${WEB}</div>
+                    <div class="label">test</div>
+                  </div>
+                </a>
+              </div>
+
+              <div class="footer">
+                <p>${DATE} &middot; <a href="https://github.com/mersel-os/MERSEL.Service.XsltService">GitHub</a></p>
+              </div>
+            </div>
+          </body>
+          </html>
+          DYNEOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
