@@ -14,7 +14,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -182,11 +184,16 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
 
     @Override
     public List<String> validate(byte[] source, SchemaValidationType schemaType) {
-        return validate(source, schemaType, List.of());
+        return validate(source, schemaType, List.of(), null);
     }
 
     @Override
     public List<String> validate(byte[] source, SchemaValidationType schemaType, List<XsdOverride> overrides) {
+        return validate(source, schemaType, overrides, null);
+    }
+
+    @Override
+    public List<String> validate(byte[] source, SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) {
         long startTime = System.currentTimeMillis();
         List<String> errors = new ArrayList<>();
 
@@ -198,7 +205,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
                 schema = compiledSchemas.get(schemaType);
             } else {
                 // Override var — cache'den al veya derle
-                schema = getOrCompileOverriddenSchema(schemaType, overrides);
+                schema = getOrCompileOverriddenSchema(schemaType, overrides, profileName);
             }
 
             if (schema == null) {
@@ -237,6 +244,11 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
             String result = errors.isEmpty() ? "valid" : "invalid";
             metrics.recordValidation("schema", schemaType.name(), result, System.currentTimeMillis() - startTime);
 
+        } catch (SchemaOverrideCompilationException e) {
+            errors.add("Override'lı XSD derleme hatası: " + e.getMessage());
+            metrics.recordValidation("schema", schemaType.name(), "error", System.currentTimeMillis() - startTime);
+            log.warn("Override XSD derleme başarısız: {} (profil: {}) — {}", schemaType,
+                    profileName != null ? profileName : "-", e.getMessage());
         } catch (SAXException | IOException e) {
             errors.add("Şema doğrulama hatası: " + e.getMessage());
             metrics.recordValidation("schema", schemaType.name(), "error", System.currentTimeMillis() - startTime);
@@ -246,6 +258,37 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         return errors;
     }
 
+    // ── Cache Invalidation ──────────────────────────────────────────
+
+    @Override
+    public void invalidateOverrideCache() {
+        if (overrideCache != null) {
+            long size = overrideCache.estimatedSize();
+            overrideCache.invalidateAll();
+            log.info("XSD override cache temizlendi ({} kayıt)", size);
+        }
+    }
+
+    // ── Override Pre-compilation ─────────────────────────────────────
+
+    @Override
+    public void precompileOverrides(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) {
+        if (overrides == null || overrides.isEmpty()) {
+            log.debug("Override yok, pre-derleme atlanıyor: {} (profil: {})", schemaType,
+                    profileName != null ? profileName : "-");
+            return;
+        }
+
+        try {
+            getOrCompileOverriddenSchema(schemaType, overrides, profileName);
+            log.info("Override pre-derleme tamamlandı: {} ({} override, profil: {})",
+                    schemaType, overrides.size(), profileName != null ? profileName : "-");
+        } catch (SchemaOverrideCompilationException e) {
+            log.error("Override pre-derleme başarısız: {} (profil: {}) — {}",
+                    schemaType, profileName != null ? profileName : "-", e.getMessage());
+        }
+    }
+
     // ── Override Schema Compilation ──────────────────────────────────
 
     /**
@@ -253,24 +296,37 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * <p>
      * Orijinal XSD dosyasını DOM olarak parse eder, override'ları uygular,
      * değiştirilmiş XSD'yi byte[] olarak serialize edip systemId ile derler.
+     * <p>
+     * Derleme hatası durumunda cache'e null yazılmaz, her istekte yeniden derleme denenir.
+     *
+     * @throws SchemaOverrideCompilationException derleme başarısız olursa
      */
-    private Schema getOrCompileOverriddenSchema(SchemaValidationType schemaType, List<XsdOverride> overrides) {
-        String cacheKey = buildOverrideCacheKey(schemaType, overrides);
-        return overrideCache.get(cacheKey, key -> {
-            try {
-                return compileOverriddenSchema(schemaType, overrides);
-            } catch (Exception e) {
-                log.error("Override'lı XSD derleme hatası: {} - {}", schemaType, e.getMessage());
-                return null;
-            }
-        });
+    private Schema getOrCompileOverriddenSchema(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) {
+        String cacheKey = buildOverrideCacheKey(schemaType, overrides, profileName);
+
+        Schema cached = overrideCache.getIfPresent(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
+        // Cache miss — derle ve cache'e yaz
+        try {
+            Schema schema = compileOverriddenSchema(schemaType, overrides, profileName);
+            overrideCache.put(cacheKey, schema);
+            return schema;
+        } catch (Exception e) {
+            log.error("Override'lı XSD derleme hatası: {} (profil: {}) — {}",
+                    schemaType, profileName != null ? profileName : "-", e.getMessage());
+            throw new SchemaOverrideCompilationException(
+                    "Override'lı XSD derlenemedi: " + schemaType + " — " + e.getMessage(), e);
+        }
     }
 
     /**
      * Override'ları uygulayarak şemayı derler.
      * Değiştirilmiş XSD'yi auto-generated dizinine de yazar.
      */
-    private Schema compileOverriddenSchema(SchemaValidationType schemaType, List<XsdOverride> overrides) throws Exception {
+    private Schema compileOverriddenSchema(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) throws Exception {
         String mainXsd = MAIN_XSD_MAP.get(schemaType);
         if (mainXsd == null) {
             throw new IllegalArgumentException("Desteklenmeyen şema tipi: " + schemaType);
@@ -298,13 +354,29 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         // Ana XSD'yi DOM olarak parse et ve override'ları uygula
         Path mainFile = assetManager.resolveAssetOnDisk(mainXsd);
         Document mainDoc = parseXsdDocument(mainFile);
-        applyOverrides(mainDoc, overrides);
+        OverrideApplyResult applyResult = applyOverrides(mainDoc, overrides);
+
+        // Eşleşmeyen override'lar varsa uyarı logla
+        if (!applyResult.unmatchedElements().isEmpty()) {
+            log.warn("XSD override eşleşmedi — {} element XSD'de bulunamadı: {} (profil: {}, tip: {}). " +
+                            "Element ref değerinin namespace prefix'i ile birlikte yazıldığından emin olun (örn: 'cac:Signature', 'cbc:UUID').",
+                    applyResult.unmatchedElements().size(),
+                    applyResult.unmatchedElements(),
+                    profileName != null ? profileName : "-",
+                    schemaType);
+        }
+
+        if (applyResult.matchedCount() > 0) {
+            log.info("XSD override uygulandı: {}/{} element eşleşti (profil: {}, tip: {})",
+                    applyResult.matchedCount(), overrides.size(),
+                    profileName != null ? profileName : "-", schemaType);
+        }
 
         // Değiştirilmiş XSD'yi byte[]'e serialize et
         byte[] modifiedXsd = serializeDocument(mainDoc);
 
-        // Override edilmiş XSD'yi auto-generated dizinine yaz
-        writeOverriddenXsd(schemaType, overrides, modifiedXsd);
+        // Override edilmiş XSD'yi auto-generated dizinine yaz (metadata ile)
+        writeOverriddenXsd(schemaType, overrides, modifiedXsd, profileName, applyResult);
 
         // systemId olarak orijinal dosya URI'sını kullan — import resolution için
         StreamSource mainSource = new StreamSource(
@@ -314,22 +386,77 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         sources.add(mainSource);
 
         Schema schema = factory.newSchema(sources.toArray(new StreamSource[0]));
-        log.info("Override'lı XSD derlendi: {} ({} override)", schemaType, overrides.size());
+        log.info("Override'lı XSD derlendi: {} ({} override, profil: {})",
+                schemaType, overrides.size(), profileName != null ? profileName : "-");
         return schema;
     }
 
     /**
      * Override edilmiş XSD'yi auto-generated dizinine yazar.
+     * <p>
+     * Dosya adı profil adını içerir ve XSD başına metadata yorumu eklenir.
      */
-    private void writeOverriddenXsd(SchemaValidationType schemaType, List<XsdOverride> overrides, byte[] xsdBytes) {
+    private void writeOverriddenXsd(SchemaValidationType schemaType, List<XsdOverride> overrides,
+                                     byte[] xsdBytes, String profileName, OverrideApplyResult applyResult) {
         try {
-            // Dosya adı: INVOICE_override_2.xsd (override sayısı ile)
-            String fileName = schemaType.name() + "_override_" + overrides.size() + ".xsd";
-            assetManager.writeAutoGenerated("schema-overrides", fileName, xsdBytes);
+            String safeName = profileName != null && !profileName.isBlank() ? profileName : "adhoc";
+            String fileName = schemaType.name() + "_" + safeName + "_override.xsd";
+
+            byte[] withMetadata = prependXsdMetadataComment(xsdBytes, schemaType, profileName, overrides, applyResult);
+            assetManager.writeAutoGenerated("schema-overrides", fileName, withMetadata);
             log.info("  Override edilmiş XSD yazıldı: auto-generated/schema-overrides/{}", fileName);
         } catch (Exception e) {
             log.warn("  Override edilmiş XSD diske yazılamadı: {} — {}", schemaType, e.getMessage());
         }
+    }
+
+    /**
+     * XSD byte dizisinin başına profil ve override bilgisi içeren XML yorumu ekler.
+     */
+    private byte[] prependXsdMetadataComment(byte[] xsdBytes, SchemaValidationType schemaType,
+                                              String profileName, List<XsdOverride> overrides,
+                                              OverrideApplyResult applyResult) {
+        var comment = new StringBuilder();
+        comment.append("<!-- ══════════════════════════════════════════════════════\n");
+        comment.append("     XSD Override Metadata\n");
+        comment.append("     ══════════════════════════════════════════════════════\n");
+        comment.append("     Profile    : ").append(profileName != null ? profileName : "(ad-hoc)").append("\n");
+        comment.append("     SchemaType : ").append(schemaType.name()).append("\n");
+        comment.append("     GeneratedAt: ").append(Instant.now()).append("\n");
+        comment.append("     Matched    : ").append(applyResult.matchedCount()).append("/").append(overrides.size()).append("\n");
+
+        if (!applyResult.unmatchedElements().isEmpty()) {
+            comment.append("     UNMATCHED  : ").append(applyResult.unmatchedElements()).append("\n");
+        }
+
+        comment.append("     ──────────────────────────────────────────────────────\n");
+        comment.append("     Overrides:\n");
+        for (XsdOverride ovr : overrides) {
+            comment.append("       - element: ").append(ovr.element());
+            if (ovr.minOccurs() != null) comment.append(", minOccurs=").append(ovr.minOccurs());
+            if (ovr.maxOccurs() != null) comment.append(", maxOccurs=").append(ovr.maxOccurs());
+            boolean matched = !applyResult.unmatchedElements().contains(ovr.element());
+            comment.append(matched ? " [OK]" : " [NOT FOUND]");
+            comment.append("\n");
+        }
+        comment.append("     ══════════════════════════════════════════════════════ -->\n");
+
+        String xsdStr = new String(xsdBytes, StandardCharsets.UTF_8);
+
+        // XML declaration'dan sonra ekle (varsa)
+        int insertPos = 0;
+        if (xsdStr.startsWith("<?xml")) {
+            int end = xsdStr.indexOf("?>");
+            if (end > 0) {
+                insertPos = end + 2;
+                if (insertPos < xsdStr.length() && xsdStr.charAt(insertPos) == '\n') {
+                    insertPos++;
+                }
+            }
+        }
+
+        String result = xsdStr.substring(0, insertPos) + comment + xsdStr.substring(insertPos);
+        return result.getBytes(StandardCharsets.UTF_8);
     }
 
     /**
@@ -353,15 +480,25 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * <p>
      * {@code <xsd:element ref="...">} node'larını bulur ve eşleşen
      * override'ların {@code minOccurs}/{@code maxOccurs} değerlerini set eder.
+     * <p>
+     * Eşleşmeyen override'lar raporlanır — element ref değerinin doğru
+     * QName formatında olduğundan emin olunmalıdır (örn: "cac:Signature").
+     *
+     * @return Uygulama sonucu — kaç override eşleşti, hangilerinin eşleşmedi
      */
-    private void applyOverrides(Document doc, List<XsdOverride> overrides) {
-        if (overrides == null || overrides.isEmpty()) return;
+    private OverrideApplyResult applyOverrides(Document doc, List<XsdOverride> overrides) {
+        if (overrides == null || overrides.isEmpty()) {
+            return new OverrideApplyResult(0, List.of());
+        }
 
         // Element ref → override map oluştur
         Map<String, XsdOverride> overrideMap = new LinkedHashMap<>();
         for (XsdOverride ovr : overrides) {
             overrideMap.put(ovr.element(), ovr);
         }
+
+        // Eşleşen element'leri takip et
+        Set<String> matchedElements = new LinkedHashSet<>();
 
         // Tüm xsd:element node'larını bul
         NodeList elements = doc.getElementsByTagNameNS(XMLConstants.W3C_XML_SCHEMA_NS_URI, "element");
@@ -373,18 +510,32 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
             XsdOverride override = overrideMap.get(ref);
             if (override == null) continue;
 
+            matchedElements.add(ref);
+
             // minOccurs override
             if (override.minOccurs() != null) {
+                String oldVal = elem.getAttribute("minOccurs");
                 elem.setAttribute("minOccurs", override.minOccurs());
-                log.trace("XSD override uygulandı: {} minOccurs={}", ref, override.minOccurs());
+                log.debug("XSD override uygulandı: {} minOccurs={} (eski: {})", ref, override.minOccurs(),
+                        oldVal.isEmpty() ? "default" : oldVal);
             }
 
             // maxOccurs override
             if (override.maxOccurs() != null) {
+                String oldVal = elem.getAttribute("maxOccurs");
                 elem.setAttribute("maxOccurs", override.maxOccurs());
-                log.trace("XSD override uygulandı: {} maxOccurs={}", ref, override.maxOccurs());
+                log.debug("XSD override uygulandı: {} maxOccurs={} (eski: {})", ref, override.maxOccurs(),
+                        oldVal.isEmpty() ? "default" : oldVal);
             }
         }
+
+        // Eşleşmeyen override'ları hesapla
+        List<String> unmatchedElements = overrides.stream()
+                .map(XsdOverride::element)
+                .filter(el -> !matchedElements.contains(el))
+                .toList();
+
+        return new OverrideApplyResult(matchedElements.size(), unmatchedElements);
     }
 
     /**
@@ -406,9 +557,17 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
 
     /**
      * Override listesi için deterministic cache key üretir.
+     * <p>
+     * Profil adı cache key'e dahil edilir — her profil bağımsız olarak derlenir ve cache'lenir.
      */
-    private String buildOverrideCacheKey(SchemaValidationType schemaType, List<XsdOverride> overrides) {
+    private String buildOverrideCacheKey(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) {
         var sb = new StringBuilder(schemaType.name());
+
+        // Profil adını key'e dahil et
+        if (profileName != null && !profileName.isBlank()) {
+            sb.append("@").append(profileName);
+        }
+
         // Override'ları sıralı hash
         overrides.stream()
                 .sorted(Comparator.comparing(XsdOverride::element))
@@ -418,6 +577,28 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
                     if (ovr.maxOccurs() != null) sb.append(":max=").append(ovr.maxOccurs());
                 });
         return sb.toString();
+    }
+
+    // ── Internal Records & Exceptions ────────────────────────────────
+
+    /**
+     * Override uygulama sonucu.
+     *
+     * @param matchedCount      Eşleşen override sayısı
+     * @param unmatchedElements Eşleşmeyen element ref listesi
+     */
+    private record OverrideApplyResult(int matchedCount, List<String> unmatchedElements) {
+    }
+
+    /**
+     * Override'lı XSD derleme hatası.
+     * <p>
+     * Caffeine cache'e null yazılmasını önlemek için kullanılır.
+     */
+    static class SchemaOverrideCompilationException extends RuntimeException {
+        SchemaOverrideCompilationException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 
     // ── Base Schema Compilation ─────────────────────────────────────

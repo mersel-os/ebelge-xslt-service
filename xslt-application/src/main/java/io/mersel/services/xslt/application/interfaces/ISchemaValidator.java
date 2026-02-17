@@ -35,4 +35,38 @@ public interface ISchemaValidator {
      * @return Doğrulama hataları listesi (boş liste = geçerli)
      */
     List<String> validate(byte[] source, SchemaValidationType schemaType, List<XsdOverride> overrides);
+
+    /**
+     * XML belgesini belirtilen şema tipine göre, profil bazlı XSD override'ları uygulayarak doğrular.
+     * <p>
+     * {@code profileName} parametresi override cache key'inde ve auto-generated XSD
+     * dosya adında kullanılır. Her profilin override'ı bağımsız olarak derlenir ve cache'lenir.
+     *
+     * @param source       Doğrulanacak XML içeriği
+     * @param schemaType   Şema doğrulama tipi (Invoice, DespatchAdvice vb.)
+     * @param overrides    Uygulanacak XSD override listesi (boş ise orijinal şema kullanılır)
+     * @param profileName  Override'ları talep eden profil adı (cache key ve dosya adı için)
+     * @return Doğrulama hataları listesi (boş liste = geçerli)
+     */
+    List<String> validate(byte[] source, SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName);
+
+    /**
+     * Override XSD cache'ini temizler.
+     * <p>
+     * Profil değişikliklerinde (kaydet/sil) çağrılmalıdır.
+     * Base şemalar etkilenmez, yalnızca override'lı derlenmiş şemalar temizlenir.
+     */
+    void invalidateOverrideCache();
+
+    /**
+     * Override'lı XSD şemasını önceden derler, cache'e yazar ve auto-generated dosyasını oluşturur.
+     * <p>
+     * Profil kaydedildiğinde çağrılır — validation isteği beklenmeden override şeması
+     * hemen derlenir ve {@code auto-generated/schema-overrides/} dizinine yazılır.
+     *
+     * @param schemaType  Şema doğrulama tipi (Invoice, DespatchAdvice vb.)
+     * @param overrides   Uygulanacak XSD override listesi
+     * @param profileName Profil adı (cache key ve dosya adı için)
+     */
+    void precompileOverrides(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName);
 }

@@ -78,7 +78,7 @@ class ValidationControllerTest {
                 .thenReturn(DocumentType.INVOICE);
         when(profileService.resolveXsdOverrides(isNull(), eq("INVOICE")))
                 .thenReturn(Collections.emptyList());
-        when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList()))
+        when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
                 .thenReturn(Collections.emptyList());
         when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any()))
                 .thenReturn(Collections.emptyList());
@@ -111,7 +111,7 @@ class ValidationControllerTest {
                 .thenReturn(DocumentType.INVOICE);
         when(profileService.resolveXsdOverrides(isNull(), eq("INVOICE")))
                 .thenReturn(Collections.emptyList());
-        when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList()))
+        when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
                 .thenReturn(List.of("Şema hatası 1", "Şema hatası 2"));
         when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any()))
                 .thenReturn(schematronErrors);
@@ -169,7 +169,7 @@ class ValidationControllerTest {
                 .thenReturn(DocumentType.INVOICE);
         when(profileService.resolveXsdOverrides(eq("unsigned"), eq("INVOICE")))
                 .thenReturn(Collections.emptyList());
-        when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList()))
+        when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
                 .thenReturn(Collections.emptyList());
         when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any()))
                 .thenReturn(List.of(suppressedError, activeError));
@@ -207,7 +207,7 @@ class ValidationControllerTest {
                 .thenReturn(DocumentType.EDEFTER_YEVMIYE);
         when(profileService.resolveXsdOverrides(isNull(), eq("EDEFTER")))
                 .thenReturn(Collections.emptyList());
-        when(schemaValidator.validate(any(), eq(SchemaValidationType.EDEFTER), anyList()))
+        when(schemaValidator.validate(any(), eq(SchemaValidationType.EDEFTER), anyList(), any()))
                 .thenReturn(Collections.emptyList());
         when(schematronValidator.validate(any(), eq(SchematronValidationType.EDEFTER_YEVMIYE), any(), any()))
                 .thenReturn(Collections.emptyList());

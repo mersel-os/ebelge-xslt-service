@@ -261,7 +261,7 @@ class ValidationIntegrationTest {
 
         when(profileService.resolveXsdOverrides(any(), anyString()))
                 .thenReturn(Collections.emptyList());
-        when(schemaValidator.validate(any(), any(), anyList()))
+        when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(xsdErrors);
         when(schematronValidator.validate(any(), any(), any(), any()))
                 .thenReturn(schematronErrors);
@@ -344,7 +344,7 @@ class ValidationIntegrationTest {
 
         when(profileService.resolveXsdOverrides(any(), anyString()))
                 .thenReturn(Collections.emptyList());
-        when(schemaValidator.validate(any(), any(), anyList()))
+        when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(Collections.emptyList());
         when(schematronValidator.validate(any(), any(), any(), any()))
                 .thenReturn(schematronErrors);
@@ -384,7 +384,7 @@ class ValidationIntegrationTest {
 
         when(profileService.resolveXsdOverrides(eq("test-suppress"), anyString()))
                 .thenReturn(Collections.emptyList());
-        when(schemaValidator.validate(any(), any(), anyList()))
+        when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(Collections.emptyList());
         when(schematronValidator.validate(any(), any(), any(), any()))
                 .thenReturn(schematronErrors);
@@ -441,7 +441,7 @@ class ValidationIntegrationTest {
 
         when(profileService.resolveXsdOverrides(eq("only-id-suppress"), anyString()))
                 .thenReturn(Collections.emptyList());
-        when(schemaValidator.validate(any(), any(), anyList()))
+        when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(Collections.emptyList());
         when(schematronValidator.validate(any(), any(), any(), any()))
                 .thenReturn(allErrors);
@@ -483,7 +483,7 @@ class ValidationIntegrationTest {
     private void setupMocksForSuccessfulValidation() throws Exception {
         when(profileService.resolveXsdOverrides(any(), anyString()))
                 .thenReturn(Collections.emptyList());
-        when(schemaValidator.validate(any(), any(), anyList()))
+        when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(Collections.emptyList());
         when(schematronValidator.validate(any(), any(), any(), any()))
                 .thenReturn(Collections.emptyList());

@@ -146,7 +146,7 @@ public class ValidationController {
             List<XsdOverride> xsdOverrides = profileService.resolveXsdOverrides(
                     profileName, schemaType.name());
 
-            List<String> schemaErrors = schemaValidator.validate(source, schemaType, xsdOverrides);
+            List<String> schemaErrors = schemaValidator.validate(source, schemaType, xsdOverrides, profileName);
 
             // XSD bastırma uygula (scope-aware)
             List<String> activeSchemaErrors = profileService.applyXsdSuppressions(

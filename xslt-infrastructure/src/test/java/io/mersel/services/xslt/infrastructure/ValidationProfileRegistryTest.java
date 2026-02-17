@@ -1,5 +1,6 @@
 package io.mersel.services.xslt.infrastructure;
 
+import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
 import io.mersel.services.xslt.application.models.SchematronError;
 import io.mersel.services.xslt.application.models.SuppressionResult;
@@ -22,6 +23,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -39,11 +41,13 @@ class ValidationProfileRegistryTest {
     Path tempDir;
 
     private AssetManager assetManager;
+    private ISchemaValidator schemaValidator;
     private Path profilesFile;
 
     @BeforeEach
     void setUp() throws IOException {
         assetManager = mock(AssetManager.class);
+        schemaValidator = mock(ISchemaValidator.class);
         profilesFile = tempDir.resolve(PROFILES_ASSET_PATH);
 
         when(assetManager.getExternalDir()).thenReturn(tempDir);
@@ -64,7 +68,7 @@ class ValidationProfileRegistryTest {
     }
 
     private ValidationProfileRegistry createAndReload() {
-        ValidationProfileRegistry registry = new ValidationProfileRegistry(assetManager);
+        ValidationProfileRegistry registry = new ValidationProfileRegistry(assetManager, schemaValidator);
         registry.reload();
         return registry;
     }
@@ -339,7 +343,7 @@ class ValidationProfileRegistryTest {
                     pattern: "RuleB"
             """);
 
-        ValidationProfileRegistry registry = new ValidationProfileRegistry(assetManager);
+        ValidationProfileRegistry registry = new ValidationProfileRegistry(assetManager, schemaValidator);
         ReloadResult result = registry.reload();
 
         assertThat(result.status()).isEqualTo(ReloadResult.Status.PARTIAL);
@@ -359,7 +363,7 @@ class ValidationProfileRegistryTest {
                     pattern: "SomeRule"
             """);
 
-        ValidationProfileRegistry registry = new ValidationProfileRegistry(assetManager);
+        ValidationProfileRegistry registry = new ValidationProfileRegistry(assetManager, schemaValidator);
         ReloadResult result = registry.reload();
 
         assertThat(result.status()).isEqualTo(ReloadResult.Status.PARTIAL);
@@ -493,7 +497,7 @@ class ValidationProfileRegistryTest {
             profiles: {}
             """);
 
-        ValidationProfileRegistry registry = new ValidationProfileRegistry(assetManager);
+        ValidationProfileRegistry registry = new ValidationProfileRegistry(assetManager, schemaValidator);
         registry.reload();
 
         ValidationProfile profile = new ValidationProfile(
@@ -518,6 +522,26 @@ class ValidationProfileRegistryTest {
         SuppressionResult result = registry.applySchematronSuppressions(
                 errors, "saved-profile", null, Set.of("INVOICE"));
         assertThat(result.suppressedErrors()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("18b. profil kaydet override cache invalidation")
+    void profil_kaydet_override_cache_invalidation() throws IOException {
+        writeProfiles("""
+            profiles: {}
+            """);
+
+        ValidationProfileRegistry registry = new ValidationProfileRegistry(assetManager, schemaValidator);
+        registry.reload();
+
+        ValidationProfile profile = new ValidationProfile(
+                "test-profile", "Test", null,
+                List.of(), null
+        );
+
+        registry.saveProfile(profile);
+
+        verify(schemaValidator).invalidateOverrideCache();
     }
 
     @Test

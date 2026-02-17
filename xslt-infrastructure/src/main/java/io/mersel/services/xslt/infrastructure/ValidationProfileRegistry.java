@@ -1,5 +1,7 @@
 package io.mersel.services.xslt.infrastructure;
 
+import io.mersel.services.xslt.application.enums.SchemaValidationType;
+import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
 import io.mersel.services.xslt.application.interfaces.Reloadable;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
@@ -10,6 +12,7 @@ import io.mersel.services.xslt.application.models.ValidationProfile.SuppressionR
 import io.mersel.services.xslt.application.models.XsdOverride;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -41,13 +44,20 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
     private static final String PROFILES_ASSET_PATH = "validation-profiles.yml";
 
     private final AssetManager assetManager;
+    private final ISchemaValidator schemaValidator;
 
     /** Profil verileri — tek volatile reference ile atomik swap. */
     private record ProfileData(Map<String, ValidationProfile> profiles, Map<String, List<CompiledRule>> rules) {}
     private volatile ProfileData profileData = new ProfileData(Map.of(), Map.of());
 
-    public ValidationProfileRegistry(AssetManager assetManager) {
+    /**
+     * @param schemaValidator {@code @Lazy} ile enjekte edilir — circular dependency önleme
+     *                        (JaxpSchemaValidator da Reloadable olduğu için AssetRegistry aracılığıyla
+     *                        dolaylı bağımlılık oluşur).
+     */
+    public ValidationProfileRegistry(AssetManager assetManager, @Lazy ISchemaValidator schemaValidator) {
         this.assetManager = assetManager;
+        this.schemaValidator = schemaValidator;
     }
 
     // ── Reloadable ──────────────────────────────────────────────────
@@ -200,6 +210,32 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         return overrides != null ? overrides : List.of();
     }
 
+    // ── Override Pre-compilation ────────────────────────────────────
+
+    /**
+     * Belirtilen profil için tüm XSD override'larını hemen derler ve auto-generated dosyalarını oluşturur.
+     * <p>
+     * Profil kaydedildiğinde çağrılır — validation isteği beklemeden override XSD'leri
+     * {@code auto-generated/schema-overrides/} dizinine yazılır.
+     */
+    private void precompileProfileOverrides(String profileName) {
+        ValidationProfile resolved = profileData.profiles().get(profileName);
+        if (resolved == null || resolved.xsdOverrides() == null || resolved.xsdOverrides().isEmpty()) {
+            return;
+        }
+
+        for (var entry : resolved.xsdOverrides().entrySet()) {
+            try {
+                SchemaValidationType schemaType = SchemaValidationType.valueOf(entry.getKey());
+                schemaValidator.precompileOverrides(schemaType, entry.getValue(), profileName);
+            } catch (IllegalArgumentException e) {
+                log.warn("Bilinmeyen şema tipi, pre-derleme atlanıyor: {} (profil: {})", entry.getKey(), profileName);
+            } catch (Exception e) {
+                log.warn("Override pre-derleme başarısız: {} (profil: {}) — {}", entry.getKey(), profileName, e.getMessage());
+            }
+        }
+    }
+
     // ── Profile CRUD (YAML write-back) ────────────────────────────
 
     @Override
@@ -258,7 +294,13 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         writeYaml(root);
         reload();
 
-        log.info("Profil kaydedildi: {} ({} bastırma kuralı)", profile.name(),
+        // Override cache'i doğrudan temizle — FileWatcher gecikmesine bağımlı olma
+        schemaValidator.invalidateOverrideCache();
+
+        // XSD override'larını hemen derle ve auto-generated dosyalarını oluştur
+        precompileProfileOverrides(profile.name());
+
+        log.info("Profil kaydedildi: {} ({} bastırma kuralı, XSD override'lar derlendi)", profile.name(),
                 profile.suppressions() != null ? profile.suppressions().size() : 0);
     }
 
@@ -276,7 +318,10 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         writeYaml(root);
         reload();
 
-        log.info("Profil silindi: {}", profileName);
+        // Override cache'i doğrudan temizle — FileWatcher gecikmesine bağımlı olma
+        schemaValidator.invalidateOverrideCache();
+
+        log.info("Profil silindi: {} (XSD override cache temizlendi)", profileName);
         return true;
     }
 
