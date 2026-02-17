@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Save, Loader2, AlertCircle, ShieldAlert, FileCode, X } from "lucide-react";
+import { Plus, Save, Loader2, AlertCircle, ShieldAlert, FileCode, ScrollText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import type { ProfileInfo } from "@/api/types";
 import { SuppressionCard, emptyRule, type RuleFormData } from "./suppression-card";
 import { XsdOverrideCard, emptyXsdOverride, type XsdOverrideFormData } from "./xsd-override-card";
+import { SchematronRuleCard, emptySchematronRule, type SchematronRuleFormData } from "./schematron-rule-card";
 
 // ── Empty State ────────────────────────────────────────────────
 
@@ -68,6 +69,10 @@ interface ProfileEditorProps {
       string,
       { element: string; minOccurs?: string; maxOccurs?: string }[]
     >;
+    schematronRules: Record<
+      string,
+      { context: string; test: string; message: string; id?: string }[]
+    >;
   }) => void;
   saving: boolean;
 }
@@ -85,6 +90,7 @@ export function ProfileEditor({
   const [extendsProfile, setExtendsProfile] = useState("");
   const [rules, setRules] = useState<RuleFormData[]>([]);
   const [xsdOverrides, setXsdOverrides] = useState<XsdOverrideFormData[]>([]);
+  const [schematronRules, setSchematronRules] = useState<SchematronRuleFormData[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const isEditing = editingProfile !== null;
@@ -120,12 +126,30 @@ export function ProfileEditor({
           }
         }
         setXsdOverrides(ovrs);
+        const schRules: SchematronRuleFormData[] = [];
+        if (editingProfile.info.schematronRules) {
+          for (const [schematronType, list] of Object.entries(
+            editingProfile.info.schematronRules
+          )) {
+            for (const r of list) {
+              schRules.push({
+                schematronType,
+                context: r.context,
+                test: r.test,
+                message: r.message,
+                id: r.id ?? "",
+              });
+            }
+          }
+        }
+        setSchematronRules(schRules);
       } else {
         setName("");
         setDescription("");
         setExtendsProfile("");
         setRules([]);
         setXsdOverrides([]);
+        setSchematronRules([]);
       }
       setError(null);
     }
@@ -161,6 +185,20 @@ export function ProfileEditor({
         return;
       }
     }
+    for (let i = 0; i < schematronRules.length; i++) {
+      if (!schematronRules[i].context.trim()) {
+        setError(`Schematron kuralı ${i + 1}: Context boş olamaz.`);
+        return;
+      }
+      if (!schematronRules[i].test.trim()) {
+        setError(`Schematron kuralı ${i + 1}: Test ifadesi boş olamaz.`);
+        return;
+      }
+      if (!schematronRules[i].message.trim()) {
+        setError(`Schematron kuralı ${i + 1}: Hata mesajı boş olamaz.`);
+        return;
+      }
+    }
     setError(null);
 
     const grouped: Record<
@@ -177,12 +215,29 @@ export function ProfileEditor({
       });
     }
 
+    const groupedSchematron: Record<
+      string,
+      { context: string; test: string; message: string; id?: string }[]
+    > = {};
+    for (const sr of schematronRules) {
+      if (!sr.context.trim() || !sr.test.trim() || !sr.message.trim()) continue;
+      if (!groupedSchematron[sr.schematronType])
+        groupedSchematron[sr.schematronType] = [];
+      groupedSchematron[sr.schematronType].push({
+        context: sr.context.trim(),
+        test: sr.test.trim(),
+        message: sr.message.trim(),
+        id: sr.id.trim() || undefined,
+      });
+    }
+
     onSave({
       name: name.trim(),
       description: description.trim(),
       extendsProfile: extendsProfile.trim(),
       suppressions: rules,
       xsdOverrides: grouped,
+      schematronRules: groupedSchematron,
     });
   };
 
@@ -313,6 +368,21 @@ export function ProfileEditor({
                     </Badge>
                   )}
                 </TabsTrigger>
+                <TabsTrigger
+                  value="schematron-rules"
+                  className="gap-1.5 text-xs flex-1"
+                >
+                  <ScrollText className="h-3.5 w-3.5" />
+                  Ek Kurallar
+                  {schematronRules.length > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="h-4 min-w-[18px] px-1 text-[10px] ml-1"
+                    >
+                      {schematronRules.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
               </TabsList>
 
               {/* ── Suppressions Tab ── */}
@@ -409,6 +479,60 @@ export function ProfileEditor({
                       >
                         <Plus className="h-3.5 w-3.5" />
                         Override ekle
+                      </button>
+                    </>
+                  )}
+                </div>
+              </TabsContent>
+
+              {/* ── Schematron Rules Tab ── */}
+              <TabsContent value="schematron-rules" className="mt-4">
+                <div className="space-y-3">
+                  {schematronRules.length === 0 ? (
+                    <EmptyState
+                      icon={ScrollText}
+                      title="Özel Schematron kuralı yok"
+                      description="Derleme öncesi Schematron dosyasına ek iş kuralları (assert) ekleyin. Kurallar ISO Schematron pipeline'ından geçerek derlenir."
+                      actionLabel="Kural ekle"
+                      onAction={() =>
+                        setSchematronRules([
+                          ...schematronRules,
+                          emptySchematronRule(),
+                        ])
+                      }
+                    />
+                  ) : (
+                    <>
+                      {schematronRules.map((rule, idx) => (
+                        <SchematronRuleCard
+                          key={`sch-${rule.schematronType}-${rule.id || idx}`}
+                          rule={rule}
+                          onUpdate={(field, value) =>
+                            setSchematronRules(
+                              schematronRules.map((r, i) =>
+                                i === idx ? { ...r, [field]: value } : r
+                              )
+                            )
+                          }
+                          onRemove={() =>
+                            setSchematronRules(
+                              schematronRules.filter((_, i) => i !== idx)
+                            )
+                          }
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSchematronRules([
+                            ...schematronRules,
+                            emptySchematronRule(),
+                          ])
+                        }
+                        className="flex items-center justify-center gap-1.5 w-full h-10 rounded-lg border border-dashed text-xs text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Kural ekle
                       </button>
                     </>
                   )}

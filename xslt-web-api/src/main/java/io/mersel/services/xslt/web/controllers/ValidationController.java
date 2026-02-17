@@ -9,6 +9,7 @@ import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
 import io.mersel.services.xslt.application.interfaces.ISchematronValidator;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
 import io.mersel.services.xslt.application.models.DocumentTypeMapping;
+import io.mersel.services.xslt.application.models.SchematronCustomAssertion;
 import io.mersel.services.xslt.application.models.SchematronError;
 import io.mersel.services.xslt.application.models.SuppressionResult;
 import io.mersel.services.xslt.application.models.ValidationResponse;
@@ -163,8 +164,13 @@ public class ValidationController {
             // Orijinal dosya adı — e-Defter Schematron base-uri() kontrolü için gerekli
             String sourceFileName = requestDto.getSource().getOriginalFilename();
 
+            // Profil bazlı özel Schematron kurallarını çözümle
+            List<SchematronCustomAssertion> customSchematronRules = profileService.resolveSchematronRules(
+                    profileName, schematronType.name());
+
             List<SchematronError> rawSchematronErrors = schematronValidator.validate(
-                    source, schematronType, requestDto.getUblTrMainSchematronType(), sourceFileName);
+                    source, schematronType, requestDto.getUblTrMainSchematronType(), sourceFileName,
+                    customSchematronRules, profileName);
 
             // Schematron bastırma uygula (scope-aware)
             SuppressionResult suppressionResult = profileService.applySchematronSuppressions(

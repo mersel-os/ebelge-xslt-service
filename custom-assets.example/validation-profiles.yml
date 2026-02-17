@@ -34,11 +34,59 @@
 #   minOccurs: Yeni minimum tekrar sayısı (opsiyonel)
 #   maxOccurs: Yeni maksimum tekrar sayısı (opsiyonel)
 #
+# Schematron Özel Kural desteği (schematron-rules):
+#   GIB orijinal Schematron dosyalarını değiştirmeden özel doğrulama
+#   kuralları (assertion) ekleyebilirsiniz. Kurallar, ISO Schematron
+#   pipeline'ına girmeden önce orijinal XML'e enjekte edilir.
+#   Sadece kaynak-derlenen Schematron tipleri desteklenir:
+#     UBLTR_MAIN, EDEFTER_YEVMIYE, EDEFTER_KEBIR, EDEFTER_BERAT,
+#     EDEFTER_RAPOR, ENVANTER_BERAT, ENVANTER_DEFTER
+#   Key: Schematron tipi (UBLTR_MAIN, EDEFTER_YEVMIYE, vb.)
+#   context: XPath context ifadesi (ör: "inv:Invoice")
+#   test: XPath test ifadesi — true olmalı, aksi halde hata (ör: "cac:PostalAddress")
+#   message: Hata mesajı (ör: "Posta adresi zorunludur.")
+#   id: Kural kimliği — suppression referansı için (opsiyonel)
+#
+#   NOT: Aynı context'e sahip kurallar tek bir <sch:rule> altında
+#   gruplanır. Farklı pattern'daki kurallar birbirinden bağımsız çalışır
+#   (ISO Schematron spesifikasyonu).
+#
+# İki katmanlı Schematron kuralları:
+#   1) GLOBAL kurallar — YAML dosyasının en üstünde (profiles dışında)
+#      tanımlanır. Profil seçilsin seçilmesin HER ZAMAN aktiftir.
+#      Startup/reload sırasında orijinal Schematron XML'e enjekte edilir
+#      ve compiledSchematrons cache'ine derlenir.
+#   2) PROFİL kuralları — Profil içinde tanımlanır. Profil seçildiğinde
+#      global kurallar ÜZERİNE eklenir ve profil-spesifik cache'te tutulur.
+#
 # Kullanım:
 #   curl -F "source=@fatura.xml" -F "profile=my-company" \
 #        -F "schemaValidationType=INVOICE" \
 #        -F "schematronValidationType=UBLTR_MAIN" \
 #        localhost:8080/v1/validate
+# ═══════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════
+# Global Schematron Kuralları — profil bağımsız, her zaman aktif
+# ═══════════════════════════════════════════════════════════════════
+# Bu kurallar profil seçilsin seçilmesin TÜM doğrulama isteklerinde
+# otomatik olarak uygulanır. reload() sırasında orijinal Schematron'a
+# enjekte edilir ve derlenmiş cache'e yazılır.
+
+schematron-rules:
+  UBLTR_MAIN:
+    - context: "inv:Invoice"
+      test: "not(starts-with(cbc:ID, 'GIB'))"
+      message: "Fatura numarasi (cbc:ID) 'GIB' ile baslayamaz!"
+      id: "GLOBAL-NO-GIB-PREFIX"
+    # Ek global kural örnekleri:
+    # - context: "inv:Invoice"
+    #   test: "string-length(cbc:ID) <= 16"
+    #   message: "Fatura numarasi 16 karakterden uzun olamaz."
+    #   id: "GLOBAL-ID-MAX-LENGTH"
+
+# ═══════════════════════════════════════════════════════════════════
+# Profiller
 # ═══════════════════════════════════════════════════════════════════
 
 profiles:
@@ -72,6 +120,36 @@ profiles:
       DESPATCH_ADVICE:
         - element: "cac:Signature"
           minOccurs: "0"
+
+    # Orijinal Schematron'a özel doğrulama kuralları ekle
+    schematron-rules:
+      UBLTR_MAIN:
+        - context: "inv:Invoice"
+          test: "cac:AccountingSupplierParty/cac:Party/cac:PostalAddress"
+          message: "Satici posta adresi zorunludur."
+          id: "CUSTOM-SUPPLIER-ADDRESS"
+        - context: "inv:Invoice/cac:InvoiceLine"
+          test: "cbc:InvoicedQuantity > 0"
+          message: "Fatura satir miktari sifirdan buyuk olmalidir."
+          id: "CUSTOM-LINE-QUANTITY"
+
+  # ── Özel Schematron kuralları profili ────────────────────────────
+  # strict-invoice:
+  #   description: "Fatura icin ek dogrulama kurallari"
+  #   schematron-rules:
+  #     UBLTR_MAIN:
+  #       - context: "inv:Invoice"
+  #         test: "cac:PaymentMeans"
+  #         message: "Odeme bilgisi (PaymentMeans) zorunludur."
+  #         id: "CUSTOM-PAYMENT-MEANS"
+  #       - context: "inv:Invoice"
+  #         test: "cac:AccountingCustomerParty/cac:Party/cac:Contact/cbc:ElectronicMail"
+  #         message: "Alici e-posta adresi zorunludur."
+  #         id: "CUSTOM-BUYER-EMAIL"
+  #       - context: "inv:Invoice/cac:InvoiceLine"
+  #         test: "cac:Item/cbc:Description"
+  #         message: "Kalem aciklamasi zorunludur."
+  #         id: "CUSTOM-ITEM-DESC"
 
   # ── İrsaliye profili — DespatchAdvice'a özel bastırma ───────────
   # despatch-flexible:

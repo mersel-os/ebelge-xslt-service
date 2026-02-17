@@ -2,6 +2,7 @@ package io.mersel.services.xslt.infrastructure;
 
 import io.mersel.services.xslt.application.enums.SchematronValidationType;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
+import io.mersel.services.xslt.application.models.SchematronCustomAssertion;
 import io.mersel.services.xslt.application.models.SchematronError;
 import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import net.sf.saxon.s9api.*;
@@ -48,6 +49,7 @@ class SaxonSchematronValidatorTest {
     @BeforeEach
     void setUp() {
         validator = new SaxonSchematronValidator(assetManager, runtimeCompiler, metrics);
+        validator.init();
     }
 
     // ── Test 1 ──────────────────────────────────────────────────────────
@@ -276,6 +278,198 @@ class SaxonSchematronValidatorTest {
     @DisplayName("getLoadedCount_bos_baslagicta — Başlangıçta loaded count 0 olmalı")
     void getLoadedCount_bos_baslagicta() {
         assertThat(validator.getLoadedCount()).isEqualTo(0);
+    }
+
+    // ── Test 9: Custom Rule Injection ────────────────────────────────────
+
+    @Test
+    @DisplayName("injectCustomRules — Özel kurallar Schematron XML'e enjekte edilmeli")
+    void injectCustomRules_ozel_kurallar_enjekte_edilmeli() throws Exception {
+        // Minimal Schematron XML
+        String originalXml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+                    <sch:pattern id="test">
+                        <sch:rule context="inv:Invoice">
+                            <sch:assert test="cbc:ID">ID zorunlu</sch:assert>
+                        </sch:rule>
+                    </sch:pattern>
+                </sch:schema>
+                """;
+
+        List<SchematronCustomAssertion> customRules = List.of(
+                new SchematronCustomAssertion("inv:Invoice",
+                        "cac:AccountingSupplierParty", "Satici zorunlu", "CUSTOM-001"),
+                new SchematronCustomAssertion("inv:Invoice/cac:InvoiceLine",
+                        "cbc:InvoicedQuantity > 0", "Miktar sifirdan buyuk olmali", "CUSTOM-002")
+        );
+
+        // injectCustomRules package-private, dolayısıyla doğrudan erişilebilir
+        byte[] result = validator.injectCustomRules(
+                originalXml.getBytes(StandardCharsets.UTF_8), customRules, "test-profile");
+
+        String resultStr = new String(result, StandardCharsets.UTF_8);
+
+        // Orijinal pattern hala var
+        assertThat(resultStr).contains("id=\"test\"");
+
+        // Özel kurallar enjekte edilmiş
+        assertThat(resultStr).contains("custom-rules-test-profile");
+        assertThat(resultStr).contains("CUSTOM-001");
+        assertThat(resultStr).contains("CUSTOM-002");
+        assertThat(resultStr).contains("Satici zorunlu");
+        assertThat(resultStr).contains("Miktar sifirdan buyuk olmali");
+        assertThat(resultStr).contains("cac:AccountingSupplierParty");
+        assertThat(resultStr).contains("cbc:InvoicedQuantity");
+    }
+
+    // ── Test 10: Custom Rule Context Grouping ──────────────────────────
+
+    @Test
+    @DisplayName("injectCustomRules — Aynı context kurallar tek rule altında gruplanmalı")
+    void injectCustomRules_ayni_context_tek_rule() throws Exception {
+        String originalXml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+                </sch:schema>
+                """;
+
+        List<SchematronCustomAssertion> customRules = List.of(
+                new SchematronCustomAssertion("inv:Invoice",
+                        "cac:AccountingSupplierParty", "Satici zorunlu", "CUSTOM-001"),
+                new SchematronCustomAssertion("inv:Invoice",
+                        "cac:AccountingCustomerParty", "Alici zorunlu", "CUSTOM-002"),
+                new SchematronCustomAssertion("inv:Invoice/cac:InvoiceLine",
+                        "cbc:InvoicedQuantity > 0", "Miktar sifirdan buyuk", "CUSTOM-003")
+        );
+
+        byte[] result = validator.injectCustomRules(
+                originalXml.getBytes(StandardCharsets.UTF_8), customRules, "test-profile");
+
+        String resultStr = new String(result, StandardCharsets.UTF_8);
+
+        // Tek pattern olmalı
+        assertThat(resultStr).contains("custom-rules-test-profile");
+
+        // İki farklı rule context olmalı: inv:Invoice ve inv:Invoice/cac:InvoiceLine
+        // inv:Invoice context'inde 2 assert, InvoiceLine'da 1 assert
+        assertThat(resultStr).contains("CUSTOM-001");
+        assertThat(resultStr).contains("CUSTOM-002");
+        assertThat(resultStr).contains("CUSTOM-003");
+    }
+
+    // ── Test 11: Custom Rule Empty List ──────────────────────────────────
+
+    @Test
+    @DisplayName("validate — Boş custom rules listesi ile standart doğrulama yapılmalı")
+    void validate_bos_custom_rules_standart_dogrulama() throws Exception {
+        String xslt = """
+                <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:template match="/">
+                        <Result/>
+                    </xsl:template>
+                </xsl:stylesheet>
+                """;
+
+        XsltExecutable executable = compileXslt(xslt);
+        injectCompiledSchematron(SchematronValidationType.UBLTR_MAIN, executable);
+
+        byte[] source = "<Invoice/>".getBytes(StandardCharsets.UTF_8);
+
+        // Boş custom rules — standart validate yoluna düşmeli
+        List<SchematronError> errors = validator.validate(
+                source, SchematronValidationType.UBLTR_MAIN, "efatura", null,
+                List.of(), null);
+
+        assertThat(errors).isEmpty();
+        verify(metrics).recordValidation(eq("schematron"), eq("UBLTR_MAIN"), eq("valid"), anyLong());
+    }
+
+    // ── Test 12: Custom Rule Invalid Fields Skipped ──────────────────────
+
+    @Test
+    @DisplayName("injectCustomRules — Eksik alanlı kurallar atlanmalı")
+    void injectCustomRules_eksik_alanli_kurallar_atlanmali() throws Exception {
+        String originalXml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+                </sch:schema>
+                """;
+
+        List<SchematronCustomAssertion> customRules = List.of(
+                new SchematronCustomAssertion("inv:Invoice",
+                        "cac:Signature", "Gecerli kural", "VALID"),
+                new SchematronCustomAssertion("", "cac:Something", "Context bos", null),
+                new SchematronCustomAssertion("inv:Invoice", "", "Test bos", null),
+                new SchematronCustomAssertion("inv:Invoice", "cac:Test", "", null)
+        );
+
+        byte[] result = validator.injectCustomRules(
+                originalXml.getBytes(StandardCharsets.UTF_8), customRules, "test-profile");
+
+        String resultStr = new String(result, StandardCharsets.UTF_8);
+
+        // Sadece geçerli kural enjekte edilmeli
+        assertThat(resultStr).contains("VALID");
+        assertThat(resultStr).contains("Gecerli kural");
+        assertThat(resultStr).doesNotContain("Context bos");
+        assertThat(resultStr).doesNotContain("Test bos");
+    }
+
+    // ── Test 13: invalidateCustomRuleCache ──────────────────────────────
+
+    @Test
+    @DisplayName("invalidateCustomRuleCache — Cache temizleme hata vermemeli")
+    void invalidateCustomRuleCache_hata_vermemeli() throws Exception {
+        // @PostConstruct'u simüle et — cache'i başlat
+        var initMethod = SaxonSchematronValidator.class.getDeclaredMethod("init");
+        initMethod.setAccessible(true);
+        initMethod.invoke(validator);
+
+        // Hata fırlatmamalı
+        validator.invalidateCustomRuleCache();
+    }
+
+    // ── Test 14: Global Custom Rules ──────────────────────────────────
+
+    @Test
+    @DisplayName("setGlobalCustomRules — Global kurallar set ve get edilebilmeli")
+    void setGlobalCustomRules_set_ve_get() {
+        var rules = Map.of(
+                SchematronValidationType.UBLTR_MAIN, List.of(
+                        new SchematronCustomAssertion("inv:Invoice",
+                                "not(starts-with(cbc:ID, 'GIB'))",
+                                "Fatura ID GIB ile baslayamaz", "GLOBAL-001")
+                )
+        );
+
+        validator.setGlobalCustomRules(rules);
+
+        var result = validator.getGlobalCustomRules();
+        assertThat(result).hasSize(1);
+        assertThat(result).containsKey(SchematronValidationType.UBLTR_MAIN);
+        assertThat(result.get(SchematronValidationType.UBLTR_MAIN)).hasSize(1);
+        assertThat(result.get(SchematronValidationType.UBLTR_MAIN).get(0).id()).isEqualTo("GLOBAL-001");
+    }
+
+    // ── Test 15: Global Custom Rules Null Safety ────────────────────────
+
+    @Test
+    @DisplayName("setGlobalCustomRules — null parametre boş map dönmeli")
+    void setGlobalCustomRules_null_bos_map() {
+        validator.setGlobalCustomRules(null);
+
+        var result = validator.getGlobalCustomRules();
+        assertThat(result).isEmpty();
+    }
+
+    // ── Test 16: Global Custom Rules Default Empty ──────────────────────
+
+    @Test
+    @DisplayName("getGlobalCustomRules — Başlangıçta boş map dönmeli")
+    void getGlobalCustomRules_baslangicta_bos() {
+        var result = validator.getGlobalCustomRules();
+        assertThat(result).isEmpty();
     }
 
     // ── Yardımcı Metotlar ────────────────────────────────────────────────

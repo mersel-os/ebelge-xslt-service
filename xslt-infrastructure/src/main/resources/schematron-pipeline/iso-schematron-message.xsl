@@ -72,9 +72,12 @@
         <xsl:variable name="r"
                       select="translate($actualRole, 'WARNING FATAL INFORMATION ERROR', 'warning fatal information error')"/>
         <Error>
-            <!-- MERSEL: Burn in rule/pattern ID for profile-based suppression.
-                 Öncelik: rule/@id (UBL-TR abstract rule) > pattern/@id (e-Defter pattern) -->
+            <!-- MERSEL: Burn in rule/pattern/assert ID for profile-based suppression.
+                 Öncelik: assert/@id (özel kural) > rule/@id (UBL-TR abstract rule) > pattern/@id (e-Defter pattern) -->
             <xsl:choose>
+                <xsl:when test="@id">
+                    <xsl:attribute name="ruleId"><xsl:value-of select="@id"/></xsl:attribute>
+                </xsl:when>
                 <xsl:when test="../@id">
                     <xsl:attribute name="ruleId"><xsl:value-of select="../@id"/></xsl:attribute>
                 </xsl:when>

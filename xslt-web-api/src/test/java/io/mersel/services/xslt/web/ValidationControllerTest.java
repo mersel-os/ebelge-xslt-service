@@ -78,9 +78,11 @@ class ValidationControllerTest {
                 .thenReturn(DocumentType.INVOICE);
         when(profileService.resolveXsdOverrides(isNull(), eq("INVOICE")))
                 .thenReturn(Collections.emptyList());
+        when(profileService.resolveSchematronRules(isNull(), anyString()))
+                .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any()))
+        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any(), anyList(), isNull()))
                 .thenReturn(Collections.emptyList());
         when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());
@@ -111,9 +113,11 @@ class ValidationControllerTest {
                 .thenReturn(DocumentType.INVOICE);
         when(profileService.resolveXsdOverrides(isNull(), eq("INVOICE")))
                 .thenReturn(Collections.emptyList());
+        when(profileService.resolveSchematronRules(isNull(), anyString()))
+                .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
                 .thenReturn(List.of("Şema hatası 1", "Şema hatası 2"));
-        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any()))
+        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any(), anyList(), isNull()))
                 .thenReturn(schematronErrors);
         when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
                 .thenReturn(List.of("Şema hatası 1", "Şema hatası 2"));
@@ -169,9 +173,11 @@ class ValidationControllerTest {
                 .thenReturn(DocumentType.INVOICE);
         when(profileService.resolveXsdOverrides(eq("unsigned"), eq("INVOICE")))
                 .thenReturn(Collections.emptyList());
+        when(profileService.resolveSchematronRules(eq("unsigned"), anyString()))
+                .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any()))
+        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any(), anyList(), eq("unsigned")))
                 .thenReturn(List.of(suppressedError, activeError));
         when(profileService.applyXsdSuppressions(anyList(), eq("unsigned"), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());
@@ -207,9 +213,11 @@ class ValidationControllerTest {
                 .thenReturn(DocumentType.EDEFTER_YEVMIYE);
         when(profileService.resolveXsdOverrides(isNull(), eq("EDEFTER")))
                 .thenReturn(Collections.emptyList());
+        when(profileService.resolveSchematronRules(isNull(), anyString()))
+                .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), eq(SchemaValidationType.EDEFTER), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), eq(SchematronValidationType.EDEFTER_YEVMIYE), any(), any()))
+        when(schematronValidator.validate(any(), eq(SchematronValidationType.EDEFTER_YEVMIYE), any(), any(), anyList(), isNull()))
                 .thenReturn(Collections.emptyList());
         when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());

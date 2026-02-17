@@ -1,10 +1,13 @@
 package io.mersel.services.xslt.infrastructure;
 
 import io.mersel.services.xslt.application.enums.SchemaValidationType;
+import io.mersel.services.xslt.application.enums.SchematronValidationType;
 import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
+import io.mersel.services.xslt.application.interfaces.ISchematronValidator;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
 import io.mersel.services.xslt.application.interfaces.Reloadable;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
+import io.mersel.services.xslt.application.models.SchematronCustomAssertion;
 import io.mersel.services.xslt.application.models.SchematronError;
 import io.mersel.services.xslt.application.models.SuppressionResult;
 import io.mersel.services.xslt.application.models.ValidationProfile;
@@ -45,19 +48,26 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
 
     private final AssetManager assetManager;
     private final ISchemaValidator schemaValidator;
+    private final ISchematronValidator schematronValidator;
 
     /** Profil verileri — tek volatile reference ile atomik swap. */
     private record ProfileData(Map<String, ValidationProfile> profiles, Map<String, List<CompiledRule>> rules) {}
     private volatile ProfileData profileData = new ProfileData(Map.of(), Map.of());
 
     /**
-     * @param schemaValidator {@code @Lazy} ile enjekte edilir — circular dependency önleme
-     *                        (JaxpSchemaValidator da Reloadable olduğu için AssetRegistry aracılığıyla
-     *                        dolaylı bağımlılık oluşur).
+     * @param schemaValidator     {@code @Lazy} ile enjekte edilir — circular dependency önleme
+     *                            (JaxpSchemaValidator da Reloadable olduğu için AssetRegistry aracılığıyla
+     *                            dolaylı bağımlılık oluşur).
+     * @param schematronValidator {@code @Lazy} ile enjekte edilir — circular dependency önleme
+     *                            (SaxonSchematronValidator da Reloadable olduğu için AssetRegistry aracılığıyla
+     *                            dolaylı bağımlılık oluşur).
      */
-    public ValidationProfileRegistry(AssetManager assetManager, @Lazy ISchemaValidator schemaValidator) {
+    public ValidationProfileRegistry(AssetManager assetManager,
+                                     @Lazy ISchemaValidator schemaValidator,
+                                     @Lazy ISchematronValidator schematronValidator) {
         this.assetManager = assetManager;
         this.schemaValidator = schemaValidator;
+        this.schematronValidator = schematronValidator;
     }
 
     // ── Reloadable ──────────────────────────────────────────────────
@@ -72,7 +82,19 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         long startTime = System.currentTimeMillis();
 
         try {
-            Map<String, RawProfile> rawProfiles = loadYaml();
+            var yamlData = loadYamlWithGlobalRules();
+            Map<String, RawProfile> rawProfiles = yamlData.profiles;
+
+            // Global Schematron kurallarını validator'a aktar (reload öncesi set edilmeli)
+            if (!yamlData.globalSchematronRules.isEmpty()) {
+                var globalRulesTyped = resolveGlobalRulesToEnum(yamlData.globalSchematronRules);
+                schematronValidator.setGlobalCustomRules(globalRulesTyped);
+                int totalGlobalRules = yamlData.globalSchematronRules.values().stream().mapToInt(List::size).sum();
+                log.info("  Global Schematron kuralları yüklendi: {} tip, {} kural",
+                        yamlData.globalSchematronRules.size(), totalGlobalRules);
+            } else {
+                schematronValidator.setGlobalCustomRules(Map.of());
+            }
 
             if (rawProfiles.isEmpty()) {
                 long elapsed = System.currentTimeMillis() - startTime;
@@ -92,8 +114,10 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
                     compiled.put(entry.getKey(), compileRules(profile.suppressions()));
                     int xsdOvrCount = profile.xsdOverrides() != null
                             ? profile.xsdOverrides().values().stream().mapToInt(List::size).sum() : 0;
-                    log.debug("  Profil yüklendi: {} ({} bastırma kuralı, {} XSD override)",
-                            entry.getKey(), profile.suppressions().size(), xsdOvrCount);
+                    int schRuleCount = profile.schematronRules() != null
+                            ? profile.schematronRules().values().stream().mapToInt(List::size).sum() : 0;
+                    log.debug("  Profil yüklendi: {} ({} bastırma kuralı, {} XSD override, {} Schematron kural)",
+                            entry.getKey(), profile.suppressions().size(), xsdOvrCount, schRuleCount);
                 } catch (Exception e) {
                     errors.add(entry.getKey() + ": " + e.getMessage());
                     log.warn("  Profil çözümleme hatası: {} - {}", entry.getKey(), e.getMessage());
@@ -210,6 +234,78 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         return overrides != null ? overrides : List.of();
     }
 
+    // ── Schematron Custom Rules ────────────────────────────────────
+
+    @Override
+    public List<SchematronCustomAssertion> resolveSchematronRules(String profileName, String schematronType) {
+        if (profileName == null || profileName.isBlank() || schematronType == null || schematronType.isBlank()) {
+            return List.of();
+        }
+        ValidationProfile profile = profileData.profiles().get(profileName);
+        if (profile == null || profile.schematronRules() == null) {
+            return List.of();
+        }
+        List<SchematronCustomAssertion> rules = profile.schematronRules().get(schematronType);
+        return rules != null ? rules : List.of();
+    }
+
+    // ── Global Schematron Rules ────────────────────────────────────
+
+    @Override
+    public Map<String, List<SchematronCustomAssertion>> getGlobalSchematronRules() {
+        try {
+            Map<String, Object> root = loadRawYaml();
+            return parseGlobalSchematronRules(root);
+        } catch (IOException e) {
+            log.warn("Global Schematron kuralları okunamadı: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    @Override
+    public void saveGlobalSchematronRules(Map<String, List<SchematronCustomAssertion>> rules) throws IOException {
+        Map<String, Object> root = loadRawYaml();
+
+        if (rules == null || rules.isEmpty()) {
+            root.remove("schematron-rules");
+        } else {
+            var schematronRulesMap = new LinkedHashMap<String, Object>();
+            for (var entry : rules.entrySet()) {
+                var rulesList = new ArrayList<Map<String, Object>>();
+                for (var rule : entry.getValue()) {
+                    var ruleMap = new LinkedHashMap<String, Object>();
+                    ruleMap.put("context", rule.context());
+                    ruleMap.put("test", rule.test());
+                    ruleMap.put("message", rule.message());
+                    if (rule.id() != null && !rule.id().isBlank()) {
+                        ruleMap.put("id", rule.id());
+                    }
+                    rulesList.add(ruleMap);
+                }
+                schematronRulesMap.put(entry.getKey(), rulesList);
+            }
+            // schematron-rules'u profiles'den ÖNCE yerleştir (okunabilirlik için)
+            var orderedRoot = new LinkedHashMap<String, Object>();
+            orderedRoot.put("schematron-rules", schematronRulesMap);
+            for (var entry : root.entrySet()) {
+                if (!"schematron-rules".equals(entry.getKey())) {
+                    orderedRoot.put(entry.getKey(), entry.getValue());
+                }
+            }
+            root = orderedRoot;
+        }
+
+        writeYaml(root);
+        reload();
+
+        // Custom rule cache'i temizle — global kurallar değişti
+        schematronValidator.invalidateCustomRuleCache();
+
+        int totalRules = rules != null ? rules.values().stream().mapToInt(List::size).sum() : 0;
+        log.info("Global Schematron kuralları kaydedildi: {} tip, {} kural", 
+                rules != null ? rules.size() : 0, totalRules);
+    }
+
     // ── Override Pre-compilation ────────────────────────────────────
 
     /**
@@ -232,6 +328,32 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
                 log.warn("Bilinmeyen şema tipi, pre-derleme atlanıyor: {} (profil: {})", entry.getKey(), profileName);
             } catch (Exception e) {
                 log.warn("Override pre-derleme başarısız: {} (profil: {}) — {}", entry.getKey(), profileName, e.getMessage());
+            }
+        }
+    }
+
+    // ── Schematron Custom Rules Pre-compilation ────────────────────
+
+    /**
+     * Belirtilen profil için tüm özel Schematron kurallarını hemen derler ve auto-generated dosyalarını oluşturur.
+     * <p>
+     * Profil kaydedildiğinde çağrılır — validation isteği beklemeden özel kurallarla
+     * Schematron derlenir ve {@code auto-generated/schematron-rules/} dizinine yazılır.
+     */
+    private void precompileProfileSchematronRules(String profileName) {
+        ValidationProfile resolved = profileData.profiles().get(profileName);
+        if (resolved == null || resolved.schematronRules() == null || resolved.schematronRules().isEmpty()) {
+            return;
+        }
+
+        for (var entry : resolved.schematronRules().entrySet()) {
+            try {
+                SchematronValidationType schematronType = SchematronValidationType.valueOf(entry.getKey());
+                schematronValidator.precompileCustomRules(schematronType, entry.getValue(), profileName);
+            } catch (IllegalArgumentException e) {
+                log.warn("Bilinmeyen Schematron tipi, pre-derleme atlanıyor: {} (profil: {})", entry.getKey(), profileName);
+            } catch (Exception e) {
+                log.warn("Schematron kural pre-derleme başarısız: {} (profil: {}) — {}", entry.getKey(), profileName, e.getMessage());
             }
         }
     }
@@ -290,17 +412,41 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
             profileMap.put("xsd-overrides", xsdOverridesMap);
         }
 
+        // Schematron özel kurallarını yaz
+        if (profile.schematronRules() != null && !profile.schematronRules().isEmpty()) {
+            var schematronRulesMap = new LinkedHashMap<String, Object>();
+            for (var entry : profile.schematronRules().entrySet()) {
+                var rulesList = new ArrayList<Map<String, Object>>();
+                for (var rule : entry.getValue()) {
+                    var ruleMap = new LinkedHashMap<String, Object>();
+                    ruleMap.put("context", rule.context());
+                    ruleMap.put("test", rule.test());
+                    ruleMap.put("message", rule.message());
+                    if (rule.id() != null && !rule.id().isBlank()) {
+                        ruleMap.put("id", rule.id());
+                    }
+                    rulesList.add(ruleMap);
+                }
+                schematronRulesMap.put(entry.getKey(), rulesList);
+            }
+            profileMap.put("schematron-rules", schematronRulesMap);
+        }
+
         profiles.put(profile.name(), profileMap);
         writeYaml(root);
         reload();
 
-        // Override cache'i doğrudan temizle — FileWatcher gecikmesine bağımlı olma
+        // Override cache'leri doğrudan temizle — FileWatcher gecikmesine bağımlı olma
         schemaValidator.invalidateOverrideCache();
+        schematronValidator.invalidateCustomRuleCache();
 
         // XSD override'larını hemen derle ve auto-generated dosyalarını oluştur
         precompileProfileOverrides(profile.name());
 
-        log.info("Profil kaydedildi: {} ({} bastırma kuralı, XSD override'lar derlendi)", profile.name(),
+        // Schematron özel kurallarını hemen derle ve auto-generated dosyalarını oluştur
+        precompileProfileSchematronRules(profile.name());
+
+        log.info("Profil kaydedildi: {} ({} bastırma kuralı, XSD override'lar ve Schematron kurallar derlendi)", profile.name(),
                 profile.suppressions() != null ? profile.suppressions().size() : 0);
     }
 
@@ -318,10 +464,11 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         writeYaml(root);
         reload();
 
-        // Override cache'i doğrudan temizle — FileWatcher gecikmesine bağımlı olma
+        // Override cache'leri doğrudan temizle — FileWatcher gecikmesine bağımlı olma
         schemaValidator.invalidateOverrideCache();
+        schematronValidator.invalidateCustomRuleCache();
 
-        log.info("Profil silindi: {} (XSD override cache temizlendi)", profileName);
+        log.info("Profil silindi: {} (XSD override + Schematron kural cache temizlendi)", profileName);
         return true;
     }
 
@@ -378,17 +525,33 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
 
     // ── YAML Loading ────────────────────────────────────────────────
 
+    /**
+     * YAML'dan profilleri ve global Schematron kurallarını birlikte yükler.
+     */
+    private record YamlData(
+            Map<String, RawProfile> profiles,
+            Map<String, List<SchematronCustomAssertion>> globalSchematronRules
+    ) {}
+
     @SuppressWarnings("unchecked")
-    private Map<String, RawProfile> loadYaml() {
+    private YamlData loadYamlWithGlobalRules() {
         Map<String, RawProfile> result = new LinkedHashMap<>();
+        Map<String, List<SchematronCustomAssertion>> globalRules = Map.of();
 
         try (InputStream is = assetManager.getAssetStream(PROFILES_ASSET_PATH)) {
             Yaml yaml = new Yaml(new org.yaml.snakeyaml.constructor.SafeConstructor(new org.yaml.snakeyaml.LoaderOptions()));
             Map<String, Object> root = yaml.load(is);
 
-            if (root == null || !root.containsKey("profiles")) {
-                log.warn("validation-profiles.yml 'profiles' anahtarı bulunamadı");
-                return result;
+            if (root == null) {
+                return new YamlData(result, globalRules);
+            }
+
+            // Global Schematron kurallarını parse et
+            globalRules = parseGlobalSchematronRules(root);
+
+            if (!root.containsKey("profiles")) {
+                log.debug("validation-profiles.yml 'profiles' anahtarı bulunamadı");
+                return new YamlData(result, globalRules);
             }
 
             Map<String, Object> profiles = (Map<String, Object>) root.get("profiles");
@@ -400,7 +563,68 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
             log.warn("validation-profiles.yml yükleme hatası: {}", e.getMessage());
         }
 
-        return result;
+        return new YamlData(result, globalRules);
+    }
+
+    /**
+     * YAML root'tan top-level {@code schematron-rules:} bölümünü parse eder.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, List<SchematronCustomAssertion>> parseGlobalSchematronRules(Map<String, Object> root) {
+        Map<String, List<SchematronCustomAssertion>> globalRules = new LinkedHashMap<>();
+
+        Object globalSchRulesObj = root.get("schematron-rules");
+        if (!(globalSchRulesObj instanceof Map<?, ?> globalSchRulesMap)) {
+            return globalRules;
+        }
+
+        for (var schEntry : globalSchRulesMap.entrySet()) {
+            String schematronType = String.valueOf(schEntry.getKey()).strip();
+            if (schEntry.getValue() instanceof List<?> ruleList) {
+                var assertions = new ArrayList<SchematronCustomAssertion>();
+                for (var ruleItem : ruleList) {
+                    if (ruleItem instanceof Map<?, ?> ruleMap) {
+                        Map<String, Object> typedRuleMap = (Map<String, Object>) ruleMap;
+                        String context = typedRuleMap.get("context") != null
+                                ? String.valueOf(typedRuleMap.get("context")).strip() : null;
+                        String test = typedRuleMap.get("test") != null
+                                ? String.valueOf(typedRuleMap.get("test")).strip() : null;
+                        String message = typedRuleMap.get("message") != null
+                                ? String.valueOf(typedRuleMap.get("message")).strip() : null;
+                        String id = typedRuleMap.get("id") != null
+                                ? String.valueOf(typedRuleMap.get("id")).strip() : null;
+                        if (context != null && !context.isEmpty()
+                                && test != null && !test.isEmpty()
+                                && message != null && !message.isEmpty()) {
+                            assertions.add(new SchematronCustomAssertion(context, test, message, id));
+                        }
+                    }
+                }
+                if (!assertions.isEmpty()) {
+                    globalRules.put(schematronType, List.copyOf(assertions));
+                }
+            }
+        }
+
+        return globalRules.isEmpty() ? Map.of() : Map.copyOf(globalRules);
+    }
+
+    /**
+     * String key'li global kuralları SchematronValidationType key'li map'e dönüştürür.
+     * Geçersiz tip isimli kurallar atlanır.
+     */
+    private Map<SchematronValidationType, List<SchematronCustomAssertion>> resolveGlobalRulesToEnum(
+            Map<String, List<SchematronCustomAssertion>> stringKeyedRules) {
+        var result = new LinkedHashMap<SchematronValidationType, List<SchematronCustomAssertion>>();
+        for (var entry : stringKeyedRules.entrySet()) {
+            try {
+                SchematronValidationType type = SchematronValidationType.valueOf(entry.getKey());
+                result.put(type, entry.getValue());
+            } catch (IllegalArgumentException e) {
+                log.warn("Global Schematron kurallarında bilinmeyen tip atlanıyor: {}", entry.getKey());
+            }
+        }
+        return result.isEmpty() ? Map.of() : Map.copyOf(result);
     }
 
     @SuppressWarnings("unchecked")
@@ -472,7 +696,40 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
             }
         }
 
-        return new RawProfile(name, description, extendsProfile, rules, xsdOverrides);
+        // schematron-rules alanını parse et
+        Map<String, List<SchematronCustomAssertion>> schematronRules = new LinkedHashMap<>();
+        Object schematronRulesObj = map.get("schematron-rules");
+        if (schematronRulesObj instanceof Map<?, ?> schematronRulesMap) {
+            for (var schEntry : schematronRulesMap.entrySet()) {
+                String schematronType = String.valueOf(schEntry.getKey()).strip();
+                if (schEntry.getValue() instanceof List<?> ruleList) {
+                    var assertions = new ArrayList<SchematronCustomAssertion>();
+                    for (var ruleItem : ruleList) {
+                        if (ruleItem instanceof Map<?, ?> ruleMap) {
+                            Map<String, Object> typedRuleMap = (Map<String, Object>) ruleMap;
+                            String context = typedRuleMap.get("context") != null
+                                    ? String.valueOf(typedRuleMap.get("context")).strip() : null;
+                            String test = typedRuleMap.get("test") != null
+                                    ? String.valueOf(typedRuleMap.get("test")).strip() : null;
+                            String message = typedRuleMap.get("message") != null
+                                    ? String.valueOf(typedRuleMap.get("message")).strip() : null;
+                            String id = typedRuleMap.get("id") != null
+                                    ? String.valueOf(typedRuleMap.get("id")).strip() : null;
+                            if (context != null && !context.isEmpty()
+                                    && test != null && !test.isEmpty()
+                                    && message != null && !message.isEmpty()) {
+                                assertions.add(new SchematronCustomAssertion(context, test, message, id));
+                            }
+                        }
+                    }
+                    if (!assertions.isEmpty()) {
+                        schematronRules.put(schematronType, List.copyOf(assertions));
+                    }
+                }
+            }
+        }
+
+        return new RawProfile(name, description, extendsProfile, rules, xsdOverrides, schematronRules);
     }
 
     // ── Profile Resolution (Inheritance) ────────────────────────────
@@ -489,6 +746,8 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         // XSD overrides: üst profil + kendi overrides
         // Alt profildeki override'lar aynı element için üst profildekini ezer
         Map<String, Map<String, XsdOverride>> mergedOverrides = new LinkedHashMap<>();
+        // Schematron custom rules: üst profil + kendi kurallar (tümü birleştirilir)
+        Map<String, List<SchematronCustomAssertion>> mergedSchematronRules = new LinkedHashMap<>();
 
         // Miras alınan profildeki kuralları ekle
         if (raw.extendsProfile != null && !raw.extendsProfile.isBlank()) {
@@ -507,6 +766,14 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
                     elementMap.put(ovr.element(), ovr);
                 }
             }
+
+            // Üst profil schematron custom rules
+            if (parentProfile.schematronRules() != null) {
+                for (var entry : parentProfile.schematronRules().entrySet()) {
+                    mergedSchematronRules.computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
+                            .addAll(entry.getValue());
+                }
+            }
         }
 
         // Kendi kurallarını ekle
@@ -520,14 +787,26 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
             }
         }
 
+        // Kendi schematron custom rules — üst profil kurallarının üstüne eklenir
+        for (var entry : raw.schematronRules.entrySet()) {
+            mergedSchematronRules.computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
+                    .addAll(entry.getValue());
+        }
+
         // Map<String, Map<String, XsdOverride>> → Map<String, List<XsdOverride>>
         Map<String, List<XsdOverride>> finalOverrides = new LinkedHashMap<>();
         for (var entry : mergedOverrides.entrySet()) {
             finalOverrides.put(entry.getKey(), List.copyOf(entry.getValue().values()));
         }
 
+        // Schematron rules'u immutable hale getir
+        Map<String, List<SchematronCustomAssertion>> finalSchematronRules = new LinkedHashMap<>();
+        for (var entry : mergedSchematronRules.entrySet()) {
+            finalSchematronRules.put(entry.getKey(), List.copyOf(entry.getValue()));
+        }
+
         return new ValidationProfile(name, raw.description, raw.extendsProfile,
-                List.copyOf(allSuppressions), Map.copyOf(finalOverrides));
+                List.copyOf(allSuppressions), Map.copyOf(finalOverrides), Map.copyOf(finalSchematronRules));
     }
 
     // ── Rule Compilation ────────────────────────────────────────────
@@ -691,7 +970,8 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
             String description,
             String extendsProfile,
             List<SuppressionRule> suppressions,
-            Map<String, List<XsdOverride>> xsdOverrides
+            Map<String, List<XsdOverride>> xsdOverrides,
+            Map<String, List<SchematronCustomAssertion>> schematronRules
     ) {
     }
 

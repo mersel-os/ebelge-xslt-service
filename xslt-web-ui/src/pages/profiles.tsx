@@ -16,6 +16,7 @@ import {
   Pencil,
   Trash2,
   FileCode,
+  ScrollText,
   Info,
   ListChecks,
 } from "lucide-react";
@@ -60,6 +61,15 @@ const ProfileCard = memo(function ProfileCard({
           >
             <FileCode className="h-2.5 w-2.5" />
             {Object.values(info.xsdOverrides).flat().length} XSD
+          </Badge>
+        )}
+        {info.schematronRules && Object.keys(info.schematronRules).length > 0 && (
+          <Badge
+            variant="outline"
+            className="text-[10px] gap-1 font-mono rounded-lg"
+          >
+            <ScrollText className="h-2.5 w-2.5" />
+            {Object.values(info.schematronRules).flat().length} ek kural
           </Badge>
         )}
         {info.extends && (
@@ -121,6 +131,10 @@ export default function ProfilesPage() {
       string,
       { element: string; minOccurs?: string; maxOccurs?: string }[]
     >;
+    schematronRules: Record<
+      string,
+      { context: string; test: string; message: string; id?: string }[]
+    >;
   }) => {
     saveProfile.mutate(
       {
@@ -134,6 +148,7 @@ export default function ProfilesPage() {
           description: s.description || undefined,
         })),
         xsdOverrides: formData.xsdOverrides,
+        schematronRules: formData.schematronRules,
       },
       {
         onSuccess: () => {
@@ -422,6 +437,65 @@ export default function ProfilesPage() {
                                   {ovr.maxOccurs ?? "—"}
                                 </span>
                               </span>
+                            </div>
+                          </div>
+                        ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+            {/* Schematron Rules */}
+            {selectedProfile.info.schematronRules &&
+              Object.keys(selectedProfile.info.schematronRules).length > 0 && (
+                <div>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
+                    <ScrollText className="h-3.5 w-3.5" />
+                    Özel Schematron Kuralları
+                  </h4>
+                  <div className="space-y-2">
+                    {Object.entries(selectedProfile.info.schematronRules).flatMap(
+                      ([schematronType, rules]) =>
+                        rules.map((rule, i) => (
+                          <div
+                            key={`sch-${schematronType}-${rule.id || i}`}
+                            className="rounded-lg border bg-muted/20 px-4 py-3 space-y-2"
+                          >
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] font-mono rounded-md shrink-0"
+                              >
+                                {schematronType}
+                              </Badge>
+                              {rule.id && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] font-mono rounded-md"
+                                >
+                                  {rule.id}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-[11px] space-y-1">
+                              <div className="flex gap-2">
+                                <span className="text-muted-foreground shrink-0">context:</span>
+                                <code className="font-mono text-foreground/80 break-all">
+                                  {rule.context}
+                                </code>
+                              </div>
+                              <div className="flex gap-2">
+                                <span className="text-muted-foreground shrink-0">test:</span>
+                                <code className="font-mono text-foreground/80 break-all">
+                                  {rule.test}
+                                </code>
+                              </div>
+                              <div className="flex gap-2">
+                                <span className="text-muted-foreground shrink-0">mesaj:</span>
+                                <span className="text-foreground/80">
+                                  {rule.message}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         ))

@@ -1,5 +1,6 @@
 package io.mersel.services.xslt.application.interfaces;
 
+import io.mersel.services.xslt.application.models.SchematronCustomAssertion;
 import io.mersel.services.xslt.application.models.SchematronError;
 import io.mersel.services.xslt.application.models.SuppressionResult;
 import io.mersel.services.xslt.application.models.ValidationProfile;
@@ -93,6 +94,18 @@ public interface IValidationProfileService {
     List<XsdOverride> resolveXsdOverrides(String profileName, String schemaType);
 
     /**
+     * Belirtilen profil ve Schematron tipi için özel Schematron kurallarını çözümler.
+     * <p>
+     * Profil kalıtım zinciri (extends) de dahil olmak üzere tüm kurallar
+     * birleştirilir. Alt profildeki kurallar üst profildeki kurallara eklenir.
+     *
+     * @param profileName    Profil adı ({@code null} ise boş liste döner)
+     * @param schematronType Schematron tipi adı (örn: "UBLTR_MAIN", "EDEFTER_YEVMIYE")
+     * @return Çözümlenmiş özel Schematron kuralları listesi (boş liste = kural yok)
+     */
+    List<SchematronCustomAssertion> resolveSchematronRules(String profileName, String schematronType);
+
+    /**
      * Profili kaydeder (yeni oluşturur veya mevcudu günceller).
      * <p>
      * YAML dosyasına yazar ve profilleri yeniden yükler.
@@ -112,4 +125,28 @@ public interface IValidationProfileService {
      * @throws IOException YAML dosyasına yazma başarısız olursa
      */
     boolean deleteProfile(String profileName) throws IOException;
+
+    // ── Global Schematron Kuralları ──────────────────────────────────
+
+    /**
+     * Global özel Schematron kurallarını döndürür.
+     * <p>
+     * Bu kurallar profil bağımsızdır ve her doğrulama isteğinde otomatik olarak
+     * aktiftir. YAML dosyasının top-level {@code schematron-rules:} bölümünden okunur.
+     *
+     * @return Schematron tipi adı → kural listesi eşleşmesi (örn: "UBLTR_MAIN" → [...])
+     */
+    Map<String, List<SchematronCustomAssertion>> getGlobalSchematronRules();
+
+    /**
+     * Global özel Schematron kurallarını kaydeder.
+     * <p>
+     * YAML dosyasının top-level {@code schematron-rules:} bölümüne yazar,
+     * mevcut tüm global kuralları değiştirir ve reload tetikler.
+     * Reload sonrasında yeni kurallar otomatik olarak derlenir.
+     *
+     * @param rules Schematron tipi adı → kural listesi eşleşmesi
+     * @throws IOException YAML dosyasına yazma başarısız olursa
+     */
+    void saveGlobalSchematronRules(Map<String, List<SchematronCustomAssertion>> rules) throws IOException;
 }

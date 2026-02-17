@@ -14,6 +14,7 @@ import javax.xml.transform.stream.StreamSource;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -117,6 +118,24 @@ public class SchematronRuntimeCompiler {
     public CompileResult compileAndReturn(Path sourceFile) throws SaxonApiException {
         log.debug("Schematron derleme + çıktı (Path): {}", sourceFile);
         return compileWithOutput(new StreamSource(sourceFile.toFile()));
+    }
+
+    /**
+     * Bellekteki (modifiye edilmiş) Schematron byte'larını derler ve pipeline XSLT çıktısını döndürür.
+     * <p>
+     * {@code baseUri} parametresi, {@code sch:include} gibi göreceli referansların
+     * çözümlenmesi için kullanılır. Orijinal Schematron dosyasının URI'si verilmelidir.
+     *
+     * @param modifiedSource Modifiye edilmiş Schematron XML içeriği
+     * @param baseUri        Göreceli referanslar için base URI (orijinal dosyanın URI'si)
+     * @return CompileResult — executable + generated XSLT bytes
+     * @throws SaxonApiException Derleme hatası
+     */
+    public CompileResult compileAndReturn(byte[] modifiedSource, URI baseUri) throws SaxonApiException {
+        log.debug("Schematron derleme + çıktı (in-memory, baseUri={})", baseUri);
+        var source = new StreamSource(new ByteArrayInputStream(modifiedSource));
+        source.setSystemId(baseUri.toString());
+        return compileWithOutput(source);
     }
 
     /**

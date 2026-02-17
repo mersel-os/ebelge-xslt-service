@@ -105,6 +105,7 @@ class AdminControllerTest {
         var profile = new ValidationProfile(
                 "unsigned", "İmzasız belge profili", null,
                 List.of(new ValidationProfile.SuppressionRule("ruleId", ".*Signature.*", null, "İmza kurallarını bastır")),
+                Map.of(),
                 Map.of()
         );
         when(profileService.getAvailableProfiles()).thenReturn(Map.of("unsigned", profile));
@@ -155,15 +156,19 @@ class AdminControllerTest {
                 .thenReturn(List.of("UBLTR_MAIN.xsl", "EDEFTER_KEBIR.xsl"));
         when(assetManager.listFiles("auto-generated/schema-overrides"))
                 .thenReturn(List.of("INVOICE_override.xsd"));
+        when(assetManager.listFiles("auto-generated/schematron-rules"))
+                .thenReturn(List.of("my-company_UBLTR_MAIN.xsl"));
 
         mockMvc.perform(get("/v1/admin/auto-generated"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalCount").value(3))
+                .andExpect(jsonPath("$.totalCount").value(4))
                 .andExpect(jsonPath("$.schematron.count").value(2))
                 .andExpect(jsonPath("$.schematron.files[0]").value("UBLTR_MAIN.xsl"))
                 .andExpect(jsonPath("$.schematron.files[1]").value("EDEFTER_KEBIR.xsl"))
                 .andExpect(jsonPath("$.schemaOverrides.count").value(1))
-                .andExpect(jsonPath("$.schemaOverrides.files[0]").value("INVOICE_override.xsd"));
+                .andExpect(jsonPath("$.schemaOverrides.files[0]").value("INVOICE_override.xsd"))
+                .andExpect(jsonPath("$.schematronRules.count").value(1))
+                .andExpect(jsonPath("$.schematronRules.files[0]").value("my-company_UBLTR_MAIN.xsl"));
     }
 
     // ── Test 6 ──────────────────────────────────────────────────────────

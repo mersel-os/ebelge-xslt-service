@@ -16,19 +16,26 @@ import java.util.Map;
  * {@code xsdOverrides} ile GIB orijinal XSD dosyalarındaki element kısıtlamaları
  * (minOccurs/maxOccurs) profil bazlı olarak değiştirilebilir.
  * Map key'i {@code SchemaValidationType} adıdır (INVOICE, DESPATCH_ADVICE, ...).
+ * <p>
+ * {@code schematronRules} ile kaynak Schematron dosyalarına özel doğrulama kuralları
+ * (assertion) eklenebilir. Kurallar, ISO Schematron pipeline'ına girmeden önce
+ * orijinal Schematron XML'e enjekte edilir.
+ * Map key'i {@code SchematronValidationType} adıdır (UBLTR_MAIN, EDEFTER_YEVMIYE, ...).
  *
- * @param name           Profil adı (örn: "unsigned", "my-company")
- * @param description    Profil açıklaması
- * @param extendsProfile Miras alınan profil adı (isteğe bağlı, {@code null} ise kalıtım yok)
- * @param suppressions   Bastırma kuralları listesi
- * @param xsdOverrides   XSD override kuralları — key: SchemaValidationType adı, value: override listesi
+ * @param name             Profil adı (örn: "unsigned", "my-company")
+ * @param description      Profil açıklaması
+ * @param extendsProfile   Miras alınan profil adı (isteğe bağlı, {@code null} ise kalıtım yok)
+ * @param suppressions     Bastırma kuralları listesi
+ * @param xsdOverrides     XSD override kuralları — key: SchemaValidationType adı, value: override listesi
+ * @param schematronRules  Özel Schematron kuralları — key: SchematronValidationType adı, value: assertion listesi
  */
 public record ValidationProfile(
         String name,
         String description,
         String extendsProfile,
         List<SuppressionRule> suppressions,
-        Map<String, List<XsdOverride>> xsdOverrides
+        Map<String, List<XsdOverride>> xsdOverrides,
+        Map<String, List<SchematronCustomAssertion>> schematronRules
 ) {
 
     /**

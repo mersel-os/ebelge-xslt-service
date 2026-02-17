@@ -5,6 +5,7 @@ import io.mersel.services.xslt.application.interfaces.IGibPackageSyncService;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
 import io.mersel.services.xslt.application.models.PackageSyncResult;
+import io.mersel.services.xslt.application.models.SchematronCustomAssertion;
 import io.mersel.services.xslt.application.models.ValidationProfile;
 import io.mersel.services.xslt.application.models.ValidationProfile.SuppressionRule;
 import io.mersel.services.xslt.application.models.XsdOverride;
@@ -120,9 +121,19 @@ public class AdminController {
                 }
             }
 
+            Map<String, List<SchematronRuleDto>> schematronRules = null;
+            if (profile.schematronRules() != null && !profile.schematronRules().isEmpty()) {
+                schematronRules = new LinkedHashMap<>();
+                for (var schEntry : profile.schematronRules().entrySet()) {
+                    schematronRules.put(schEntry.getKey(), schEntry.getValue().stream()
+                            .map(r -> new SchematronRuleDto(r.context(), r.test(), r.message(), r.id()))
+                            .toList());
+                }
+            }
+
             profileList.put(entry.getKey(), new ProfileDetailDto(
                     profile.description(), profile.extendsProfile(),
-                    profile.suppressions().size(), suppressions, xsdOverrides));
+                    profile.suppressions().size(), suppressions, xsdOverrides, schematronRules));
         }
 
         return ResponseEntity.ok(new ProfileListResponse(profiles.size(), profileList));
@@ -183,12 +194,26 @@ public class AdminController {
                 }
             }
 
+            // Schematron özel kurallarını dönüştür
+            var schematronRules = new java.util.LinkedHashMap<String, List<io.mersel.services.xslt.application.models.SchematronCustomAssertion>>();
+            if (request.schematronRules() != null) {
+                for (var entry : request.schematronRules().entrySet()) {
+                    if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                        schematronRules.put(entry.getKey(), entry.getValue().stream()
+                                .map(r -> new io.mersel.services.xslt.application.models.SchematronCustomAssertion(
+                                        r.context(), r.test(), r.message(), r.id()))
+                                .toList());
+                    }
+                }
+            }
+
             var profile = new ValidationProfile(
                     name,
                     request.description(),
                     request.extendsProfile(),
                     suppressions,
-                    xsdOverrides
+                    xsdOverrides,
+                    schematronRules
             );
 
             profileService.saveProfile(profile);
@@ -244,7 +269,8 @@ public class AdminController {
             String description,
             String extendsProfile,
             List<SuppressionRuleRequest> suppressions,
-            Map<String, List<XsdOverrideRequest>> xsdOverrides
+            Map<String, List<XsdOverrideRequest>> xsdOverrides,
+            Map<String, List<SchematronRuleRequest>> schematronRules
     ) {
     }
 
@@ -269,6 +295,81 @@ public class AdminController {
     ) {
     }
 
+    /**
+     * Özel Schematron kuralı isteği DTO'su.
+     */
+    public record SchematronRuleRequest(
+            String context,
+            String test,
+            String message,
+            String id
+    ) {
+    }
+
+    // ── Global Schematron Kuralları ────────────────────────────────
+
+    /**
+     * Global özel Schematron kurallarını döndürür.
+     * <p>
+     * Bu kurallar profil bağımsızdır ve her doğrulama isteğinde otomatik olarak aktiftir.
+     */
+    @GetMapping("/schematron-rules")
+    @Operation(
+            summary = "Global Schematron kurallarını listele",
+            description = "Profil bağımsız, her doğrulama isteğinde otomatik uygulanan global özel Schematron kurallarını döndürür. "
+                    + "Bu kurallar YAML dosyasının top-level 'schematron-rules' bölümünde tanımlıdır."
+    )
+    public ResponseEntity<SchematronRulesResponse> getGlobalSchematronRules() {
+        Map<String, List<SchematronCustomAssertion>> rules = profileService.getGlobalSchematronRules();
+
+        var rulesDto = new LinkedHashMap<String, List<SchematronRuleDto>>();
+        int totalCount = 0;
+        for (var entry : rules.entrySet()) {
+            rulesDto.put(entry.getKey(), entry.getValue().stream()
+                    .map(r -> new SchematronRuleDto(r.context(), r.test(), r.message(), r.id()))
+                    .toList());
+            totalCount += entry.getValue().size();
+        }
+
+        return ResponseEntity.ok(new SchematronRulesResponse(rulesDto, totalCount));
+    }
+
+    /**
+     * Global özel Schematron kurallarını kaydeder (tam değiştirme).
+     * <p>
+     * Mevcut tüm global kuralları değiştirir, YAML dosyasına yazar ve reload tetikler.
+     */
+    @PutMapping("/schematron-rules")
+    @Operation(
+            summary = "Global Schematron kurallarını kaydet",
+            description = "Global özel Schematron kurallarını kaydeder. Mevcut tüm global kuralları değiştirir. "
+                    + "Kayıt sonrası Schematron'lar yeni kurallarla otomatik olarak yeniden derlenir."
+    )
+    public ResponseEntity<?> saveGlobalSchematronRules(@RequestBody SaveSchematronRulesRequest request) {
+        try {
+            var rules = new LinkedHashMap<String, List<SchematronCustomAssertion>>();
+            if (request.rules() != null) {
+                for (var entry : request.rules().entrySet()) {
+                    if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                        rules.put(entry.getKey(), entry.getValue().stream()
+                                .map(r -> new SchematronCustomAssertion(r.context(), r.test(), r.message(), r.id()))
+                                .toList());
+                    }
+                }
+            }
+
+            profileService.saveGlobalSchematronRules(rules);
+
+            int totalCount = rules.values().stream().mapToInt(List::size).sum();
+            return ResponseEntity.ok(new SchematronRulesSaveResponse(
+                    "Global Schematron kuralları kaydedildi", rules.size(), totalCount));
+        } catch (IOException e) {
+            log.error("Global Schematron kural kaydetme hatası: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body(
+                    new ErrorResponse("Global Schematron kuralları kaydedilemedi", e.getMessage()));
+        }
+    }
+
     // ── Auto-Generated Dosyalar ────────────────────────────────────
 
     /**
@@ -286,11 +387,13 @@ public class AdminController {
     public ResponseEntity<AutoGeneratedResponse> listAutoGenerated() {
         var schematronFiles = assetManager.listFiles("auto-generated/schematron");
         var schemaOverrideFiles = assetManager.listFiles("auto-generated/schema-overrides");
+        var schematronRuleFiles = assetManager.listFiles("auto-generated/schematron-rules");
 
         return ResponseEntity.ok(new AutoGeneratedResponse(
                 new FileGroupDto("auto-generated/schematron", schematronFiles, schematronFiles.size()),
                 new FileGroupDto("auto-generated/schema-overrides", schemaOverrideFiles, schemaOverrideFiles.size()),
-                schematronFiles.size() + schemaOverrideFiles.size()));
+                new FileGroupDto("auto-generated/schematron-rules", schematronRuleFiles, schematronRuleFiles.size()),
+                schematronFiles.size() + schemaOverrideFiles.size() + schematronRuleFiles.size()));
     }
 
     // ── GİB Paket Sync ─────────────────────────────────────────────
@@ -409,17 +512,25 @@ public class AdminController {
     record XsdOverrideDto(String element, String minOccurs, String maxOccurs) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    record SchematronRuleDto(String context, String test, String message, String id) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     record ProfileDetailDto(String description, String extendsProfile, int suppressionCount,
                             List<SuppressionRuleDto> suppressions,
-                            Map<String, List<XsdOverrideDto>> xsdOverrides) {}
+                            Map<String, List<XsdOverrideDto>> xsdOverrides,
+                            Map<String, List<SchematronRuleDto>> schematronRules) {}
 
     record ProfileListResponse(int profileCount, Map<String, ProfileDetailDto> profiles) {}
 
     record ProfileSaveResponse(String message, String profile, int suppressionCount, int xsdOverrideCount) {}
     record ProfileDeleteResponse(String message, String profile) {}
 
+    record SchematronRulesResponse(Map<String, List<SchematronRuleDto>> rules, int totalCount) {}
+    record SaveSchematronRulesRequest(Map<String, List<SchematronRuleRequest>> rules) {}
+    record SchematronRulesSaveResponse(String message, int typeCount, int totalRuleCount) {}
+
     record FileGroupDto(String directory, List<String> files, int count) {}
-    record AutoGeneratedResponse(FileGroupDto schematron, FileGroupDto schemaOverrides, int totalCount) {}
+    record AutoGeneratedResponse(FileGroupDto schematron, FileGroupDto schemaOverrides, FileGroupDto schematronRules, int totalCount) {}
 
     record SyncDisabledResponse(boolean enabled, String message, String currentAssetSource) {}
 
