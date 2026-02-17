@@ -20,6 +20,13 @@ dependencies {
     // Caffeine - XSD override cache with TTL
     implementation(libs.caffeine)
 
+    // java-diff-utils - Asset versioning diff
+    implementation(libs.java.diff.utils)
+
+    // Jackson - Asset versioning JSON metadata
+    implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+
     // Spring Boot (DI, Health, Metrics)
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("io.micrometer:micrometer-registry-prometheus")

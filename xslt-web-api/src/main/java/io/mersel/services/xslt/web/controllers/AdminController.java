@@ -1,14 +1,12 @@
 package io.mersel.services.xslt.web.controllers;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.mersel.services.xslt.application.interfaces.IAssetVersioningService;
 import io.mersel.services.xslt.application.interfaces.IGibPackageSyncService;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
-import io.mersel.services.xslt.application.models.PackageSyncResult;
-import io.mersel.services.xslt.application.models.SchematronCustomAssertion;
-import io.mersel.services.xslt.application.models.ValidationProfile;
+import io.mersel.services.xslt.application.models.*;
 import io.mersel.services.xslt.application.models.ValidationProfile.SuppressionRule;
-import io.mersel.services.xslt.application.models.XsdOverride;
 import io.mersel.services.xslt.infrastructure.AssetManager;
 import io.mersel.services.xslt.infrastructure.AssetRegistry;
 import io.mersel.services.xslt.web.dto.ErrorResponse;
@@ -50,15 +48,18 @@ public class AdminController {
     private final AssetManager assetManager;
     private final IValidationProfileService profileService;
     private final IGibPackageSyncService gibSyncService;
+    private final IAssetVersioningService versioningService;
 
     public AdminController(AssetRegistry assetRegistry,
                            AssetManager assetManager,
                            IValidationProfileService profileService,
-                           IGibPackageSyncService gibSyncService) {
+                           IGibPackageSyncService gibSyncService,
+                           IAssetVersioningService versioningService) {
         this.assetRegistry = assetRegistry;
         this.assetManager = assetManager;
         this.profileService = profileService;
         this.gibSyncService = gibSyncService;
+        this.versioningService = versioningService;
     }
 
     /**
@@ -500,6 +501,240 @@ public class AdminController {
         return count;
     }
 
+    // ── Asset Versioning ──────────────────────────────────────────────
+
+    /**
+     * GİB paketini staging alanına indirir ve diff önizlemesi döndürür.
+     * <p>
+     * Live asset'lere dokunmaz. Kullanıcı değişiklikleri inceledikten sonra
+     * {@code POST /asset-versions/pending/{packageId}/approve} ile onaylayabilir.
+     */
+    @PostMapping("/packages/sync-preview")
+    @Operation(
+            summary = "GİB paketini staging'e indir (önizleme)",
+            description = "GİB paketini staging alanına indirir, live ile karşılaştırır ve "
+                    + "diff önizlemesi döndürür. Live asset'ler değişmez. Onay gerektirir."
+    )
+    public ResponseEntity<?> syncPreview(
+            @RequestParam(value = "package", required = false) String packageId) {
+
+        if (!gibSyncService.isEnabled()) {
+            return ResponseEntity.ok(new SyncDisabledResponse(false,
+                    "GIB paket sync ozelligi devre disi.",
+                    gibSyncService.getCurrentAssetSource()));
+        }
+
+        try {
+            List<SyncPreview> previews;
+            if (packageId != null && !packageId.isBlank()) {
+                previews = List.of(versioningService.syncToStaging(packageId));
+            } else {
+                previews = versioningService.syncAllToStaging();
+            }
+
+            var previewDtos = previews.stream().map(this::toSyncPreviewDto).toList();
+
+            return ResponseEntity.ok(new SyncPreviewResponse(
+                    true, Instant.now().toString(), previewDtos.size(), previewDtos));
+
+        } catch (IOException e) {
+            log.error("Sync preview başarısız: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(new ErrorResponse("sync_preview_failed", "Sync preview başarısız: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Tüm versiyon geçmişini döndürür.
+     */
+    @GetMapping("/asset-versions")
+    @Operation(
+            summary = "Asset versiyon geçmişi",
+            description = "GİB paket sync geçmişini listeler. Opsiyonel packageId filtresi."
+    )
+    public ResponseEntity<AssetVersionListResponse> listAssetVersions(
+            @RequestParam(value = "packageId", required = false) String packageId) {
+
+        List<AssetVersion> versions;
+        if (packageId != null && !packageId.isBlank()) {
+            versions = versioningService.listVersions(packageId);
+        } else {
+            versions = versioningService.listVersions();
+        }
+
+        var versionDtos = versions.stream().map(this::toAssetVersionDto).toList();
+        return ResponseEntity.ok(new AssetVersionListResponse(versionDtos.size(), versionDtos));
+    }
+
+    /**
+     * Tüm pending staging önizlemelerini döndürür.
+     */
+    @GetMapping("/asset-versions/pending")
+    @Operation(
+            summary = "Pending staging önizlemeleri",
+            description = "Onay bekleyen GİB paket staging'lerini ve diff özetlerini döndürür."
+    )
+    public ResponseEntity<PendingPreviewsResponse> getPendingPreviews() {
+        List<SyncPreview> previews = versioningService.getAllPendingPreviews();
+        var previewDtos = previews.stream().map(this::toSyncPreviewDto).toList();
+        return ResponseEntity.ok(new PendingPreviewsResponse(previewDtos.size(), previewDtos));
+    }
+
+    /**
+     * Pending staging'deki tek bir dosyanın detaylı diff'ini döndürür.
+     */
+    @GetMapping("/asset-versions/pending/{packageId}/file-diff")
+    @Operation(
+            summary = "Pending dosya diff detayı",
+            description = "Staging'deki tek bir dosyanın unified diff detayını döndürür."
+    )
+    public ResponseEntity<?> getPendingFileDiff(
+            @PathVariable String packageId,
+            @RequestParam("path") String filePath) {
+        try {
+            FileDiffDetail detail = versioningService.getPendingFileDiff(packageId, filePath);
+            return ResponseEntity.ok(toFileDiffDetailDto(detail));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(404)
+                    .body(new ErrorResponse("not_found", e.getMessage()));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError()
+                    .body(new ErrorResponse("diff_failed", "Diff hesaplanamadı: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Pending staging'i onaylar ve live'a uygular.
+     */
+    @PostMapping("/asset-versions/pending/{packageId}/approve")
+    @Operation(
+            summary = "Pending staging'i onayla",
+            description = "Staging'deki dosyaları live'a uygular, mevcut live dosyaları "
+                    + "history'ye snapshot olarak kaydetir ve asset'leri yeniden yükler."
+    )
+    public ResponseEntity<?> approvePending(@PathVariable String packageId) {
+        try {
+            AssetVersion version = versioningService.approvePending(packageId);
+            return ResponseEntity.ok(new ApproveResponse(
+                    "Versiyon onaylandı ve live'a uygulandı",
+                    toAssetVersionDto(version)));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(404)
+                    .body(new ErrorResponse("not_found", e.getMessage()));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError()
+                    .body(new ErrorResponse("approve_failed", "Onaylama başarısız: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Pending staging'i reddeder ve temizler.
+     */
+    @DeleteMapping("/asset-versions/pending/{packageId}")
+    @Operation(
+            summary = "Pending staging'i reddet",
+            description = "Staging alanını temizler, live asset'ler değişmez."
+    )
+    public ResponseEntity<?> rejectPending(@PathVariable String packageId) {
+        try {
+            versioningService.rejectPending(packageId);
+            return ResponseEntity.ok(new RejectResponse(
+                    "Staging reddedildi ve temizlendi", packageId));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(404)
+                    .body(new ErrorResponse("not_found", e.getMessage()));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError()
+                    .body(new ErrorResponse("reject_failed", "Reddetme başarısız: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Geçmiş bir versiyonun dosya bazında diff özetini döndürür.
+     */
+    @GetMapping("/asset-versions/{versionId}/diff")
+    @Operation(
+            summary = "Geçmiş versiyon dosya diff özeti",
+            description = "Geçmiş bir versiyon snapshot'ındaki dosya değişikliklerinin özetini döndürür."
+    )
+    public ResponseEntity<?> getVersionDiffSummary(@PathVariable String versionId) {
+        try {
+            List<FileDiffSummary> diffs = versioningService.getVersionDiff(versionId);
+            var diffDtos = diffs.stream()
+                    .map(d -> new FileDiffSummaryDto(d.path(), d.status().name(), d.oldSize(), d.newSize()))
+                    .toList();
+            return ResponseEntity.ok(new VersionDiffResponse(versionId, diffDtos.size(), diffDtos));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404)
+                    .body(new ErrorResponse("not_found", e.getMessage()));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError()
+                    .body(new ErrorResponse("diff_failed", "Diff hesaplanamadı: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Geçmiş bir versiyondaki dosyanın diff detayını döndürür.
+     */
+    @GetMapping("/asset-versions/{versionId}/file-diff")
+    @Operation(
+            summary = "Geçmiş versiyon dosya diff detayı",
+            description = "Geçmiş bir versiyon snapshot'ındaki dosyanın unified diff'ini döndürür."
+    )
+    public ResponseEntity<?> getVersionFileDiff(
+            @PathVariable String versionId,
+            @RequestParam("path") String filePath) {
+        try {
+            FileDiffDetail detail = versioningService.getFileDiff(versionId, filePath);
+            return ResponseEntity.ok(toFileDiffDetailDto(detail));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404)
+                    .body(new ErrorResponse("not_found", e.getMessage()));
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError()
+                    .body(new ErrorResponse("diff_failed", "Diff hesaplanamadı: " + e.getMessage()));
+        }
+    }
+
+    // ── Versioning DTO Mappers ──────────────────────────────────────
+
+    private SyncPreviewDto toSyncPreviewDto(SyncPreview preview) {
+        var fileDiffs = preview.fileDiffs().stream()
+                .map(d -> new FileDiffSummaryDto(d.path(), d.status().name(), d.oldSize(), d.newSize()))
+                .toList();
+        var warnings = preview.warnings().stream()
+                .map(w -> new SuppressionWarningDto(w.ruleId(), w.profileName(), w.pattern(),
+                        w.severity().name(), w.message()))
+                .toList();
+        return new SyncPreviewDto(
+                preview.packageId(),
+                toAssetVersionDto(preview.version()),
+                fileDiffs,
+                warnings,
+                preview.version().filesSummary().added(),
+                preview.version().filesSummary().removed(),
+                preview.version().filesSummary().modified(),
+                preview.version().filesSummary().unchanged());
+    }
+
+    private AssetVersionDto toAssetVersionDto(AssetVersion v) {
+        return new AssetVersionDto(
+                v.id(), v.packageId(), v.displayName(),
+                v.timestamp() != null ? v.timestamp().toString() : null,
+                v.status().name(),
+                v.filesSummary() != null ? new FilesSummaryDto(
+                        v.filesSummary().added(), v.filesSummary().removed(),
+                        v.filesSummary().modified(), v.filesSummary().unchanged()) : null,
+                v.appliedAt() != null ? v.appliedAt().toString() : null,
+                v.rejectedAt() != null ? v.rejectedAt().toString() : null,
+                v.durationMs());
+    }
+
+    private FileDiffDetailDto toFileDiffDetailDto(FileDiffDetail d) {
+        return new FileDiffDetailDto(d.path(), d.status().name(), d.unifiedDiff(),
+                d.oldContent(), d.newContent(), d.isBinary());
+    }
+
     // ── Response DTO'ları ────────────────────────────────────────────
 
     record ReloadComponentDto(String name, String status, int count, long durationMs, List<String> errors) {}
@@ -549,4 +784,37 @@ public class AdminController {
                             int totalLoadedFileCount) {}
     record PackageListResponse(boolean enabled, String currentAssetSource, int packageCount,
                                List<PackageDetailDto> packages) {}
+
+    // ── Asset Versioning DTO'ları ───────────────────────────────────
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record AssetVersionDto(String id, String packageId, String displayName,
+                           String timestamp, String status, FilesSummaryDto filesSummary,
+                           String appliedAt, String rejectedAt, long durationMs) {}
+
+    record FilesSummaryDto(int added, int removed, int modified, int unchanged) {}
+
+    record FileDiffSummaryDto(String path, String status, long oldSize, long newSize) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record FileDiffDetailDto(String path, String status, String unifiedDiff,
+                             String oldContent, String newContent, boolean isBinary) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record SuppressionWarningDto(String ruleId, String profileName, String pattern,
+                                 String severity, String message) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record SyncPreviewDto(String packageId, AssetVersionDto version,
+                          List<FileDiffSummaryDto> fileDiffs, List<SuppressionWarningDto> warnings,
+                          int addedCount, int removedCount, int modifiedCount, int unchangedCount) {}
+
+    record SyncPreviewResponse(boolean enabled, String syncedAt, int packageCount,
+                               List<SyncPreviewDto> previews) {}
+
+    record AssetVersionListResponse(int versionCount, List<AssetVersionDto> versions) {}
+    record PendingPreviewsResponse(int pendingCount, List<SyncPreviewDto> previews) {}
+    record ApproveResponse(String message, AssetVersionDto version) {}
+    record RejectResponse(String message, String packageId) {}
+    record VersionDiffResponse(String versionId, int fileCount, List<FileDiffSummaryDto> files) {}
 }

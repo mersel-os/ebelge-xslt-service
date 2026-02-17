@@ -189,6 +189,66 @@ public class GibPackageSyncService implements IGibPackageSyncService {
         return result;
     }
 
+    @Override
+    public PackageSyncResult syncPackageToTarget(String packageId, java.nio.file.Path targetDir) {
+        if (!isEnabled()) {
+            return PackageSyncResult.failure(packageId, "Sync devre dışı", 0,
+                    "GİB paket sync devre dışı (validation-assets.gib.sync.enabled=false)");
+        }
+        var pkg = PACKAGE_DEFINITIONS.stream()
+                .filter(p -> p.id().equals(packageId))
+                .findFirst()
+                .orElse(null);
+
+        if (pkg == null) {
+            return PackageSyncResult.failure(packageId, "Bilinmiyor", 0,
+                    "Geçersiz paket kimliği: " + packageId + ". Geçerli değerler: " +
+                            PACKAGE_DEFINITIONS.stream().map(GibPackageDefinition::id).toList());
+        }
+
+        return doSyncPackageToTarget(pkg, targetDir);
+    }
+
+    /**
+     * Tek bir paketi indir, çıkart ve belirtilen hedef dizine yerleştir.
+     * Live asset'leri değiştirmez, reload tetiklemez.
+     */
+    private PackageSyncResult doSyncPackageToTarget(GibPackageDefinition pkg, Path targetDir) {
+        long startTime = System.currentTimeMillis();
+        log.info("  Staging sync: {} — {} → {}", pkg.id(), pkg.downloadUrl(), targetDir);
+
+        try {
+            byte[] zipBytes = downloadZip(pkg.downloadUrl());
+            if (!isValidZip(zipBytes)) {
+                return PackageSyncResult.failure(pkg.id(), pkg.displayName(),
+                        System.currentTimeMillis() - startTime,
+                        "İndirilen dosya geçerli bir ZIP formatında değil");
+            }
+
+            List<String> extractedFiles = extractAndMap(zipBytes, pkg.fileMapping(), targetDir);
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.info("  {} staging sync tamamlandı: {} dosya, {}ms", pkg.id(), extractedFiles.size(), elapsed);
+
+            xsltMetrics.recordSync(true, elapsed);
+            return PackageSyncResult.success(pkg.id(), pkg.displayName(),
+                    extractedFiles.size(), extractedFiles, elapsed);
+
+        } catch (java.nio.file.AccessDeniedException e) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            String msg = "Yazma izni yok: " + e.getFile();
+            log.error("  {} staging sync başarısız (AccessDenied): {}", pkg.id(), msg);
+            xsltMetrics.recordSync(false, elapsed);
+            return PackageSyncResult.failure(pkg.id(), pkg.displayName(), elapsed, msg);
+        } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            String msg = e.getClass().getSimpleName() + ": " + e.getMessage();
+            log.error("  {} staging sync başarısız: {}", pkg.id(), msg);
+            xsltMetrics.recordSync(false, elapsed);
+            return PackageSyncResult.failure(pkg.id(), pkg.displayName(), elapsed, msg);
+        }
+    }
+
     /**
      * Tek bir paketi indir, çıkart ve hedef dizine yerleştir.
      */
