@@ -17,6 +17,9 @@ import type {
   FileDiffDetail,
   ApproveResponse,
   VersionDiffResponse,
+  DefaultXsltListResponse,
+  DefaultXsltContentResponse,
+  DefaultXsltSaveResponse,
 } from "./types";
 
 // ─── Validation ─────────────────────────────────────────────────────
@@ -318,6 +321,99 @@ export function useVersionFileDiff(versionId: string, filePath: string) {
       }),
     enabled: !!versionId && !!filePath,
     retry: false,
+  });
+}
+
+// ─── Admin: Default XSLT Templates ──────────────────────────────────
+
+export function useDefaultXsltTemplates() {
+  return useQuery({
+    queryKey: ["default-xslt"],
+    queryFn: () =>
+      customInstance<DefaultXsltListResponse>({
+        url: "/v1/admin/default-xslt",
+        method: "GET",
+      }),
+    retry: false,
+  });
+}
+
+export function useDefaultXsltContent(transformType: string) {
+  return useQuery({
+    queryKey: ["default-xslt-content", transformType],
+    queryFn: () =>
+      customInstance<DefaultXsltContentResponse>({
+        url: `/v1/admin/default-xslt/${encodeURIComponent(transformType)}`,
+        method: "GET",
+      }),
+    enabled: !!transformType,
+    retry: false,
+  });
+}
+
+export function useUploadDefaultXslt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      transformType,
+      file,
+    }: {
+      transformType: string;
+      file: File;
+    }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return customInstance<DefaultXsltSaveResponse>({
+        url: `/v1/admin/default-xslt/${encodeURIComponent(transformType)}`,
+        method: "PUT",
+        data: formData,
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["default-xslt"] });
+      queryClient.invalidateQueries({
+        queryKey: ["default-xslt-content", variables.transformType],
+      });
+    },
+  });
+}
+
+export function useSaveDefaultXsltContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      transformType,
+      content,
+    }: {
+      transformType: string;
+      content: string;
+    }) =>
+      customInstance<DefaultXsltSaveResponse>({
+        url: `/v1/admin/default-xslt/${encodeURIComponent(transformType)}/content`,
+        method: "PUT",
+        data: { content },
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["default-xslt"] });
+      queryClient.invalidateQueries({
+        queryKey: ["default-xslt-content", variables.transformType],
+      });
+    },
+  });
+}
+
+export function useDeleteDefaultXslt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (transformType: string) =>
+      customInstance({
+        url: `/v1/admin/default-xslt/${encodeURIComponent(transformType)}`,
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["default-xslt"] });
+    },
   });
 }
 

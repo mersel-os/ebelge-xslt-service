@@ -1,6 +1,8 @@
 package io.mersel.services.xslt.web.controllers;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import io.mersel.services.xslt.application.enums.TransformType;
 import io.mersel.services.xslt.application.interfaces.IAssetVersioningService;
 import io.mersel.services.xslt.application.interfaces.IGibPackageSyncService;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
@@ -14,14 +16,14 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Pattern;
 
 /**
@@ -43,6 +45,26 @@ public class AdminController {
 
     /** Suppression pattern için maksimum uzunluk (ReDoS koruması) */
     private static final int MAX_SUPPRESSION_PATTERN_LENGTH = 500;
+
+    /** TransformType → default_transformers dizinindeki dosya adı eşlemesi */
+    private static final Map<TransformType, String> TRANSFORM_XSL_MAP = Map.of(
+            TransformType.INVOICE, "default_transformers/eInvoice_Base.xslt",
+            TransformType.ARCHIVE_INVOICE, "default_transformers/eArchive_Base.xslt",
+            TransformType.DESPATCH_ADVICE, "default_transformers/eDespatch_Base.xslt",
+            TransformType.RECEIPT_ADVICE, "default_transformers/eDespatch_Answer_Base.xslt",
+            TransformType.EMM, "default_transformers/eMM_Base.xslt",
+            TransformType.ESMM, "default_transformers/eSMM_Base.xslt"
+    );
+
+    /** TransformType için kullanıcı dostu etiketler */
+    private static final Map<TransformType, String> TRANSFORM_TYPE_LABELS = Map.of(
+            TransformType.INVOICE, "e-Fatura",
+            TransformType.ARCHIVE_INVOICE, "e-Arşiv Fatura",
+            TransformType.DESPATCH_ADVICE, "e-İrsaliye",
+            TransformType.RECEIPT_ADVICE, "e-İrsaliye Yanıt",
+            TransformType.EMM, "e-Müstahsil Makbuzu",
+            TransformType.ESMM, "e-Serbest Meslek Makbuzu"
+    );
 
     private final AssetRegistry assetRegistry;
     private final AssetManager assetManager;
@@ -218,6 +240,7 @@ public class AdminController {
             );
 
             profileService.saveProfile(profile);
+            assetRegistry.reload();
 
             int xsdOvrCount = xsdOverrides.values().stream().mapToInt(List::size).sum();
             return ResponseEntity.ok(new ProfileSaveResponse(
@@ -360,6 +383,7 @@ public class AdminController {
             }
 
             profileService.saveGlobalSchematronRules(rules);
+            assetRegistry.reload();
 
             int totalCount = rules.values().stream().mapToInt(List::size).sum();
             return ResponseEntity.ok(new SchematronRulesSaveResponse(
@@ -395,6 +419,208 @@ public class AdminController {
                 new FileGroupDto("auto-generated/schema-overrides", schemaOverrideFiles, schemaOverrideFiles.size()),
                 new FileGroupDto("auto-generated/schematron-rules", schematronRuleFiles, schematronRuleFiles.size()),
                 schematronFiles.size() + schemaOverrideFiles.size() + schematronRuleFiles.size()));
+    }
+
+    // ── Varsayılan XSLT Şablonları ─────────────────────────────────
+
+    /**
+     * Tüm belge tipleri için varsayılan XSLT şablonlarının durumunu listeler.
+     */
+    @GetMapping("/default-xslt")
+    @Operation(
+            summary = "Varsayılan XSLT şablonlarını listele",
+            description = "Her belge tipi (e-Fatura, e-Arşiv, e-İrsaliye vb.) için tanımlı "
+                    + "varsayılan XSLT şablonlarının mevcut durumunu, dosya boyutunu ve "
+                    + "son değiştirilme tarihini döndürür."
+    )
+    public ResponseEntity<DefaultXsltListResponse> listDefaultXsltTemplates() {
+        var templates = new ArrayList<DefaultXsltTemplateDto>();
+
+        for (var entry : TRANSFORM_XSL_MAP.entrySet()) {
+            var type = entry.getKey();
+            var relativePath = entry.getValue();
+            boolean exists = assetManager.assetExists(relativePath);
+            long size = exists ? assetManager.getAssetSize(relativePath) : 0;
+            long lastModified = exists ? assetManager.getAssetLastModified(relativePath) : 0;
+            String fileName = relativePath.substring(relativePath.lastIndexOf('/') + 1);
+
+            templates.add(new DefaultXsltTemplateDto(
+                    type.name(),
+                    TRANSFORM_TYPE_LABELS.getOrDefault(type, type.name()),
+                    fileName,
+                    relativePath,
+                    exists,
+                    size,
+                    lastModified > 0 ? Instant.ofEpochMilli(lastModified).toString() : null
+            ));
+        }
+
+        templates.sort(Comparator.comparing(DefaultXsltTemplateDto::transformType));
+        return ResponseEntity.ok(new DefaultXsltListResponse(templates.size(), templates));
+    }
+
+    /**
+     * Belirli bir belge tipi için varsayılan XSLT şablonunun içeriğini döndürür.
+     */
+    @GetMapping("/default-xslt/{transformType}")
+    @Operation(
+            summary = "Varsayılan XSLT şablon içeriğini getir",
+            description = "Belirtilen belge tipi için varsayılan XSLT şablonunun metin içeriğini döndürür."
+    )
+    public ResponseEntity<?> getDefaultXsltContent(@PathVariable String transformType) {
+        try {
+            var type = TransformType.valueOf(transformType);
+            var relativePath = TRANSFORM_XSL_MAP.get(type);
+            if (relativePath == null) {
+                return ResponseEntity.badRequest().body(
+                        new ErrorResponse("Desteklenmeyen belge tipi", transformType));
+            }
+
+            if (!assetManager.assetExists(relativePath)) {
+                return ResponseEntity.ok(new DefaultXsltContentResponse(
+                        type.name(), relativePath, false, null, 0));
+            }
+
+            var content = new String(assetManager.readAssetBytes(relativePath), java.nio.charset.StandardCharsets.UTF_8);
+            return ResponseEntity.ok(new DefaultXsltContentResponse(
+                    type.name(), relativePath, true, content, content.length()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(
+                    new ErrorResponse("Geçersiz belge tipi", transformType));
+        } catch (IOException e) {
+            log.error("XSLT şablon okuma hatası: {} — {}", transformType, e.getMessage());
+            return ResponseEntity.internalServerError().body(
+                    new ErrorResponse("XSLT şablon okunamadı", e.getMessage()));
+        }
+    }
+
+    /**
+     * Belirli bir belge tipi için varsayılan XSLT şablonunu günceller veya oluşturur.
+     * <p>
+     * İçerik multipart/form-data (dosya yükleme) veya düz metin olarak gönderilebilir.
+     * Kayıt sonrası XSLT şablonları otomatik olarak yeniden derlenir.
+     */
+    @PutMapping(value = "/default-xslt/{transformType}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(
+            summary = "Varsayılan XSLT şablonunu yükle/güncelle (dosya)",
+            description = "Belirtilen belge tipi için varsayılan XSLT şablonunu dosya olarak yükler. "
+                    + "Kayıt sonrası şablon otomatik olarak derlenir ve aktif hale gelir."
+    )
+    public ResponseEntity<?> uploadDefaultXslt(
+            @PathVariable String transformType,
+            @RequestParam("file") MultipartFile file) {
+        try {
+            var type = TransformType.valueOf(transformType);
+            var relativePath = TRANSFORM_XSL_MAP.get(type);
+            if (relativePath == null) {
+                return ResponseEntity.badRequest().body(
+                        new ErrorResponse("Desteklenmeyen belge tipi", transformType));
+            }
+
+            byte[] content = file.getBytes();
+            if (content.length == 0) {
+                return ResponseEntity.badRequest().body(
+                        new ErrorResponse("Boş dosya", "XSLT dosyası boş olamaz"));
+            }
+
+            assetManager.writeAsset(relativePath, content);
+            assetRegistry.reload();
+
+            log.info("Varsayılan XSLT şablonu güncellendi: {} ({} bytes)", transformType, content.length);
+            return ResponseEntity.ok(new DefaultXsltSaveResponse(
+                    "XSLT şablonu kaydedildi", type.name(),
+                    TRANSFORM_TYPE_LABELS.getOrDefault(type, type.name()),
+                    content.length));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(
+                    new ErrorResponse("Geçersiz belge tipi", transformType));
+        } catch (IOException e) {
+            log.error("XSLT şablon kaydetme hatası: {} — {}", transformType, e.getMessage());
+            return ResponseEntity.internalServerError().body(
+                    new ErrorResponse("XSLT şablon kaydedilemedi", e.getMessage()));
+        }
+    }
+
+    /**
+     * Belirli bir belge tipi için varsayılan XSLT şablonunu metin olarak günceller.
+     */
+    @PutMapping(value = "/default-xslt/{transformType}/content", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(
+            summary = "Varsayılan XSLT şablonunu güncelle (metin)",
+            description = "Belirtilen belge tipi için varsayılan XSLT şablonunu düz metin içeriği ile günceller. "
+                    + "Kayıt sonrası şablon otomatik olarak derlenir ve aktif hale gelir."
+    )
+    public ResponseEntity<?> updateDefaultXsltContent(
+            @PathVariable String transformType,
+            @RequestBody DefaultXsltContentRequest request) {
+        try {
+            var type = TransformType.valueOf(transformType);
+            var relativePath = TRANSFORM_XSL_MAP.get(type);
+            if (relativePath == null) {
+                return ResponseEntity.badRequest().body(
+                        new ErrorResponse("Desteklenmeyen belge tipi", transformType));
+            }
+
+            if (request.content() == null || request.content().isBlank()) {
+                return ResponseEntity.badRequest().body(
+                        new ErrorResponse("Boş içerik", "XSLT içeriği boş olamaz"));
+            }
+
+            byte[] bytes = request.content().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            assetManager.writeAsset(relativePath, bytes);
+            assetRegistry.reload();
+
+            log.info("Varsayılan XSLT şablonu güncellendi (metin): {} ({} bytes)", transformType, bytes.length);
+            return ResponseEntity.ok(new DefaultXsltSaveResponse(
+                    "XSLT şablonu kaydedildi", type.name(),
+                    TRANSFORM_TYPE_LABELS.getOrDefault(type, type.name()),
+                    bytes.length));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(
+                    new ErrorResponse("Geçersiz belge tipi", transformType));
+        } catch (IOException e) {
+            log.error("XSLT şablon kaydetme hatası: {} — {}", transformType, e.getMessage());
+            return ResponseEntity.internalServerError().body(
+                    new ErrorResponse("XSLT şablon kaydedilemedi", e.getMessage()));
+        }
+    }
+
+    /**
+     * Belirli bir belge tipi için varsayılan XSLT şablonunu siler.
+     */
+    @DeleteMapping("/default-xslt/{transformType}")
+    @Operation(
+            summary = "Varsayılan XSLT şablonunu sil",
+            description = "Belirtilen belge tipi için varsayılan XSLT şablonunu siler. "
+                    + "Silindikten sonra bu belge tipi için varsayılan dönüşüm yapılamaz."
+    )
+    public ResponseEntity<?> deleteDefaultXslt(@PathVariable String transformType) {
+        try {
+            var type = TransformType.valueOf(transformType);
+            var relativePath = TRANSFORM_XSL_MAP.get(type);
+            if (relativePath == null) {
+                return ResponseEntity.badRequest().body(
+                        new ErrorResponse("Desteklenmeyen belge tipi", transformType));
+            }
+
+            boolean deleted = assetManager.deleteAsset(relativePath);
+            if (!deleted) {
+                return ResponseEntity.notFound().build();
+            }
+
+            assetRegistry.reload();
+            log.info("Varsayılan XSLT şablonu silindi: {}", transformType);
+            return ResponseEntity.ok(new DefaultXsltDeleteResponse(
+                    "XSLT şablonu silindi", type.name(),
+                    TRANSFORM_TYPE_LABELS.getOrDefault(type, type.name())));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(
+                    new ErrorResponse("Geçersiz belge tipi", transformType));
+        } catch (IOException e) {
+            log.error("XSLT şablon silme hatası: {} — {}", transformType, e.getMessage());
+            return ResponseEntity.internalServerError().body(
+                    new ErrorResponse("XSLT şablon silinemedi", e.getMessage()));
+        }
     }
 
     // ── GİB Paket Sync ─────────────────────────────────────────────
@@ -817,4 +1043,22 @@ public class AdminController {
     record ApproveResponse(String message, AssetVersionDto version) {}
     record RejectResponse(String message, String packageId) {}
     record VersionDiffResponse(String versionId, int fileCount, List<FileDiffSummaryDto> files) {}
+
+    // ── Default XSLT DTO'ları ────────────────────────────────────────
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record DefaultXsltTemplateDto(String transformType, String label, String fileName,
+                                   String relativePath, boolean exists, long size,
+                                   String lastModified) {}
+
+    record DefaultXsltListResponse(int count, List<DefaultXsltTemplateDto> templates) {}
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record DefaultXsltContentResponse(String transformType, String path, boolean exists,
+                                       String content, long size) {}
+
+    record DefaultXsltContentRequest(String content) {}
+
+    record DefaultXsltSaveResponse(String message, String transformType, String label, long size) {}
+    record DefaultXsltDeleteResponse(String message, String transformType, String label) {}
 }

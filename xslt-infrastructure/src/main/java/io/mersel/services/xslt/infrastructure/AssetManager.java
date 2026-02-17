@@ -257,6 +257,79 @@ public class AssetManager {
         return Files.readAllBytes(file);
     }
 
+    // ── Asset Write/Delete ──────────────────────────────────────────
+
+    /**
+     * Asset dosyasını external dizine yazar.
+     * <p>
+     * Üst dizin yoksa otomatik olarak oluşturulur.
+     * Path traversal koruması uygulanır.
+     *
+     * @param relativePath external dizin altındaki göreceli yol
+     * @param content dosya içeriği
+     * @throws IOException Yazma hatası veya external path yapılandırılmamışsa
+     */
+    public void writeAsset(String relativePath, byte[] content) throws IOException {
+        Path file = resolveAndValidate(relativePath);
+        Path parent = file.getParent();
+        if (parent != null && !Files.isDirectory(parent)) {
+            Files.createDirectories(parent);
+        }
+        Files.write(file, content);
+        log.info("Asset dosyası yazıldı: {} ({} bytes)", relativePath, content.length);
+    }
+
+    /**
+     * Asset dosyasını siler.
+     *
+     * @param relativePath external dizin altındaki göreceli yol
+     * @return true silinirse, false dosya yoksa
+     * @throws IOException Silme hatası veya external path yapılandırılmamışsa
+     */
+    public boolean deleteAsset(String relativePath) throws IOException {
+        Path file = resolveAndValidate(relativePath);
+        if (Files.isRegularFile(file)) {
+            Files.delete(file);
+            log.info("Asset dosyası silindi: {}", relativePath);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Asset dosyasının boyutunu döndürür.
+     *
+     * @param relativePath external dizin altındaki göreceli yol
+     * @return dosya boyutu (byte), dosya yoksa -1
+     */
+    public long getAssetSize(String relativePath) {
+        if (externalDir == null) return -1;
+        Path resolved = externalDir.resolve(relativePath).normalize();
+        if (!resolved.startsWith(externalDir)) return -1;
+        try {
+            return Files.isRegularFile(resolved) ? Files.size(resolved) : -1;
+        } catch (IOException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * Asset dosyasının son değiştirilme zamanını döndürür.
+     *
+     * @param relativePath external dizin altındaki göreceli yol
+     * @return son değiştirilme zamanı (epoch millis), dosya yoksa -1
+     */
+    public long getAssetLastModified(String relativePath) {
+        if (externalDir == null) return -1;
+        Path resolved = externalDir.resolve(relativePath).normalize();
+        if (!resolved.startsWith(externalDir)) return -1;
+        try {
+            return Files.isRegularFile(resolved) ? Files.getLastModifiedTime(resolved).toMillis() : -1;
+        } catch (IOException e) {
+            return -1;
+        }
+    }
+
     // ── Auto-Generated ─────────────────────────────────────────────
 
     private static final String AUTO_GENERATED_DIR = "auto-generated";
