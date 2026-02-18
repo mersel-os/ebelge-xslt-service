@@ -21,9 +21,9 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
       <div className="flex items-center justify-center min-h-[350px] rounded-xl border border-dashed">
         <div className="flex flex-col items-center gap-5 text-center px-6">
           <div className="relative">
-            <div className="absolute inset-0 rounded-full bg-primary/10 blur-2xl scale-150" />
+            <div className="absolute inset-0 rounded-full bg-foreground/10 blur-2xl scale-150" />
             <div className="relative flex h-16 w-16 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 border border-primary/10">
-              <Lock className="h-7 w-7 text-primary/60" />
+              <Lock className="h-7 w-7 text-foreground/60" />
             </div>
           </div>
           <div>

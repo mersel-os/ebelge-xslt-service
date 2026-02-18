@@ -18,7 +18,7 @@ export function FileDropzone({
   accept = ".xml",
   label = "XML dosyasını sürükleyip bırakın",
 }: FileDropzoneProps) {
-  const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+  const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -48,24 +48,24 @@ export function FileDropzone({
 
   if (file) {
     return (
-      <div className="flex items-center gap-4 rounded-xl border bg-muted/30 p-4 transition-all animate-scale-in">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <FileText className="h-5 w-5" />
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-3 animate-fade-in">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted border border-border">
+          <FileText className="h-4 w-4 text-foreground/70" />
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate">{file.name}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {(file.size / 1024).toFixed(1)} KB &middot; {file.name.split('.').pop()?.toUpperCase() ?? 'XML'}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{file.name}</p>
+          <p className="text-xs text-muted-foreground">
+            {(file.size / 1024).toFixed(1)} KB · {file.name.split(".").pop()?.toUpperCase() ?? "XML"}
           </p>
         </div>
         <Button
           variant="ghost"
-          size="icon"
-          className="h-9 w-9 rounded-lg shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          size="icon-xs"
+          className="shrink-0 text-muted-foreground/70 hover:text-red-400"
           onClick={() => onFileChange(null)}
           aria-label="Dosyayı kaldır"
         >
-          <X className="h-4 w-4" />
+          <X className="h-3.5 w-3.5" />
         </Button>
       </div>
     );
@@ -77,36 +77,27 @@ export function FileDropzone({
       role="button"
       aria-label={label}
       className={cn(
-        "group relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-10 cursor-pointer transition-all duration-300",
+        "group flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-border p-10 transition-all duration-300",
         isDragActive
-          ? "border-primary bg-primary/5 scale-[1.02]"
-          : "border-border hover:border-primary/30 hover:bg-muted/30"
+          ? "bg-accent"
+          : "bg-muted/50 hover:bg-muted"
       )}
     >
       <input {...getInputProps()} />
-
       <div
         className={cn(
-          "flex h-14 w-14 items-center justify-center rounded-xl transition-all duration-300 mb-4",
+          "mb-4 flex h-12 w-12 items-center justify-center rounded-2xl transition-all duration-300",
           isDragActive
-            ? "bg-primary/15 text-primary scale-110"
-            : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
+            ? "bg-foreground/10 text-foreground"
+            : "bg-muted text-muted-foreground/70 group-hover:bg-foreground/10 group-hover:text-foreground"
         )}
       >
-        <Upload className="h-6 w-6" />
+        <Upload className="h-5 w-5" />
       </div>
-
-      <p
-        className={cn(
-          "text-sm font-medium transition-colors",
-          isDragActive ? "text-primary" : "text-foreground/70"
-        )}
-      >
+      <p className={cn("text-sm font-medium transition-colors", isDragActive ? "text-foreground" : "text-muted-foreground")}>
         {label}
       </p>
-      <p className="text-xs text-muted-foreground/50 mt-1.5">
-        veya dosya seçmek için tıklayın
-      </p>
+      <p className="mt-1.5 text-xs text-muted-foreground/70">veya dosya seçmek için tıklayın</p>
     </div>
   );
 }

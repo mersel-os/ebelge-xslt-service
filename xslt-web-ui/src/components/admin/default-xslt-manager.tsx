@@ -37,7 +37,7 @@ export function DefaultXsltManager() {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border bg-card shadow-sm p-8">
+      <div className="rounded-xl border bg-card shadow-xs p-8">
         <div className="flex items-center justify-center gap-3 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">XSLT şablonları yükleniyor...</span>
@@ -48,40 +48,32 @@ export function DefaultXsltManager() {
 
   if (isError) {
     return (
-      <div className="rounded-xl border bg-card shadow-sm p-8">
+      <div className="rounded-xl border bg-card shadow-xs p-8">
         <div className="flex items-center justify-center gap-3 text-destructive">
           <AlertCircle className="h-5 w-5" />
-          <span className="text-sm">
-            XSLT şablonları yüklenirken hata oluştu
-          </span>
+          <span className="text-sm">XSLT şablonları yüklenirken hata oluştu</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-      <div className="p-6 pb-5">
+    <div className="rounded-xl border bg-card shadow-xs overflow-hidden">
+      <div className="p-5">
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary mb-3">
-              <FileCode2 className="h-5 w-5" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/70">
+              <FileCode2 className="h-4 w-4" />
             </div>
-            <h3 className="text-base font-semibold">
-              Varsayılan XSLT Şablonları
-            </h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              Her belge tipi için dönüşümde kullanılacak varsayılan XSLT
-              şablonlarını yönetin. Şablon yoksa ilgili belge tipi için
-              varsayılan dönüşüm yapılamaz.
-            </p>
+            <div>
+              <h3 className="text-sm font-semibold">Varsayılan XSLT Şablonları</h3>
+              <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                Her belge tipi için dönüşümde kullanılacak varsayılan XSLT şablonlarını yönetin.
+              </p>
+            </div>
           </div>
-          <Badge
-            variant="outline"
-            className="shrink-0 rounded-md text-xs px-3 py-1"
-          >
-            {templates.filter((t) => t.exists).length} / {templates.length}{" "}
-            aktif
+          <Badge variant="outline" className="shrink-0 rounded-md text-xs px-2.5 py-1">
+            {templates.filter((t) => t.exists).length} / {templates.length} aktif
           </Badge>
         </div>
       </div>
@@ -117,8 +109,7 @@ function TemplateRow({ template }: { template: DefaultXsltTemplate }) {
         },
         onError: (error) => {
           toast.error("Yükleme başarısız", {
-            description:
-              error instanceof Error ? error.message : "Bilinmeyen hata",
+            description: error instanceof Error ? error.message : "Bilinmeyen hata",
           });
         },
       }
@@ -132,14 +123,11 @@ function TemplateRow({ template }: { template: DefaultXsltTemplate }) {
 
     deleteMutation.mutate(template.transformType, {
       onSuccess: () => {
-        toast.success("XSLT şablonu silindi", {
-          description: template.label,
-        });
+        toast.success("XSLT şablonu silindi", { description: template.label });
       },
       onError: (error) => {
         toast.error("Silme başarısız", {
-          description:
-            error instanceof Error ? error.message : "Bilinmeyen hata",
+          description: error instanceof Error ? error.message : "Bilinmeyen hata",
         });
       },
     });
@@ -149,80 +137,51 @@ function TemplateRow({ template }: { template: DefaultXsltTemplate }) {
 
   return (
     <>
-      <div className="flex items-center gap-4 px-6 py-4 hover:bg-muted/20 transition-colors">
-        {/* Status icon */}
+      <div className="flex items-center gap-4 px-5 py-3.5 hover:bg-muted/30 transition-colors">
+        {/* Status */}
         <div
           className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
             template.exists
-              ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400"
-              : "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400"
+              ? "bg-success/10 text-success"
+              : "bg-warning/10 text-warning"
           )}
         >
-          {template.exists ? (
-            <CheckCircle2 className="h-4 w-4" />
-          ) : (
-            <AlertCircle className="h-4 w-4" />
-          )}
+          {template.exists ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
         </div>
 
         {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium truncate">
-              {template.label}
-            </span>
-            <Badge
-              variant="outline"
-              className="rounded text-[10px] px-1.5 py-0 font-mono shrink-0"
-            >
+            <span className="text-sm font-medium truncate">{template.label}</span>
+            <Badge variant="outline" className="rounded-md text-[10px] px-1.5 py-0 font-mono shrink-0">
               {template.transformType}
             </Badge>
           </div>
           <div className="flex items-center gap-3 mt-0.5">
-            <span className="text-xs text-muted-foreground font-mono truncate">
-              {template.fileName}
-            </span>
+            <span className="text-xs text-muted-foreground font-mono truncate">{template.fileName}</span>
             {template.exists && (
               <>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {formatSize(template.size)}
-                </span>
+                <span className="text-xs text-muted-foreground tabular-nums">{formatSize(template.size)}</span>
                 {template.lastModified && (
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {formatDate(template.lastModified)}
-                  </span>
+                  <span className="text-xs text-muted-foreground tabular-nums">{formatDate(template.lastModified)}</span>
                 )}
               </>
             )}
             {!template.exists && (
-              <span className="text-xs text-amber-600 dark:text-amber-400">
-                Şablon yok
-              </span>
+              <span className="text-xs text-warning">Şablon yok</span>
             )}
           </div>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           {template.exists && (
             <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                title="Görüntüle"
-                onClick={() => setViewOpen(true)}
-              >
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" title="Görüntüle" onClick={() => setViewOpen(true)}>
                 <Eye className="h-3.5 w-3.5" />
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                title="Düzenle"
-                onClick={() => setEditOpen(true)}
-              >
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" title="Düzenle" onClick={() => setEditOpen(true)}>
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
             </>
@@ -230,114 +189,65 @@ function TemplateRow({ template }: { template: DefaultXsltTemplate }) {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 w-8 p-0"
+            className="h-8 w-8 p-0 rounded-lg"
             title={template.exists ? "Değiştir" : "Yükle"}
             disabled={isProcessing}
             onClick={() => fileInputRef.current?.click()}
           >
-            {uploadMutation.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Upload className="h-3.5 w-3.5" />
-            )}
+            {uploadMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
           </Button>
           {template.exists && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+              className="h-8 w-8 p-0 rounded-lg text-destructive hover:text-destructive"
               title="Sil"
               disabled={isProcessing}
               onClick={handleDelete}
             >
-              {deleteMutation.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="h-3.5 w-3.5" />
-              )}
+              {deleteMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
             </Button>
           )}
         </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xslt,.xsl,.xml"
-          className="hidden"
-          onChange={handleFileUpload}
-        />
+        <input ref={fileInputRef} type="file" accept=".xslt,.xsl,.xml" className="hidden" onChange={handleFileUpload} />
       </div>
 
-      {/* View Modal */}
       {viewOpen && (
-        <XsltViewModal
-          open={viewOpen}
-          onOpenChange={setViewOpen}
-          transformType={template.transformType}
-          label={template.label}
-        />
+        <XsltViewModal open={viewOpen} onOpenChange={setViewOpen} transformType={template.transformType} label={template.label} />
       )}
-
-      {/* Edit Modal */}
       {editOpen && (
-        <XsltEditModal
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          transformType={template.transformType}
-          label={template.label}
-        />
+        <XsltEditModal open={editOpen} onOpenChange={setEditOpen} transformType={template.transformType} label={template.label} />
       )}
     </>
   );
 }
 
 function XsltViewModal({
-  open,
-  onOpenChange,
-  transformType,
-  label,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  transformType: string;
-  label: string;
-}) {
+  open, onOpenChange, transformType, label,
+}: { open: boolean; onOpenChange: (open: boolean) => void; transformType: string; label: string; }) {
   const { data, isLoading } = useDefaultXsltContent(open ? transformType : "");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[90vw] h-[85vh] flex flex-col p-0">
-        <DialogHeader className="px-6 py-4 border-b shrink-0 pr-14">
+      <DialogContent className="sm:max-w-[90vw] h-[85vh] flex flex-col p-0 rounded-xl">
+        <DialogHeader className="px-5 py-3 border-b shrink-0 pr-14">
           <div className="flex items-center gap-3">
-            <FileCode2 className="h-4 w-4 text-primary shrink-0" />
-            <DialogTitle className="text-sm font-medium truncate">
-              {label} — XSLT Şablonu
-            </DialogTitle>
-            <Badge
-              variant="outline"
-              className="rounded text-[10px] px-2 py-0 font-mono shrink-0"
-            >
-              {transformType}
-            </Badge>
+            <FileCode2 className="h-4 w-4 text-foreground/70 shrink-0" />
+            <DialogTitle className="text-sm font-medium truncate">{label} — XSLT Şablonu</DialogTitle>
+            <Badge variant="outline" className="rounded-md text-[10px] px-2 py-0 font-mono shrink-0">{transformType}</Badge>
           </div>
-          <DialogDescription className="sr-only">
-            XSLT şablon içeriği
-          </DialogDescription>
+          <DialogDescription className="sr-only">XSLT şablon içeriği</DialogDescription>
         </DialogHeader>
-
         <div className="flex-1 overflow-auto p-0 min-h-0">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : data?.content ? (
-            <pre className="text-xs font-mono leading-relaxed p-6 whitespace-pre-wrap break-all">
-              {data.content}
-            </pre>
+            <pre className="text-xs font-mono leading-relaxed p-5 whitespace-pre-wrap break-all">{data.content}</pre>
           ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-              İçerik bulunamadı
-            </div>
+            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">İçerik bulunamadı</div>
           )}
         </div>
       </DialogContent>
@@ -346,22 +256,13 @@ function XsltViewModal({
 }
 
 function XsltEditModal({
-  open,
-  onOpenChange,
-  transformType,
-  label,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  transformType: string;
-  label: string;
-}) {
+  open, onOpenChange, transformType, label,
+}: { open: boolean; onOpenChange: (open: boolean) => void; transformType: string; label: string; }) {
   const { data, isLoading } = useDefaultXsltContent(open ? transformType : "");
   const saveMutation = useSaveDefaultXsltContent();
   const [content, setContent] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
 
-  // Initialize content once data is loaded
   if (data?.content && !initialized) {
     setContent(data.content);
     setInitialized(true);
@@ -369,21 +270,15 @@ function XsltEditModal({
 
   const handleSave = () => {
     if (!content) return;
-
     saveMutation.mutate(
       { transformType, content },
       {
         onSuccess: (res) => {
-          toast.success("XSLT şablonu kaydedildi", {
-            description: `${res.label} — ${formatSize(res.size)}`,
-          });
+          toast.success("XSLT şablonu kaydedildi", { description: `${res.label} — ${formatSize(res.size)}` });
           onOpenChange(false);
         },
         onError: (error) => {
-          toast.error("Kaydetme başarısız", {
-            description:
-              error instanceof Error ? error.message : "Bilinmeyen hata",
-          });
+          toast.error("Kaydetme başarısız", { description: error instanceof Error ? error.message : "Bilinmeyen hata" });
         },
       }
     );
@@ -393,30 +288,20 @@ function XsltEditModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[90vw] h-[85vh] flex flex-col p-0">
-        <DialogHeader className="px-6 py-4 border-b shrink-0 pr-14">
+      <DialogContent className="sm:max-w-[90vw] h-[85vh] flex flex-col p-0 rounded-xl">
+        <DialogHeader className="px-5 py-3 border-b shrink-0 pr-14">
           <div className="flex items-center gap-3">
-            <Pencil className="h-4 w-4 text-primary shrink-0" />
-            <DialogTitle className="text-sm font-medium truncate">
-              {label} — XSLT Düzenle
-            </DialogTitle>
-            <Badge
-              variant="outline"
-              className="rounded text-[10px] px-2 py-0 font-mono shrink-0"
-            >
-              {transformType}
-            </Badge>
+            <Pencil className="h-4 w-4 text-foreground/70 shrink-0" />
+            <DialogTitle className="text-sm font-medium truncate">{label} — XSLT Düzenle</DialogTitle>
+            <Badge variant="outline" className="rounded-md text-[10px] px-2 py-0 font-mono shrink-0">{transformType}</Badge>
             {hasChanges && (
-              <Badge className="rounded text-[10px] px-2 py-0 bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700">
+              <Badge className="rounded-md text-[10px] px-2 py-0 bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border-amber-200 dark:border-amber-700">
                 Değişiklik var
               </Badge>
             )}
           </div>
-          <DialogDescription className="sr-only">
-            XSLT şablonunu düzenle
-          </DialogDescription>
+          <DialogDescription className="sr-only">XSLT şablonunu düzenle</DialogDescription>
         </DialogHeader>
-
         <div className="flex-1 overflow-hidden min-h-0">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
@@ -424,33 +309,20 @@ function XsltEditModal({
             </div>
           ) : (
             <textarea
-              className="w-full h-full resize-none border-0 bg-transparent text-xs font-mono leading-relaxed p-6 outline-none"
+              className="w-full h-full resize-none border-0 bg-transparent text-xs font-mono leading-relaxed p-5 outline-none"
               value={content ?? data?.content ?? ""}
               onChange={(e) => setContent(e.target.value)}
               spellCheck={false}
             />
           )}
         </div>
-
-        <div className="flex items-center justify-end gap-2 px-6 py-3 border-t shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onOpenChange(false)}
-          >
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t shrink-0">
+          <Button variant="ghost" size="sm" className="rounded-lg" onClick={() => onOpenChange(false)}>
             <X className="h-3.5 w-3.5 mr-1.5" />
             İptal
           </Button>
-          <Button
-            size="sm"
-            disabled={!hasChanges || saveMutation.isPending}
-            onClick={handleSave}
-          >
-            {saveMutation.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-            ) : (
-              <Save className="h-3.5 w-3.5 mr-1.5" />
-            )}
+          <Button size="sm" className="rounded-lg" disabled={!hasChanges || saveMutation.isPending} onClick={handleSave}>
+            {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
             Kaydet
           </Button>
         </div>

@@ -25,27 +25,21 @@ export function AppLayout() {
   const meta = pageMeta[pathname];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       <Navbar />
 
-      <div className="mx-auto max-w-screen-xl px-5 sm:px-8">
-        {/* ── Page Header ── */}
+      <main className="mx-auto max-w-5xl px-5 py-10">
         {meta && (
-          <div className="pt-8 pb-6 animate-fade-in">
+          <div className="mb-10 animate-slide-up">
             <h1 className="text-2xl font-bold tracking-tight">{meta.title}</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {meta.subtitle}
-            </p>
-            {/* Decorative gradient line */}
-            <div className="mt-4 h-px bg-gradient-to-r from-primary/40 via-primary/10 to-transparent" />
+            <p className="mt-1.5 text-sm text-muted-foreground">{meta.subtitle}</p>
           </div>
         )}
 
-        {/* ── Page Content ── */}
-        <main className="pb-12 animate-slide-up">
+        <div className="animate-fade-in">
           <Outlet />
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

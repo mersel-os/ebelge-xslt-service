@@ -48,12 +48,11 @@ export function SuppressionCard({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="rounded-lg border bg-card overflow-hidden transition-colors hover:border-foreground/15">
-      {/* ── Summary row ── */}
+    <div className="rounded-xl border border-border bg-muted/50 overflow-hidden transition-all duration-200 hover:border-border hover:bg-muted">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2.5 w-full px-4 py-3 text-left cursor-pointer select-none transition-colors hover:bg-accent/30"
+        className="flex items-center gap-2.5 w-full px-4 py-3 text-left cursor-pointer select-none transition-colors hover:bg-muted"
         aria-expanded={open}
         aria-label={open ? "Kural detaylarını gizle" : "Kural detaylarını göster"}
       >
@@ -61,9 +60,9 @@ export function SuppressionCard({
           {rule.match}
         </Badge>
 
-        <span className="text-sm font-mono text-foreground/80 truncate flex-1 min-w-0">
+        <span className="text-sm font-mono text-foreground/70 truncate flex-1 min-w-0">
           {rule.pattern || (
-            <span className="text-muted-foreground/50 font-sans italic text-xs">
+            <span className="text-muted-foreground/60 font-sans italic text-xs">
               pattern girilmedi
             </span>
           )}
@@ -77,7 +76,7 @@ export function SuppressionCard({
               </Badge>
             ))}
             {rule.scope.length > 2 && (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[10px] text-muted-foreground/70">
                 +{rule.scope.length - 2}
               </span>
             )}
@@ -85,15 +84,14 @@ export function SuppressionCard({
         )}
 
         <ChevronDown
-          className={`h-4 w-4 text-muted-foreground/50 shrink-0 transition-transform duration-200 ${
+          className={`h-4 w-4 text-muted-foreground/60 shrink-0 transition-transform duration-200 ${
             open ? "rotate-180" : ""
           }`}
         />
       </button>
 
-      {/* ── Expanded edit ── */}
       {open && (
-        <div className="border-t bg-muted/30 px-4 py-4 space-y-4">
+        <div className="border-t border-border bg-muted/50 px-4 py-4 space-y-4">
           <div className="grid gap-4 sm:grid-cols-[140px_1fr]">
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground font-medium">
@@ -110,7 +108,7 @@ export function SuppressionCard({
                   {MATCH_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
                       <span className="font-mono">{opt.label}</span>
-                      <span className="ml-1.5 text-muted-foreground text-[10px] font-normal">
+                      <span className="ml-1.5 text-muted-foreground/70 text-[10px] font-normal">
                         {opt.hint}
                       </span>
                     </SelectItem>
@@ -150,7 +148,6 @@ export function SuppressionCard({
             <Label className="text-[11px] text-muted-foreground font-medium">
               Kapsam
             </Label>
-            {/* Selected scope tags */}
             {rule.scope.length > 0 && (
               <div className="flex flex-wrap gap-1 mb-1.5">
                 {rule.scope.map((s) => (
@@ -168,7 +165,7 @@ export function SuppressionCard({
                           rule.scope.filter((x) => x !== s)
                         )
                       }
-                      className="ml-0.5 rounded-full p-0.5 hover:bg-foreground/10"
+                      className="ml-0.5 rounded-full p-0.5 hover:bg-accent"
                       aria-label={`${s} kapsamını kaldır`}
                     >
                       <X className="h-2.5 w-2.5" />
@@ -187,7 +184,7 @@ export function SuppressionCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+              className="h-8 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
               onClick={onRemove}
             >
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />

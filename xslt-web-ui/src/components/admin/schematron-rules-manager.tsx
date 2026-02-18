@@ -8,13 +8,6 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useSchematronRules, useSaveSchematronRules } from "@/api/hooks";
@@ -72,11 +65,7 @@ export function SchematronRulesManager() {
     }
   };
 
-  const handleUpdate = (
-    index: number,
-    field: keyof SchematronRuleFormData,
-    value: string
-  ) => {
+  const handleUpdate = (index: number, field: keyof SchematronRuleFormData, value: string) => {
     setRules((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
@@ -98,18 +87,11 @@ export function SchematronRulesManager() {
   };
 
   const handleSave = async () => {
-    const grouped: Record<
-      string,
-      { context: string; test: string; message: string; id?: string }[]
-    > = {};
+    const grouped: Record<string, { context: string; test: string; message: string; id?: string }[]> = {};
 
     for (const rule of rules) {
-      if (!rule.context.trim() || !rule.test.trim() || !rule.message.trim()) {
-        continue;
-      }
-      if (!grouped[rule.schematronType]) {
-        grouped[rule.schematronType] = [];
-      }
+      if (!rule.context.trim() || !rule.test.trim() || !rule.message.trim()) continue;
+      if (!grouped[rule.schematronType]) grouped[rule.schematronType] = [];
       grouped[rule.schematronType].push({
         context: rule.context.trim(),
         test: rule.test.trim(),
@@ -131,105 +113,68 @@ export function SchematronRulesManager() {
 
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Shield className="h-4 w-4" />
-            Global Schematron Kuralları
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center justify-center py-8 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          Yükleniyor...
-        </CardContent>
-      </Card>
+      <div className="rounded-xl border bg-card shadow-xs p-8">
+        <div className="flex items-center justify-center gap-3 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Yükleniyor...</span>
+        </div>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Shield className="h-4 w-4" />
-            Global Schematron Kuralları
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2 text-sm text-destructive">
-            <AlertTriangle className="h-4 w-4" />
-            Global kurallar yüklenemedi.
-          </div>
-        </CardContent>
-      </Card>
+      <div className="rounded-xl border bg-card shadow-xs p-8">
+        <div className="flex items-center gap-2 text-sm text-destructive">
+          <AlertTriangle className="h-4 w-4" />
+          Global kurallar yüklenemedi.
+        </div>
+      </div>
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Shield className="h-4 w-4" />
-              Global Schematron Kuralları
+    <div className="rounded-xl border bg-card shadow-xs overflow-hidden">
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Shield className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold">Global Schematron Kuralları</h3>
               {rules.length > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">
-                  {rules.length}
-                </Badge>
+                <Badge variant="secondary" className="text-xs rounded-md">{rules.length}</Badge>
               )}
-            </CardTitle>
-            <CardDescription>
-              Profil bağımsız, her doğrulama isteğinde otomatik uygulanan özel
-              Schematron kuralları. Bu kurallar tüm profiller için her zaman
-              aktiftir.
-            </CardDescription>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Profil bağımsız, her doğrulama isteğinde otomatik uygulanan özel Schematron kuralları.
+            </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {rules.length > 1 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={toggleAll}
-                className="gap-1.5 text-muted-foreground"
-              >
+              <Button variant="ghost" size="sm" onClick={toggleAll} className="gap-1.5 text-muted-foreground rounded-lg">
                 <ChevronsUpDown className="h-3.5 w-3.5" />
-                {openSet.size === keys.length ? "Daralt" : "Genislet"}
+                {openSet.size === keys.length ? "Daralt" : "Genişlet"}
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleAdd}
-              className="gap-1.5"
-            >
+            <Button variant="outline" size="sm" onClick={handleAdd} className="gap-1.5 rounded-lg">
               <Plus className="h-3.5 w-3.5" />
               Kural Ekle
             </Button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={!isDirty || saveMutation.isPending}
-              className="gap-1.5"
-            >
-              {saveMutation.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Save className="h-3.5 w-3.5" />
-              )}
+            <Button size="sm" onClick={handleSave} disabled={!isDirty || saveMutation.isPending} className="gap-1.5 rounded-lg">
+              {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               Kaydet
             </Button>
           </div>
         </div>
-      </CardHeader>
-      <CardContent>
+      </div>
+
+      <div className="border-t p-5 pt-4">
         {rules.length === 0 ? (
-          <div className="text-center py-8 text-sm text-muted-foreground">
-            <Shield className="h-8 w-8 mx-auto mb-2 opacity-20" />
-            <p>Global Schematron kuralı tanımlanmamış.</p>
+          <div className="text-center py-10 text-sm text-muted-foreground">
+            <Shield className="h-8 w-8 mx-auto mb-3 opacity-15" />
+            <p className="font-medium">Global Schematron kuralı tanımlanmamış.</p>
             <p className="text-xs mt-1">
-              Eklenen kurallar profil seçilsin seçilmesin her doğrulamada aktif
-              olur.
+              Eklenen kurallar profil seçilsin seçilmesin her doğrulamada aktif olur.
             </p>
           </div>
         ) : (
@@ -244,11 +189,8 @@ export function SchematronRulesManager() {
                 onToggle={() =>
                   setOpenSet((prev) => {
                     const next = new Set(prev);
-                    if (next.has(keys[index])) {
-                      next.delete(keys[index]);
-                    } else {
-                      next.add(keys[index]);
-                    }
+                    if (next.has(keys[index])) next.delete(keys[index]);
+                    else next.add(keys[index]);
                     return next;
                   })
                 }
@@ -256,7 +198,7 @@ export function SchematronRulesManager() {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

@@ -32,7 +32,7 @@ export function XsdOverrideCard({
   onRemove: () => void;
 }) {
   return (
-    <div className="group rounded-lg border bg-card p-4 space-y-3 transition-colors hover:border-foreground/15">
+    <div className="group rounded-xl border border-border bg-muted/50 p-4 space-y-3 transition-all duration-200 hover:border-border hover:bg-muted">
       <div className="flex items-start justify-between gap-3">
         <div className="grid gap-3 sm:grid-cols-[160px_1fr] flex-1 min-w-0">
           <div className="space-y-1.5">
@@ -71,7 +71,7 @@ export function XsdOverrideCard({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 w-8 p-0 mt-5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+          className="h-8 w-8 p-0 mt-5 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 hover:bg-red-500/10 shrink-0"
           onClick={onRemove}
           aria-label="Override sil"
         >

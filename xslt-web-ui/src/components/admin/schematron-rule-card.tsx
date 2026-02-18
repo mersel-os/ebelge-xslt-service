@@ -65,26 +65,25 @@ export function SchematronRuleCard({
     : () => setInternalOpen((v) => !v);
 
   return (
-    <div className="group rounded-lg border bg-card transition-colors hover:border-foreground/15">
-      {/* Collapse header */}
+    <div className="group rounded-xl border border-border bg-muted/50 transition-all duration-200 hover:border-border hover:bg-muted">
       <div
         className="flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none"
         onClick={toggle}
       >
         <ChevronRight
-          className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-90" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200 ${open ? "rotate-90" : ""}`}
         />
         <span className="text-xs font-medium text-muted-foreground shrink-0">
           {rule.schematronType}
         </span>
-        <span className="text-xs text-foreground/80 truncate">
+        <span className="text-xs text-foreground/70 truncate">
           {ruleSummary(rule)}
         </span>
         <div className="ml-auto flex items-center gap-1 shrink-0">
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+            className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 hover:bg-red-500/10"
             onClick={(e) => {
               e.stopPropagation();
               onRemove();
@@ -96,9 +95,8 @@ export function SchematronRuleCard({
         </div>
       </div>
 
-      {/* Collapsible content */}
       {open && (
-        <div className="px-4 pb-4 pt-1 space-y-3 border-t border-border/50">
+        <div className="px-4 pb-4 pt-1 space-y-3 border-t border-border">
           <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground font-medium">

@@ -4,6 +4,16 @@ import { useTransform } from "@/api/hooks";
 import { toast } from "sonner";
 import { AlertCircle, FileCode2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
+
+const fade = {
+  hidden: { opacity: 0, y: 20 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, delay: i * 0.1, ease: [0.16, 1, 0.3, 1] },
+  }),
+};
 
 export default function TransformPage() {
   const transformMutation = useTransform();
@@ -14,77 +24,64 @@ export default function TransformPage() {
     transformMutation.mutate(params, {
       onError: (error) => {
         toast.error("Dönüşüm isteği başarısız", {
-          description:
-            error instanceof Error ? error.message : "Bilinmeyen hata",
+          description: error instanceof Error ? error.message : "Bilinmeyen hata",
         });
       },
     });
   };
 
   return (
-    <div className="space-y-6">
-      {/* ── Form (full-width, 2-col internally) ── */}
-      <div className="rounded-xl border bg-card shadow-sm p-6 sm:p-7">
-        <div className="flex items-center gap-2 mb-6">
-          <div className="h-2 w-2 rounded-full bg-primary" />
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Parametreler
-          </h2>
-        </div>
+    <div className="space-y-8">
+      {/* Form -- full width */}
+      <motion.div
+        variants={fade}
+        custom={0}
+        initial="hidden"
+        animate="show"
+        className="glass p-8"
+      >
         <TransformForm
           onSubmit={handleTransform}
           isLoading={transformMutation.isPending}
         />
-      </div>
+      </motion.div>
 
-      {/* ── Preview (below) ── */}
-      <div aria-live="polite" aria-atomic="true">
+      {/* Preview -- full width */}
       {transformMutation.isError ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 flex flex-col items-center justify-center py-12 px-8" role="alert">
-          <div className="relative mb-5">
-            <div className="relative flex h-16 w-16 items-center justify-center rounded-xl bg-destructive/10 border border-destructive/20">
-              <AlertCircle className="h-7 w-7 text-destructive" />
+        <motion.div
+          variants={fade}
+          custom={1}
+          initial="hidden"
+          animate="show"
+          className="glass p-8"
+          role="alert"
+        >
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10">
+              <AlertCircle className="h-6 w-6 text-red-600 dark:text-red-400" />
             </div>
+            <p className="text-sm font-semibold text-red-600 dark:text-red-400">Dönüşüm başarısız</p>
+            <p className="mt-2 max-w-sm text-xs text-muted-foreground">
+              {transformMutation.error instanceof Error
+                ? transformMutation.error.message
+                : "Bilinmeyen bir hata oluştu."}
+            </p>
+            <Button variant="outline" size="sm" className="mt-5" onClick={() => transformMutation.reset()}>
+              Temizle
+            </Button>
           </div>
-          <p className="text-base font-semibold text-destructive">
-            Dönüşüm başarısız
-          </p>
-          <p className="text-sm text-muted-foreground mt-1.5 text-center max-w-sm leading-relaxed">
-            {transformMutation.error instanceof Error
-              ? transformMutation.error.message
-              : "Bilinmeyen bir hata oluştu. Lütfen tekrar deneyin."}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => transformMutation.reset()}
-          >
-            Temizle
-          </Button>
-        </div>
+        </motion.div>
       ) : transformMutation.data ? (
-        <HtmlPreview
-          html={transformMutation.data.html}
-          meta={transformMutation.data.meta}
-        />
-      ) : (
-        <div className="rounded-xl border border-dashed flex flex-col items-center justify-center py-16 px-8">
-          <div className="relative mb-6">
-            <div className="absolute inset-0 rounded-full bg-primary/10 blur-2xl scale-150" />
-            <div className="relative flex h-20 w-20 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 border border-primary/10">
-              <FileCode2 className="h-8 w-8 text-primary/60" />
-            </div>
-          </div>
-          <p className="text-base font-semibold text-foreground/80">
-            Önizleme bekleniyor
-          </p>
-          <p className="text-sm text-muted-foreground mt-1.5 text-center max-w-[260px] leading-relaxed">
-            XML dosyanızı yükleyip dönüşümü başlatın.
-          </p>
-        </div>
-      )}
-      </div>
+        <motion.div
+          variants={fade}
+          custom={1}
+          initial="hidden"
+          animate="show"
+          className="glass p-8"
+        >
+          <HtmlPreview html={transformMutation.data.html} meta={transformMutation.data.meta} />
+        </motion.div>
+      ) : null}
     </div>
   );
 }

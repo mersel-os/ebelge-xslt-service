@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import {
@@ -12,7 +12,6 @@ import { FileDropzone } from "./file-dropzone";
 import { Loader2, Sparkles } from "lucide-react";
 import { useProfiles } from "@/api/hooks";
 import { useAuth } from "@/hooks/use-auth";
-import { useMemo } from "react";
 
 interface ValidationFormProps {
   onSubmit: (params: {
@@ -50,15 +49,10 @@ export function ValidationForm({ onSubmit, isLoading }: ValidationFormProps) {
   };
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-5">
-      <FileDropzone
-        file={file}
-        onFileChange={setFile}
-        label="Doğrulanacak XML dosyası"
-      />
+    <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-6">
+      <FileDropzone file={file} onFileChange={setFile} label="Doğrulanacak XML dosyası" />
 
-      {/* Optional fields in responsive grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
+      <div className="grid gap-5 sm:grid-cols-2">
         <FormField label="UBL-TR Fatura Alt Tipi">
           <Select value={ublTrSubType} onValueChange={setUblTrSubType}>
             <SelectTrigger>
@@ -85,25 +79,18 @@ export function ValidationForm({ onSubmit, isLoading }: ValidationFormProps) {
             </SelectContent>
           </Select>
         </FormField>
-
       </div>
 
       <Button
         type="submit"
         disabled={!file || isLoading}
-        className="w-full h-12 rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-shadow"
+        className="h-12 w-full glow-primary-hover"
         size="lg"
       >
         {isLoading ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Doğrulanıyor...
-          </>
+          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Doğrulanıyor...</>
         ) : (
-          <>
-            <Sparkles className="mr-2 h-4 w-4" />
-            Doğrula
-          </>
+          <><Sparkles className="mr-2 h-4 w-4" /> Doğrula</>
         )}
       </Button>
     </form>

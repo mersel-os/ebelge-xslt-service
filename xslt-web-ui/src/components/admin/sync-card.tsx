@@ -42,24 +42,25 @@ export function SyncCard() {
   return (
     <div className="space-y-4">
       {/* Sync trigger card */}
-      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-        <div className="p-6 pb-5">
+      <div className="rounded-xl border bg-card shadow-xs overflow-hidden">
+        <div className="p-5">
           <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary mb-3">
-                <Download className="h-5 w-5" />
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/70">
+                <Download className="h-4 w-4" />
               </div>
-              <h3 className="text-base font-bold">GİB Paket Sync</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                GİB resmi paketlerini staging'e indir, değişiklikleri incele ve
-                onayla
-              </p>
+              <div>
+                <h3 className="text-sm font-semibold">GİB Paket Sync</h3>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                  GİB resmi paketlerini staging'e indir, değişiklikleri incele ve onayla
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {hasPending && (
                 <Badge
                   variant="outline"
-                  className="rounded-lg px-3 py-1 text-amber-600 border-amber-300 bg-amber-50 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950/30 text-[10px]"
+                  className="rounded-md px-2.5 py-0.5 text-amber-600 border-amber-200 bg-amber-50 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950/30 text-[10px]"
                 >
                   <Eye className="mr-1 h-3 w-3" />
                   {pendingPreviews.length} beklemede
@@ -69,12 +70,12 @@ export function SyncCard() {
                 onClick={() => handleSyncPreview()}
                 disabled={syncPreviewMutation.isPending}
                 size="sm"
-                className="h-9 rounded-lg shadow-sm"
+                className="h-8 rounded-lg"
               >
                 {syncPreviewMutation.isPending ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Download className="mr-2 h-4 w-4" />
+                  <Download className="mr-2 h-3.5 w-3.5" />
                 )}
                 Sync Önizle
               </Button>
@@ -82,35 +83,35 @@ export function SyncCard() {
           </div>
         </div>
 
-        {/* Brief result after sync-preview */}
-        {syncPreviewMutation.data &&
-          !syncPreviewMutation.data.enabled && (
-            <div className="border-t bg-muted/20 p-5">
-              <div className="flex items-start gap-3 rounded-lg bg-card border p-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                  <Info className="h-4 w-4 text-primary" />
-                </div>
-                <div className="text-xs space-y-1">
-                  <p className="font-bold">GİB sync devre dışı</p>
-                  <p className="text-muted-foreground">
-                    VALIDATION_ASSETS_GIB_SYNC_ENABLED=true ayarlayın
-                  </p>
-                </div>
+        {/* Result: disabled */}
+        {syncPreviewMutation.data && !syncPreviewMutation.data.enabled && (
+          <div className="border-t bg-muted/20 p-4">
+            <div className="flex items-start gap-3 rounded-lg bg-card border p-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <Info className="h-4 w-4 text-foreground/70" />
+              </div>
+              <div className="text-xs space-y-0.5">
+                <p className="font-medium">GİB sync devre dışı</p>
+                <p className="text-muted-foreground">
+                  VALIDATION_ASSETS_GIB_SYNC_ENABLED=true ayarlayın
+                </p>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
+        {/* Result: previews */}
         {syncPreviewMutation.data?.enabled &&
           syncPreviewMutation.data.previews.length > 0 && (
-            <div className="border-t bg-muted/20 p-5">
+            <div className="border-t bg-muted/20 p-4">
               <div className="space-y-2">
                 {syncPreviewMutation.data.previews.map((p) => (
                   <div
                     key={p.packageId}
-                    className="flex items-center justify-between rounded-lg bg-card border px-4 py-3"
+                    className="flex items-center justify-between rounded-lg bg-card border px-4 py-2.5 transition-colors hover:bg-muted/30"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                      <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
                       <div className="min-w-0">
                         <span className="text-sm font-medium block truncate">
                           {p.version.displayName}
@@ -125,10 +126,7 @@ export function SyncCard() {
                         </span>
                       </div>
                     </div>
-                    <Badge
-                      variant="outline"
-                      className="rounded-md font-mono text-[10px]"
-                    >
+                    <Badge variant="outline" className="rounded-md font-mono text-[10px]">
                       {p.version.durationMs}ms
                     </Badge>
                   </div>

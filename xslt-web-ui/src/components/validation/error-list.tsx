@@ -250,12 +250,12 @@ const ErrorItem = memo(function ErrorItem({
               <button
                 type="button"
                 onClick={handleCopyRuleId}
-                className="shrink-0 mt-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md"
+                className="shrink-0 mt-0.5 outline-none rounded-md"
                 aria-label={`${error.ruleId} kopyala`}
               >
                 <Badge
                   variant="outline"
-                  className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-primary/5 border-primary/15 text-primary cursor-pointer hover:bg-primary/10 transition-colors gap-1"
+                  className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-muted border-border text-foreground/70 cursor-pointer hover:bg-accent transition-colors gap-1"
                 >
                   {copiedRuleId ? (
                     <Check className="h-2.5 w-2.5 text-success" />
@@ -593,7 +593,7 @@ function SuppressToProfileDrawer({
               {error?.ruleId && (
                 <Badge
                   variant="outline"
-                  className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-primary/5 border-primary/15 text-primary"
+                  className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-muted border-border text-foreground/70"
                 >
                   {error.ruleId}
                 </Badge>

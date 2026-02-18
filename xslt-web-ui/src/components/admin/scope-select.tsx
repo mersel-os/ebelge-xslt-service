@@ -33,7 +33,7 @@ export function ScopeSelect({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex items-center justify-between w-full h-9 rounded-md border border-input bg-background px-3 text-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex items-center justify-between w-full h-9 rounded-xl glass-input px-3 text-xs transition-colors hover:bg-accent"
           aria-label="Kapsam seç"
         >
           <span className="text-muted-foreground truncate">

@@ -85,7 +85,7 @@ export function FileDiffViewer({
           className={cn(
             "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
             viewMode === "unified"
-              ? "bg-primary text-primary-foreground"
+              ? "bg-foreground text-background"
               : "text-muted-foreground hover:text-foreground hover:bg-muted"
           )}
         >
@@ -97,7 +97,7 @@ export function FileDiffViewer({
           className={cn(
             "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
             viewMode === "side-by-side"
-              ? "bg-primary text-primary-foreground"
+              ? "bg-foreground text-background"
               : "text-muted-foreground hover:text-foreground hover:bg-muted"
           )}
         >

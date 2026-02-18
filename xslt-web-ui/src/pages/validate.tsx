@@ -2,6 +2,16 @@ import { ValidationForm } from "@/components/validation/validation-form";
 import { ValidationResult } from "@/components/validation/validation-result";
 import { useValidate } from "@/api/hooks";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
+
+const fade = {
+  hidden: { opacity: 0, y: 20 },
+  show: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, delay: i * 0.1, ease: [0.16, 1, 0.3, 1] },
+  }),
+};
 
 export default function ValidatePage() {
   const validateMutation = useValidate();
@@ -12,15 +22,12 @@ export default function ValidatePage() {
     validateMutation.mutate(params, {
       onSuccess: (data) => {
         if (data.errorMessage) {
-          toast.error("Doğrulama hatası", {
-            description: data.errorMessage,
-          });
+          toast.error("Doğrulama hatası", { description: data.errorMessage });
         }
       },
       onError: (error) => {
         toast.error("Doğrulama isteği başarısız", {
-          description:
-            error instanceof Error ? error.message : "Bilinmeyen hata",
+          description: error instanceof Error ? error.message : "Bilinmeyen hata",
         });
       },
     });
@@ -30,24 +37,31 @@ export default function ValidatePage() {
 
   return (
     <div className="space-y-8">
-      {/* ── Form Card (full width) ── */}
-      <div className="rounded-xl border bg-card shadow-sm p-6 sm:p-7">
-        <div className="flex items-center gap-2 mb-6">
-          <div className="h-2 w-2 rounded-full bg-primary" />
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Parametreler
-          </h2>
-        </div>
+      <motion.div
+        variants={fade}
+        custom={0}
+        initial="hidden"
+        animate="show"
+        className="glass p-8"
+      >
         <ValidationForm
           onSubmit={handleValidate}
           isLoading={validateMutation.isPending}
         />
-      </div>
+      </motion.div>
 
-      {/* ── Results ── */}
-      <div aria-live="polite" aria-atomic="true">
-        {result && <ValidationResult result={result} />}
-      </div>
+      {result && (
+        <motion.div
+          variants={fade}
+          custom={0}
+          initial="hidden"
+          animate="show"
+          className="glass p-8"
+          aria-live="polite"
+        >
+          <ValidationResult result={result} />
+        </motion.div>
+      )}
     </div>
   );
 }

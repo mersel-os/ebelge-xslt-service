@@ -16,8 +16,7 @@ export function ReloadCard() {
       },
       onError: (error) => {
         toast.error("Yeniden yükleme başarısız", {
-          description:
-            error instanceof Error ? error.message : "Bilinmeyen hata",
+          description: error instanceof Error ? error.message : "Bilinmeyen hata",
         });
       },
     });
@@ -26,28 +25,30 @@ export function ReloadCard() {
   const result = reloadMutation.data;
 
   return (
-    <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-      <div className="p-6 pb-5">
+    <div className="rounded-xl border bg-card shadow-xs overflow-hidden">
+      <div className="p-5">
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary mb-3">
-              <RefreshCw className="h-5 w-5" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground/70">
+              <RefreshCw className="h-4 w-4" />
             </div>
-            <h3 className="text-base font-bold">Asset Reload</h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              XSD, Schematron, XSLT ve profilleri yeniden yükle
-            </p>
+            <div>
+              <h3 className="text-sm font-semibold">Asset Reload</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                XSD, Schematron, XSLT ve profilleri yeniden yükle
+              </p>
+            </div>
           </div>
           <Button
             onClick={handleReload}
             disabled={reloadMutation.isPending}
             size="sm"
-            className="h-9 rounded-lg shrink-0 shadow-sm"
+            className="h-8 rounded-lg shrink-0"
           >
             {reloadMutation.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
             ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
+              <RefreshCw className="mr-2 h-3.5 w-3.5" />
             )}
             Yükle
           </Button>
@@ -55,19 +56,19 @@ export function ReloadCard() {
       </div>
 
       {result && (
-        <div className="border-t bg-muted/20 p-5 space-y-3">
+        <div className="border-t bg-muted/20 p-4 space-y-3">
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <Badge variant="outline" className="rounded-lg font-mono">
+            <Badge variant="outline" className="rounded-md font-mono">
               {result.durationMs}ms
             </Badge>
             <span className="text-[10px] font-mono">{result.reloadedAt}</span>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {result.components.map((comp) => (
               <div
                 key={comp.name}
-                className="flex items-center justify-between rounded-lg bg-card border px-4 py-3"
+                className="flex items-center justify-between rounded-lg bg-card border px-4 py-2.5 transition-colors hover:bg-muted/30"
               >
                 <div className="flex items-center gap-3">
                   {comp.status === "OK" || comp.status === "SUCCESS" ? (
@@ -80,10 +81,7 @@ export function ReloadCard() {
                   <span className="text-sm font-medium">{comp.name}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge
-                    variant="secondary"
-                    className="text-[10px] font-mono rounded-md"
-                  >
+                  <Badge variant="secondary" className="text-[10px] font-mono rounded-md">
                     {comp.count}
                   </Badge>
                   <span className="text-[10px] text-muted-foreground font-mono tabular-nums">

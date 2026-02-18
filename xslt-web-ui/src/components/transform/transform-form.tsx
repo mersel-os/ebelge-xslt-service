@@ -44,78 +44,58 @@ export function TransformForm({ onSubmit, isLoading }: TransformFormProps) {
   };
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-5">
-      {/* ── Dropzones: equal height side by side ── */}
-      <div className="grid gap-5 lg:grid-cols-2">
-        <FileDropzone
-          file={file}
-          onFileChange={setFile}
-          label="Dönüştürülecek XML dosyası"
-        />
-        <FileDropzone
-          file={customXslt}
-          onFileChange={setCustomXslt}
-          accept=".xslt,.xsl"
-          label="Özel XSLT dosyası (opsiyonel)"
-        />
+    <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-6">
+      {/* Dropzones side by side */}
+      <div className="grid gap-5 md:grid-cols-2">
+        <FileDropzone file={file} onFileChange={setFile} label="Dönüştürülecek XML dosyası" />
+        <FileDropzone file={customXslt} onFileChange={setCustomXslt} accept=".xslt,.xsl" label="Özel XSLT dosyası (opsiyonel)" />
       </div>
 
-      {/* ── Settings row ── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <FormField
-          label="Varsayılan Dönüşüm Şablonu"
-          description="Hata olması durumunda kullanılacak"
-        >
+      {/* Settings row */}
+      <div className="grid gap-5 md:grid-cols-3">
+        <FormField label="Dönüşüm Şablonu">
           <Select value={transformType} onValueChange={setTransformType}>
-            <SelectTrigger className="h-10 rounded-lg">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {TRANSFORM_TYPES.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {TRANSFORM_TYPE_LABELS[t]}
-                </SelectItem>
+                <SelectItem key={t} value={t}>{TRANSFORM_TYPE_LABELS[t]}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </FormField>
 
-        <FormField label="Filigran Metni (opsiyonel)" description="Dönüştürülmüş HTML'e filigran eklenir.">
+        <FormField label="Filigran (opsiyonel)">
           <Input
             value={watermarkText}
             onChange={(e) => setWatermarkText(e.target.value)}
             placeholder="örnek: TASLAK"
-            className="h-10 rounded-lg"
           />
         </FormField>
 
-        <FormField label="Gömülü XSLT" description="UBL-TR belgelerindeki gömülü XSLT şablonunu kullan">
-          <div className="flex items-center justify-between rounded-lg border h-10 px-3">
-            <span className="text-sm text-muted-foreground">
-              Belgedeki şablonu kullan
-            </span>
+        <div className="flex items-end">
+          <div className="flex w-full items-center justify-between rounded-xl border border-border bg-muted px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Gömülü XSLT</p>
+              <p className="text-[11px] text-muted-foreground">Belgedeki şablonu kullan</p>
+            </div>
             <Switch checked={useEmbedded} onCheckedChange={setUseEmbedded} />
           </div>
-        </FormField>
+        </div>
       </div>
 
-      {/* ── Submit ── */}
+      {/* Submit */}
       <Button
         type="submit"
         disabled={!file || isLoading}
-        className="w-full h-12 rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-shadow"
+        className="h-12 w-full glow-primary-hover md:w-auto md:min-w-[200px]"
         size="lg"
       >
         {isLoading ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Dönüştürülüyor...
-          </>
+          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Dönüştürülüyor...</>
         ) : (
-          <>
-            <Sparkles className="mr-2 h-4 w-4" />
-            Dönüştür
-          </>
+          <><Sparkles className="mr-2 h-4 w-4" /> Dönüştür</>
         )}
       </Button>
     </form>

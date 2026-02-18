@@ -57,9 +57,9 @@ export function LoginDialog({ open, onOpenChange }: LoginDialogProps) {
       <DialogContent className="sm:max-w-[420px]">
         <DialogHeader className="items-center text-center pb-2">
           <div className="relative mb-2">
-            <div className="absolute inset-0 rounded-full bg-primary/15 blur-xl scale-150" />
+            <div className="absolute inset-0 rounded-full bg-foreground/10 blur-xl scale-150" />
             <div className="relative flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/10">
-              <Lock className="h-6 w-6 text-primary" />
+              <Lock className="h-6 w-6 text-foreground/70" />
             </div>
           </div>
           <DialogTitle className="text-lg font-bold">Admin Girişi</DialogTitle>
