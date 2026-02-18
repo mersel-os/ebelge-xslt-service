@@ -71,17 +71,20 @@ public class AdminController {
     private final IValidationProfileService profileService;
     private final IGibPackageSyncService gibSyncService;
     private final IAssetVersioningService versioningService;
+    private final io.mersel.services.xslt.infrastructure.GibAutoSyncStartupListener autoSyncListener;
 
     public AdminController(AssetRegistry assetRegistry,
                            AssetManager assetManager,
                            IValidationProfileService profileService,
                            IGibPackageSyncService gibSyncService,
-                           IAssetVersioningService versioningService) {
+                           IAssetVersioningService versioningService,
+                           io.mersel.services.xslt.infrastructure.GibAutoSyncStartupListener autoSyncListener) {
         this.assetRegistry = assetRegistry;
         this.assetManager = assetManager;
         this.profileService = profileService;
         this.gibSyncService = gibSyncService;
         this.versioningService = versioningService;
+        this.autoSyncListener = autoSyncListener;
     }
 
     /**
@@ -709,7 +712,7 @@ public class AdminController {
 
         return ResponseEntity.ok(new PackageListResponse(
                 gibSyncService.isEnabled(), gibSyncService.getCurrentAssetSource(),
-                packages.size(), packageList));
+                packages.size(), autoSyncListener.isInitialSyncInProgress(), packageList));
     }
 
     /** Tree yapısındaki toplam dosya sayısını recursive sayar. */
@@ -1009,7 +1012,7 @@ public class AdminController {
                             List<FileMappingDto> fileMapping, Map<String, Object> fileTrees,
                             int totalLoadedFileCount) {}
     record PackageListResponse(boolean enabled, String currentAssetSource, int packageCount,
-                               List<PackageDetailDto> packages) {}
+                               boolean initialSyncInProgress, List<PackageDetailDto> packages) {}
 
     // ── Asset Versioning DTO'ları ───────────────────────────────────
 

@@ -201,6 +201,7 @@ export interface PackagesResponse {
   enabled: boolean;
   currentAssetSource: string;
   packageCount: number;
+  initialSyncInProgress: boolean;
   packages: PackageDefinition[];
 }
 

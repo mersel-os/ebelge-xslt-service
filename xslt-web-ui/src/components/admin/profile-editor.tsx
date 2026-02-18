@@ -280,7 +280,7 @@ export function ProfileEditor({
             initial={{ opacity: 0, y: 24, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.98 }}
-            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] as const }}
             className="relative w-full max-w-3xl max-h-[calc(100vh-6rem)] flex flex-col rounded-2xl border border-border bg-[var(--overlay-panel)] backdrop-blur-2xl shadow-[0_0_80px_-20px_rgba(0,0,0,0.6)]"
           >
             {/* Header */}

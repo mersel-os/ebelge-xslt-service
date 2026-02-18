@@ -91,9 +91,9 @@ const TreeNodeItem = memo(function TreeNodeItem({
           )}
         />
         {expanded ? (
-          <FolderOpen className="h-3 w-3 text-primary/70 shrink-0" />
+          <FolderOpen className="h-3 w-3 text-foreground/60 shrink-0" />
         ) : (
-          <Folder className="h-3 w-3 text-primary/50 shrink-0" />
+          <Folder className="h-3 w-3 text-foreground/40 shrink-0" />
         )}
         <span className="truncate font-medium text-foreground/90">
           {node.name}

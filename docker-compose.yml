@@ -18,7 +18,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./custom-assets:/opt/xslt-assets:ro
+      - xslt-assets:/opt/xslt-assets
     environment:
       - JAVA_OPTS=-Xms512m -Xmx2g -XX:+UseZGC -XX:+ZGenerational -XX:MaxDirectMemorySize=512m -XX:+ExitOnOutOfMemoryError
       - SPRING_PROFILES_ACTIVE=prod
@@ -34,3 +34,6 @@ services:
       timeout: 10s
       start_period: 15s
       retries: 3
+
+volumes:
+  xslt-assets:

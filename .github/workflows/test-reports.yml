@@ -236,7 +236,7 @@ jobs:
               </div>
 
               <div class="footer">
-                <p>${DATE} &middot; <a href="https://github.com/mersel-os/MERSEL.Service.XsltService">GitHub</a></p>
+                <p>${DATE} &middot; <a href="https://github.com/mersel-os/ebelge-xslt-service">GitHub</a></p>
               </div>
             </div>
           </body>

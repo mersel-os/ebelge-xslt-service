@@ -11,6 +11,7 @@ import {
   FileText,
   CheckCircle2,
   AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePackages } from "@/api/hooks";
@@ -47,6 +48,18 @@ export function PackageList() {
           )}
         </div>
       </div>
+
+      {data?.initialSyncInProgress && (
+        <div className="border-t bg-muted/20 px-5 py-3">
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+            <Loader2 className="h-4 w-4 animate-spin text-foreground/70 shrink-0" />
+            <div className="text-xs">
+              <p className="font-medium">GİB paketleri indiriliyor...</p>
+              <p className="text-muted-foreground mt-0.5">İlk kurulum algılandı. Paketler arka planda otomatik yükleniyor.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="border-t bg-muted/20 p-4">
         {error ? (

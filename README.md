@@ -103,22 +103,27 @@ docker run -p 8080:8080 \
 
 ### XML Doğrulama
 
-```bash
-# Otomatik belge tipi tespiti ile (önerilen — schemaValidationType opsiyonel)
-curl -X POST http://localhost:8080/v1/validate \
-  -F "source=@fatura.xml" \
-  -F "schematronValidationType=UBLTR_MAIN" \
-  -F "ublTrMainSchematronType=efatura"
+Belge türü (XSD + Schematron tipi) XML root element'inden **otomatik tespit** edilir. Tek zorunlu parametre `source`'dir.
 
-# Manuel belge tipi belirterek
+```bash
+# Temel doğrulama (belge türü otomatik tespit edilir)
+curl -X POST http://localhost:8080/v1/validate \
+  -F "source=@fatura.xml"
+
+# UBL-TR Main Schematron alt tipi belirterek
 curl -X POST http://localhost:8080/v1/validate \
   -F "source=@fatura.xml" \
-  -F "schemaValidationType=INVOICE" \
-  -F "schematronValidationType=UBLTR_MAIN" \
   -F "ublTrMainSchematronType=efatura"
 ```
 
-> **Not:** `schemaValidationType` gönderilmezse servis XML root element'ini SAX parser ile okuyarak belge tipini otomatik tespit eder.
+**Parametreler:**
+
+| Parametre | Zorunlu | Açıklama |
+|-----------|---------|----------|
+| `source` | Evet | Doğrulanacak XML belgesi |
+| `ublTrMainSchematronType` | Hayır | UBL-TR Main Schematron alt tipi (varsayılan: `efatura`) |
+| `profile` | Hayır | Doğrulama profili (örn: `unsigned`) |
+| `suppressions` | Hayır | Ad-hoc bastırma kuralları (virgülle ayrılmış) |
 
 **Yanıt:**
 ```json
@@ -144,8 +149,13 @@ curl -X POST http://localhost:8080/v1/validate \
 # "unsigned" profili — imza kontrollerini bastırır
 curl -X POST http://localhost:8080/v1/validate \
   -F "source=@fatura.xml" \
-  -F "schematronValidationType=UBLTR_MAIN" \
   -F "profile=unsigned"
+
+# Profil + ad-hoc bastırma kuralları ile
+curl -X POST http://localhost:8080/v1/validate \
+  -F "source=@fatura.xml" \
+  -F "profile=unsigned" \
+  -F "suppressions=InvoiceIDCheck,text:.*organizationDescription.*"
 ```
 
 **Yanıt (bastırma bilgisi dahil):**
@@ -308,7 +318,7 @@ curl http://localhost:8080/v1/admin/packages
 | `RECEIPT_ADVICE` | E-İrsaliye Yanıt |
 | `EMM` | E-Müstahsil Makbuzu |
 | `ESMM` | E-Serbest Meslek Makbuzu |
-| `ECHECK` | E-Çek |
+| `ECHECK` | E-Adisyon |
 
 ## Doğrulama Profilleri
 
@@ -440,6 +450,7 @@ custom-assets/
 | Parametre | Env Variable | Varsayılan | Açıklama |
 |-----------|-------------|------------|----------|
 | `validation-assets.gib.sync.enabled` | `VALIDATION_ASSETS_GIB_SYNC_ENABLED` | `true` | Sync özelliğini aç/kapa |
+| `validation-assets.gib.sync.auto-sync-on-startup` | `VALIDATION_ASSETS_GIB_AUTO_SYNC` | `true` | İlk kurulumda (asset dizini boşken) otomatik sync |
 | `validation-assets.gib.sync.target-path` | `VALIDATION_ASSETS_GIB_SYNC_PATH` | (boş) | İndirilen dosyaların hedef dizini |
 | `validation-assets.gib.sync.connect-timeout-ms` | — | `10000` | HTTP bağlantı zaman aşımı (ms) |
 | `validation-assets.gib.sync.read-timeout-ms` | — | `60000` | HTTP okuma zaman aşımı (ms) |

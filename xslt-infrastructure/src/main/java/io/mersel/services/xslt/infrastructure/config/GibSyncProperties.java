@@ -11,6 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * {@code validation-assets.gib.sync} prefix'i altındaki değerleri okur.
  * <ul>
  *   <li>{@code enabled} — Sync özelliğini aç/kapa</li>
+ *   <li>{@code auto-sync-on-startup} — İlk kurulumda (asset dizini boşken) otomatik sync (varsayılan: true)</li>
  *   <li>{@code target-path} — İndirilen dosyaların yazılacağı dizin (boşsa xslt.assets.external-path kullanılır)</li>
  *   <li>{@code connect-timeout-ms} — HTTP bağlantı zaman aşımı (pozitif olmalı)</li>
  *   <li>{@code read-timeout-ms} — HTTP okuma zaman aşımı (pozitif olmalı)</li>
@@ -22,6 +23,7 @@ public class GibSyncProperties {
     private static final Logger log = LoggerFactory.getLogger(GibSyncProperties.class);
 
     private boolean enabled = true;
+    private boolean autoSyncOnStartup = true;
     private String targetPath = "";
     private String baseUrlOverride = "";  // For testing: override host in download URLs (e.g. http://localhost:8089)
     private int connectTimeoutMs = 10000;
@@ -45,6 +47,14 @@ public class GibSyncProperties {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isAutoSyncOnStartup() {
+        return autoSyncOnStartup;
+    }
+
+    public void setAutoSyncOnStartup(boolean autoSyncOnStartup) {
+        this.autoSyncOnStartup = autoSyncOnStartup;
     }
 
     public String getTargetPath() {

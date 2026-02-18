@@ -156,6 +156,14 @@ export function usePackages() {
         url: "/v1/admin/packages",
         method: "GET",
       }),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      if (data.initialSyncInProgress) return 3000;
+      const allEmpty = data.packages.every((p) => p.totalLoadedFileCount === 0);
+      if (allEmpty && data.enabled) return 5000;
+      return false;
+    },
   });
 }
 

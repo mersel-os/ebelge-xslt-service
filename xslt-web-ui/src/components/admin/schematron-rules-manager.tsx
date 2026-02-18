@@ -139,7 +139,7 @@ export function SchematronRulesManager() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <Shield className="h-4 w-4 text-primary" />
+              <Shield className="h-4 w-4 text-foreground/70" />
               <h3 className="text-sm font-semibold">Global Schematron Kuralları</h3>
               {rules.length > 0 && (
                 <Badge variant="secondary" className="text-xs rounded-md">{rules.length}</Badge>

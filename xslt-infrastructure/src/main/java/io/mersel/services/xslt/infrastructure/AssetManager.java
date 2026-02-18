@@ -426,6 +426,22 @@ public class AssetManager {
     }
 
     /**
+     * Asset dizininin yapılandırılmış ve en az bir dosya içerip içermediğini döndürür.
+     *
+     * @return dizin boşsa veya yapılandırılmamışsa {@code true}
+     */
+    public boolean isEmpty() {
+        if (externalDir == null || !Files.isDirectory(externalDir)) {
+            return true;
+        }
+        try (var stream = Files.walk(externalDir)) {
+            return stream.noneMatch(Files::isRegularFile);
+        } catch (IOException e) {
+            return true;
+        }
+    }
+
+    /**
      * Startup'ta external dizindeki mevcut dosyaları loglar.
      */
     private void logContents() {

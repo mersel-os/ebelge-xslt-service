@@ -96,6 +96,7 @@ xslt:
 # POST /v1/admin/packages/sync ile tetiklenir.
 #
 # enabled: Sync özelliğini aç/kapa
+# auto-sync-on-startup: İlk kurulumda (asset dizini boşken) otomatik sync
 # target-path: İndirilen dosyaların yazılacağı dizin
 #   - Boş bırakılırsa xslt.assets.external-path kullanılır
 # connect-timeout-ms: HTTP bağlantı zaman aşımı (ms)
@@ -104,6 +105,7 @@ validation-assets:
   gib:
     sync:
       enabled: ${VALIDATION_ASSETS_GIB_SYNC_ENABLED:true}
+      auto-sync-on-startup: ${VALIDATION_ASSETS_GIB_AUTO_SYNC:true}
       target-path: ${VALIDATION_ASSETS_GIB_SYNC_PATH:}
       connect-timeout-ms: 10000
       read-timeout-ms: 60000

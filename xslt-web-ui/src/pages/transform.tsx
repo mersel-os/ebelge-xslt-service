@@ -2,7 +2,7 @@ import { TransformForm } from "@/components/transform/transform-form";
 import { HtmlPreview } from "@/components/transform/html-preview";
 import { useTransform } from "@/api/hooks";
 import { toast } from "sonner";
-import { AlertCircle, FileCode2 } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 
@@ -11,7 +11,7 @@ const fade = {
   show: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { duration: 0.5, delay: i * 0.1, ease: [0.16, 1, 0.3, 1] },
+    transition: { duration: 0.5, delay: i * 0.1, ease: [0.16, 1, 0.3, 1] as const },
   }),
 };
 
