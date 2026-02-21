@@ -25,41 +25,26 @@ import java.util.Map;
 public interface ISchematronValidator {
 
     /**
-     * XML belgesini belirtilen Schematron tipine göre doğrular.
+     * XML belgesini belirtilen Schematron tipine göre, profil bazlı özel kurallar ve
+     * ek XSLT parametreleri ile doğrular.
      * <p>
-     * Global özel kurallar varsa, bunlar zaten {@code compiledSchematrons} cache'inde
-     * derlenmiş olarak bulunur ve otomatik olarak uygulanır.
+     * {@code parameters} ile Schematron XSLT'sine {@code xsl:param} değerleri geçirilebilir.
+     * Özel şematron kurallarında {@code $parametre_adi} şeklinde tanımlanan değişkenler bu
+     * parametreler ile doldurulur. UBL-TR Main Schematron alt tipi {@code parameters} map'inde
+     * {@code "type"} anahtarı ile gönderilmelidir (örn: {@code Map.of("type", "TEMELFATURA")}).
      *
      * @param source                   Doğrulanacak XML içeriği
      * @param schematronType           Schematron doğrulama tipi
-     * @param ublTrMainSchematronType  UBL-TR Main Schematron alt tipi (örn: "efatura", "earchive")
-     *                                 Sadece {@link SchematronValidationType#UBLTR_MAIN} için geçerlidir.
-     * @param sourceFileName           Kaynak XML dosya adı. e-Defter Schematron kuralları {@code base-uri()}
-     *                                 fonksiyonu ile dosya adını kontrol eder (VKN/TCKN eşleştirmesi vb.).
-     *                                 {@code null} ise dosya adı bilgisi gönderilmez.
-     * @return Yapılandırılmış doğrulama hataları listesi (boş liste = geçerli)
-     */
-    List<SchematronError> validate(byte[] source, SchematronValidationType schematronType,
-                                   String ublTrMainSchematronType, String sourceFileName);
-
-    /**
-     * XML belgesini belirtilen Schematron tipine göre, profil bazlı özel kurallar enjekte ederek doğrular.
-     * <p>
-     * Profil kuralları global kurallarla birleştirilir: orijinal Schematron XML'e
-     * hem global hem profil kuralları {@code <sch:pattern>} bloğu olarak eklenir
-     * ve ISO Schematron pipeline ile birlikte derlenir. Derlenen sonuç cache'lenir.
-     *
-     * @param source                   Doğrulanacak XML içeriği
-     * @param schematronType           Schematron doğrulama tipi
-     * @param ublTrMainSchematronType  UBL-TR Main Schematron alt tipi (örn: "efatura", "earchive")
      * @param sourceFileName           Kaynak XML dosya adı ({@code null} ise dosya adı bilgisi gönderilmez)
      * @param customRules              Enjekte edilecek profil bazlı özel Schematron kuralları (boş ise standart doğrulama)
      * @param profileName              Kuralları talep eden profil adı (cache key ve dosya adı için)
+     * @param parameters               Schematron XSLT parametreleri (key/value). Boş veya {@code null} ise ek parametre gönderilmez.
      * @return Yapılandırılmış doğrulama hataları listesi (boş liste = geçerli)
      */
     List<SchematronError> validate(byte[] source, SchematronValidationType schematronType,
-                                   String ublTrMainSchematronType, String sourceFileName,
-                                   List<SchematronCustomAssertion> customRules, String profileName);
+                                   String sourceFileName,
+                                   List<SchematronCustomAssertion> customRules, String profileName,
+                                   Map<String, String> parameters);
 
     /**
      * Özel kural cache'ini temizler.

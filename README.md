@@ -16,7 +16,10 @@ E-Fatura, E-İrsaliye, E-Arşiv ve diğer e-dönüşüm belgeleri için XML doğ
 - **Otomatik Belge Tipi Tespiti** — XML root element'inden SAX parser ile otomatik algılama
 - **Gömülü XSLT Desteği** — Belge içindeki `EmbeddedDocumentBinaryObject` XSLT'yi otomatik çıkar ve kullan
 - **Runtime Schematron Derleme** — GİB UBL-TR ve e-Defter kaynak dosyalarından ISO 3-adım pipeline ile otomatik derleme
-- **Doğrulama Profilleri** — İmzasız belge doğrulama, kural bastırma (YAML yapılandırmalı)
+- **Özel Schematron Kuralları** — Admin panelinden özel iş kuralları tanımlama (global + profil bazlı), otomatik derleme
+- **Schematron Parametreleri** — Doğrulama sırasında dinamik değişken geçirme (`$sessionVkn` vb.), otomatik parametre tanıma
+- **Mesaj Placeholder'ları** — Hata mesajlarında `{{xpath}}` ile XML değerlerini gösterme (`<sch:value-of>`)
+- **Doğrulama Profilleri** — İmzasız belge doğrulama, kural bastırma, XSD override (YAML yapılandırmalı)
 - **Hot-Reload** — Dosya değişikliğinde veya API ile yeniden yükleme, restart gerekmez
 - **External Asset Override** — XSD, XSLT, Schematron dosyalarını Docker volume mount ile dışarıdan besle
 - **GİB Paket Otomatik Sync** — GİB resmi paketlerini API ile indir ve güncelle
@@ -110,10 +113,10 @@ Belge türü (XSD + Schematron tipi) XML root element'inden **otomatik tespit** 
 curl -X POST http://localhost:8080/v1/validate \
   -F "source=@fatura.xml"
 
-# UBL-TR Main Schematron alt tipi belirterek
+# Schematron parametreleri ile (örn: fatura profili + oturum VKN)
 curl -X POST http://localhost:8080/v1/validate \
   -F "source=@fatura.xml" \
-  -F "ublTrMainSchematronType=efatura"
+  -F 'parameters=[{"key":"type","value":"efatura"},{"key":"sessionSupplierIdentification","value":"1234567890"}]'
 ```
 
 **Parametreler:**
@@ -121,9 +124,11 @@ curl -X POST http://localhost:8080/v1/validate \
 | Parametre | Zorunlu | Açıklama |
 |-----------|---------|----------|
 | `source` | Evet | Doğrulanacak XML belgesi |
-| `ublTrMainSchematronType` | Hayır | UBL-TR Main Schematron alt tipi (varsayılan: `efatura`) |
+| `parameters` | Hayır | Schematron XSLT parametreleri (JSON array, maks 50 adet). Örn: `[{"key":"type","value":"efatura"}]` |
 | `profile` | Hayır | Doğrulama profili (örn: `unsigned`) |
 | `suppressions` | Hayır | Ad-hoc bastırma kuralları (virgülle ayrılmış) |
+
+> **Not**: `type` parametresi yalnızca `UBL_TR_MAIN` Schematron tipi için geçerlidir. GİB'in UBL-TR Main Schematron'u bu değer üzerinden fatura profillerini kontrol eder. Kabul edilen değerler: `efatura` (e-Fatura) ve `earchive` (e-Arşiv). Gönderilmezse varsayılan `efatura` kullanılır.
 
 **Yanıt:**
 ```json
@@ -371,6 +376,55 @@ profiles:
 3. Servis yeniden yüklendiğinde otomatik algılanır (hot-reload)
 4. `POST /v1/validate` isteğinde `profile=my-company` parametresi ile kullanın
 
+## Özel Schematron Kuralları ve Parametreler
+
+Kod değişikliği yapmadan, admin panelinden veya API ile özel Schematron kuralları tanımlayabilir ve runtime parametreleri ile beslemeniz yeterlidir.
+
+### Kural Tanımlama
+
+Admin panelinden (`Kurallar` tab'ı) veya `PUT /v1/admin/schematron-rules` API'si ile global kurallar eklenebilir. Her kural şu alanları içerir:
+
+| Alan | Açıklama |
+|------|----------|
+| **Schematron Tipi** | Kuralın uygulanacağı Schematron (örn: `UBL_TR_MAIN`) |
+| **Context** | XPath context ifadesi (örn: `inv:Invoice`) |
+| **Test** | XPath assert koşulu (örn: `cbc:ID != ''`) |
+| **Mesaj** | Hata mesajı — `{{xpath}}` placeholder'ları desteklenir |
+| **Flag** | Hata seviyesi (`error`, `warning`, `info`) |
+
+### Dinamik Parametreler
+
+Kural test ifadelerinde `$parametre_adi` şeklinde değişkenler kullanılabilir. Bu değişkenler otomatik tanınır ve doğrulama isteğinde `parameters` alanı ile değerleri geçirilir.
+
+```bash
+curl -X POST http://localhost:8080/v1/validate \
+  -F "source=@fatura.xml" \
+  -F 'parameters=[{"key":"sessionSupplierIdentification","value":"1234567890"}]'
+```
+
+### Mesajlarda `{{xpath}}` Placeholder Desteği
+
+Hata mesajlarında `{{xpath_ifadesi}}` syntax'i ile XML'deki değerleri doğrudan hata çıktısına yerleştirebilirsiniz:
+
+```
+Satıcı VKN ({{cac:AccountingSupplierParty/cac:Party/cac:PartyIdentification/cbc:ID}}) oturumdaki firma ({{$sessionSupplierIdentification}}) ile eşleşmiyor.
+```
+
+Runtime'da `{{...}}` bloklarının yerine XML'den okunan gerçek değerler yerleştirilir:
+
+> Satıcı VKN (**9876543210**) oturumdaki firma (**1234567890**) ile eşleşmiyor.
+
+### Örnek: Oturum Bazlı Fatura Sahipliği Kontrolü
+
+| Alan | Değer |
+|------|-------|
+| **Schematron Tipi** | `UBL_TR_MAIN` |
+| **Context** | `inv:Invoice` |
+| **Test** | `cac:AccountingSupplierParty/cac:Party/cac:PartyIdentification/cbc:ID[@schemeID='VKN' or @schemeID='TCKN'] = $sessionSupplierIdentification` |
+| **Mesaj** | `Satıcı VKN ({{cac:AccountingSupplierParty/cac:Party/cac:PartyIdentification/cbc:ID[@schemeID='VKN' or @schemeID='TCKN']}}) oturumdaki firma ({{$sessionSupplierIdentification}}) ile eşleşmiyor.` |
+
+Bu kural ile yanlış firmaya ait faturalar doğrulama aşamasında reddedilerek iş katmanına hiç ulaşmaz.
+
 ## External Asset Yapılandırması
 
 Servisin kullandığı XSD, XSLT ve Schematron dosyaları dışarıdan beslenebilir. External dizinde bulunan dosyalar önceliklidir; bulunmayanlar için dahili (bundled) versiyonlar kullanılır.
@@ -509,10 +563,10 @@ XSLT Service, tüm API işlemlerini grafiksel olarak sunabilen yerleşik bir web
 
 | Sayfa | Açıklama |
 |-------|----------|
-| **Doğrulama** | XML dosyası yükle, XSD/Schematron tipi seç, profil seç, sonuçları incele |
+| **Doğrulama** | XML dosyası yükle, XSD/Schematron tipi seç, profil seç, Schematron parametreleri geç, sonuçları incele |
 | **Dönüşüm** | XML dosyası yükle, dönüşüm tipi seç, filigran ekle, HTML önizleme |
-| **Profiller** | Doğrulama profillerini listele, bastırma kurallarını incele |
-| **Yönetim** | Asset yeniden yükle, GİB paket sync, paket tanımlarını listele |
+| **Profiller** | Doğrulama profillerini listele, bastırma kurallarını incele, özel kural ekle |
+| **Yönetim** | Asset yeniden yükle, GİB paket sync, XSLT şablon yönetimi, Schematron kural yönetimi, derlenmiş dosya önizleme (Monaco Editor) |
 
 ### Geliştirme
 

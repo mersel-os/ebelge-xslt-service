@@ -231,32 +231,58 @@ public class SchematronRuntimeCompiler {
     // ── Post-Processing ─────────────────────────────────────────────
 
     /**
-     * Dışarıdan set edilmesi gereken bilinen xsl:variable'ları xsl:param'a dönüştürür.
+     * Dışarıdan set edilmesi gereken xsl:variable'ları xsl:param'a dönüştürür.
      * <p>
-     * ISO Schematron pipeline, Schematron kaynağındaki global variable'ları
+     * ISO Schematron pipeline, Schematron kaynağındaki global {@code <sch:let>} tanımlarını
      * {@code <xsl:variable>} olarak üretir. Ancak Saxon'da dışarıdan
      * {@code setStylesheetParameters()} ile değer verilebilmesi için
      * bunların {@code <xsl:param>} olması gerekir.
      * <p>
-     * Bilinen dönüştürülecek variable'lar:
-     * <ul>
-     *   <li>{@code type} — UBL-TR Main Schematron belge tipi (efatura/earchive)</li>
-     * </ul>
+     * Dönüştürme: iki aşamalı:
+     * <ol>
+     *   <li>{@code type} — UBL-TR Main Schematron belge tipi (her zaman dönüştürülür)</li>
+     *   <li>String literal default ({@code select="'...'"}) — custom rule parametreleri
+     *       ($sessionBuyerIdentification vb.). {@code injectCustomRules} tarafından
+     *       enjekte edilen {@code <sch:let name="..." value="''"/>} tanımlarından gelir.</li>
+     * </ol>
      */
     private byte[] postProcessVariablesToParams(byte[] xsltBytes) {
         String xslt = new String(xsltBytes, java.nio.charset.StandardCharsets.UTF_8);
 
-        // <xsl:variable name="type" select="..."/> → <xsl:param name="type" select="..."/>
-        // Sadece top-level (stylesheet çocuğu) variable'lar etkilenir.
-        // Regex: name="type" olan xsl:variable satırını xsl:param'a çevir.
-        String original = xslt;
+        var convertedParams = new java.util.ArrayList<String>();
+
+        // 1) Bilinen "type" parametresi — select değeri ne olursa olsun dönüştür
+        String before = xslt;
         xslt = xslt.replaceAll(
                 "<xsl:variable(\\s+name\\s*=\\s*\"type\")",
                 "<xsl:param$1"
         );
+        if (!xslt.equals(before)) {
+            convertedParams.add("type");
+        }
 
-        if (!xslt.equals(original)) {
-            log.debug("Post-process: <xsl:variable name=\"type\"> → <xsl:param name=\"type\"> dönüştürüldü");
+        // 2) String literal default'lu tüm xsl:variable tanımlarını dönüştür.
+        //    Custom rule parametreleri <sch:let name="x" value="''"/> olarak enjekte edilir →
+        //    pipeline bunları <xsl:variable name="x" select="''"/> üretir.
+        //    "type" zaten 1. adımda dönüştürüldüyse tekrar eşleşmez.
+        before = xslt;
+        xslt = xslt.replaceAll(
+                "<xsl:variable(\\s+name\\s*=\\s*\"([^\"]+)\"\\s+select\\s*=\\s*\"'[^']*'\")",
+                "<xsl:param$1"
+        );
+        if (!xslt.equals(before)) {
+            var m = java.util.regex.Pattern
+                    .compile("<xsl:param\\s+name\\s*=\\s*\"([^\"]+)\"\\s+select\\s*=\\s*\"'[^']*'\"")
+                    .matcher(xslt);
+            while (m.find()) {
+                String name = m.group(1);
+                if (!convertedParams.contains(name)) convertedParams.add(name);
+            }
+        }
+
+        if (!convertedParams.isEmpty()) {
+            log.debug("Post-process: {} xsl:variable → xsl:param dönüştürüldü: {}",
+                    convertedParams.size(), String.join(", ", convertedParams));
         }
 
         return xslt.getBytes(java.nio.charset.StandardCharsets.UTF_8);

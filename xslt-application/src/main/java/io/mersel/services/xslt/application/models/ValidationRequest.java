@@ -14,12 +14,6 @@ public class ValidationRequest {
     private SchematronValidationType schematronValidationType;
 
     /**
-     * UBL-TR Main Schematron tipi (örn: "efatura", "earchive").
-     * Sadece {@link SchematronValidationType#UBLTR_MAIN} için kullanılır.
-     */
-    private String ublTrMainSchematronType;
-
-    /**
      * Doğrulanacak XML belge içeriği (byte dizisi).
      */
     private byte[] source;
@@ -29,11 +23,9 @@ public class ValidationRequest {
 
     public ValidationRequest(SchemaValidationType schemaValidationType,
                              SchematronValidationType schematronValidationType,
-                             String ublTrMainSchematronType,
                              byte[] source) {
         this.schemaValidationType = schemaValidationType;
         this.schematronValidationType = schematronValidationType;
-        this.ublTrMainSchematronType = ublTrMainSchematronType;
         this.source = source;
     }
 
@@ -51,14 +43,6 @@ public class ValidationRequest {
 
     public void setSchematronValidationType(SchematronValidationType schematronValidationType) {
         this.schematronValidationType = schematronValidationType;
-    }
-
-    public String getUblTrMainSchematronType() {
-        return ublTrMainSchematronType;
-    }
-
-    public void setUblTrMainSchematronType(String ublTrMainSchematronType) {
-        this.ublTrMainSchematronType = ublTrMainSchematronType;
     }
 
     public byte[] getSource() {

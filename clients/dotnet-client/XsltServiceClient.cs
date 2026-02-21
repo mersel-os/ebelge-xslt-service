@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using MERSEL.Services.XsltService.Client.Interfaces;
 using MERSEL.Services.XsltService.Client.Models;
 
@@ -23,11 +24,6 @@ public sealed class XsltServiceClient : IXsltServiceClient
 
         using var form = new MultipartFormDataContent();
 
-        if (!string.IsNullOrWhiteSpace(request.UblTrMainSchematronType))
-        {
-            form.Add(new StringContent(request.UblTrMainSchematronType), "ublTrMainSchematronType");
-        }
-
         if (!string.IsNullOrWhiteSpace(request.Profile))
         {
             form.Add(new StringContent(request.Profile), "profile");
@@ -40,6 +36,18 @@ public sealed class XsltServiceClient : IXsltServiceClient
         if (suppressions.Length > 0)
         {
             form.Add(new StringContent(string.Join(",", suppressions)), "suppressions");
+        }
+
+        var parameters = request.Parameters
+            .Where(static p => !string.IsNullOrWhiteSpace(p.Key))
+            .ToArray();
+
+        if (parameters.Length > 0)
+        {
+            var parametersJson = JsonSerializer.Serialize(
+                parameters.Select(static p => new { key = p.Key, value = p.Value ?? string.Empty }),
+                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            form.Add(new StringContent(parametersJson), "parameters");
         }
 
         using var source = new ByteArrayContent(request.Source);

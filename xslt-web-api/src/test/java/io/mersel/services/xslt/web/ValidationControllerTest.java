@@ -12,11 +12,12 @@ import io.mersel.services.xslt.application.models.SchematronError;
 import io.mersel.services.xslt.application.models.SuppressionResult;
 import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import io.mersel.services.xslt.web.controllers.ValidationController;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
@@ -25,9 +26,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -58,12 +60,14 @@ class ValidationControllerTest {
     @Mock
     private XsltMetrics xsltMetrics;
 
-    @InjectMocks
     private ValidationController validationController;
 
     @BeforeEach
     void setUp() throws Exception {
-        // @Value alanlarını reflection ile set et (@InjectMocks bunları inject etmez)
+        validationController = new ValidationController(
+                documentTypeDetector, schemaValidator, schematronValidator,
+                profileService, xsltMetrics, new ObjectMapper());
+
         var sizeField = ValidationController.class.getDeclaredField("maxValidationSizeMb");
         sizeField.setAccessible(true);
         sizeField.setInt(validationController, 100);
@@ -82,7 +86,7 @@ class ValidationControllerTest {
                 .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any(), anyList(), isNull()))
+        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), anyList(), isNull(), anyMap()))
                 .thenReturn(Collections.emptyList());
         when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());
@@ -117,7 +121,7 @@ class ValidationControllerTest {
                 .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
                 .thenReturn(List.of("Şema hatası 1", "Şema hatası 2"));
-        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any(), anyList(), isNull()))
+        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), anyList(), isNull(), anyMap()))
                 .thenReturn(schematronErrors);
         when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
                 .thenReturn(List.of("Şema hatası 1", "Şema hatası 2"));
@@ -177,7 +181,7 @@ class ValidationControllerTest {
                 .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), any(), anyList(), eq("unsigned")))
+        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), anyList(), eq("unsigned"), anyMap()))
                 .thenReturn(List.of(suppressedError, activeError));
         when(profileService.applyXsdSuppressions(anyList(), eq("unsigned"), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());
@@ -217,7 +221,7 @@ class ValidationControllerTest {
                 .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), eq(SchemaValidationType.EDEFTER), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), eq(SchematronValidationType.EDEFTER_YEVMIYE), any(), any(), anyList(), isNull()))
+        when(schematronValidator.validate(any(), eq(SchematronValidationType.EDEFTER_YEVMIYE), any(), anyList(), isNull(), anyMap()))
                 .thenReturn(Collections.emptyList());
         when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());
@@ -235,5 +239,183 @@ class ValidationControllerTest {
                 .andExpect(jsonPath("$.result.appliedSchematron").value("EDEFTER_YEVMIYE"))
                 .andExpect(jsonPath("$.result.appliedXsdPath").value("validator/eledger/schema/edefter.xsd"))
                 .andExpect(jsonPath("$.result.appliedSchematronPath").value("validator/eledger/schematron/edefter_yevmiye.sch"));
+    }
+
+    // ── Schematron Parametre Testleri ──────────────────────────────────
+
+    @Nested
+    @DisplayName("Schematron Parametreleri")
+    class SchematronParameterTests {
+
+        @Test
+        @DisplayName("Geçerli JSON parametreleri validator'a iletilmeli")
+        void shouldPassValidParametersToValidator() throws Exception {
+            when(documentTypeDetector.detect(any(byte[].class)))
+                    .thenReturn(DocumentType.INVOICE);
+            when(profileService.resolveXsdOverrides(isNull(), eq("INVOICE")))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.resolveSchematronRules(isNull(), anyString()))
+                    .thenReturn(Collections.emptyList());
+            when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
+                    .thenReturn(Collections.emptyList());
+            when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN),
+                    any(), anyList(), isNull(), anyMap()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applySchematronSuppressions(anyList(), isNull(), anyList(), anySet()))
+                    .thenReturn(new SuppressionResult(List.of(), List.of(), null, 0));
+
+            var xmlFile = new MockMultipartFile("source", "test.xml", "text/xml",
+                    "<Invoice xmlns=\"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2\"/>".getBytes());
+
+            String parametersJson = "[{\"key\":\"maxAmount\",\"value\":\"1000\"},{\"key\":\"currency\",\"value\":\"TRY\"}]";
+
+            mockMvc.perform(multipart("/v1/validate")
+                            .file(xmlFile)
+                            .param("parameters", parametersJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.result.validSchema").value(true))
+                    .andExpect(jsonPath("$.result.validSchematron").value(true));
+
+            // Validator'a geçirilen parametreleri doğrula
+            verify(schematronValidator).validate(
+                    any(), eq(SchematronValidationType.UBLTR_MAIN), any(),
+                    anyList(), isNull(),
+                    eq(Map.of("maxAmount", "1000", "currency", "TRY")));
+        }
+
+        @Test
+        @DisplayName("Geçersiz JSON parametreleri sessizce yok sayılmalı — boş map geçmeli")
+        void shouldIgnoreInvalidParametersJson() throws Exception {
+            when(documentTypeDetector.detect(any(byte[].class)))
+                    .thenReturn(DocumentType.INVOICE);
+            when(profileService.resolveXsdOverrides(isNull(), eq("INVOICE")))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.resolveSchematronRules(isNull(), anyString()))
+                    .thenReturn(Collections.emptyList());
+            when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
+                    .thenReturn(Collections.emptyList());
+            when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN),
+                    any(), anyList(), isNull(), anyMap()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applySchematronSuppressions(anyList(), isNull(), anyList(), anySet()))
+                    .thenReturn(new SuppressionResult(List.of(), List.of(), null, 0));
+
+            var xmlFile = new MockMultipartFile("source", "test.xml", "text/xml",
+                    "<Invoice xmlns=\"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2\"/>".getBytes());
+
+            mockMvc.perform(multipart("/v1/validate")
+                            .file(xmlFile)
+                            .param("parameters", "{invalid-json}"))
+                    .andExpect(status().isOk());
+
+            verify(schematronValidator).validate(
+                    any(), any(), any(), anyList(), isNull(),
+                    eq(Map.of()));
+        }
+
+        @Test
+        @DisplayName("Boş parametreler — boş map geçmeli")
+        void shouldPassEmptyMapWhenNoParameters() throws Exception {
+            when(documentTypeDetector.detect(any(byte[].class)))
+                    .thenReturn(DocumentType.INVOICE);
+            when(profileService.resolveXsdOverrides(isNull(), eq("INVOICE")))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.resolveSchematronRules(isNull(), anyString()))
+                    .thenReturn(Collections.emptyList());
+            when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
+                    .thenReturn(Collections.emptyList());
+            when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN),
+                    any(), anyList(), isNull(), anyMap()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applySchematronSuppressions(anyList(), isNull(), anyList(), anySet()))
+                    .thenReturn(new SuppressionResult(List.of(), List.of(), null, 0));
+
+            var xmlFile = new MockMultipartFile("source", "test.xml", "text/xml",
+                    "<Invoice xmlns=\"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2\"/>".getBytes());
+
+            mockMvc.perform(multipart("/v1/validate")
+                            .file(xmlFile))
+                    .andExpect(status().isOk());
+
+            verify(schematronValidator).validate(
+                    any(), any(), any(), anyList(), isNull(),
+                    eq(Map.of()));
+        }
+
+        @Test
+        @DisplayName("Boş key'li parametreler filtrelenmeli")
+        void shouldFilterEmptyKeyParameters() throws Exception {
+            when(documentTypeDetector.detect(any(byte[].class)))
+                    .thenReturn(DocumentType.INVOICE);
+            when(profileService.resolveXsdOverrides(isNull(), eq("INVOICE")))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.resolveSchematronRules(isNull(), anyString()))
+                    .thenReturn(Collections.emptyList());
+            when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
+                    .thenReturn(Collections.emptyList());
+            when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN),
+                    any(), anyList(), isNull(), anyMap()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applySchematronSuppressions(anyList(), isNull(), anyList(), anySet()))
+                    .thenReturn(new SuppressionResult(List.of(), List.of(), null, 0));
+
+            var xmlFile = new MockMultipartFile("source", "test.xml", "text/xml",
+                    "<Invoice xmlns=\"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2\"/>".getBytes());
+
+            String parametersJson = "[{\"key\":\"\",\"value\":\"skip\"},{\"key\":\"valid\",\"value\":\"kept\"}]";
+
+            mockMvc.perform(multipart("/v1/validate")
+                            .file(xmlFile)
+                            .param("parameters", parametersJson))
+                    .andExpect(status().isOk());
+
+            verify(schematronValidator).validate(
+                    any(), any(), any(), anyList(), isNull(),
+                    eq(Map.of("valid", "kept")));
+        }
+
+        @Test
+        @DisplayName("Parametreler profil ile birlikte çalışmalı")
+        void shouldWorkWithProfileAndParameters() throws Exception {
+            when(documentTypeDetector.detect(any(byte[].class)))
+                    .thenReturn(DocumentType.INVOICE);
+            when(profileService.resolveXsdOverrides(eq("unsigned"), eq("INVOICE")))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.resolveSchematronRules(eq("unsigned"), anyString()))
+                    .thenReturn(Collections.emptyList());
+            when(schemaValidator.validate(any(), eq(SchemaValidationType.INVOICE), anyList(), any()))
+                    .thenReturn(Collections.emptyList());
+            when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN),
+                    any(), anyList(), eq("unsigned"), anyMap()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applyXsdSuppressions(anyList(), eq("unsigned"), anyList(), anySet()))
+                    .thenReturn(Collections.emptyList());
+            when(profileService.applySchematronSuppressions(anyList(), eq("unsigned"), anyList(), anySet()))
+                    .thenReturn(new SuppressionResult(List.of(), List.of(), "unsigned", 0));
+
+            var xmlFile = new MockMultipartFile("source", "test.xml", "text/xml",
+                    "<Invoice xmlns=\"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2\"/>".getBytes());
+
+            String parametersJson = "[{\"key\":\"threshold\",\"value\":\"500\"}]";
+
+            mockMvc.perform(multipart("/v1/validate")
+                            .file(xmlFile)
+                            .param("profile", "unsigned")
+                            .param("parameters", parametersJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.result.validSchematron").value(true));
+
+            verify(schematronValidator).validate(
+                    any(), any(), any(), anyList(), eq("unsigned"),
+                    eq(Map.of("threshold", "500")));
+        }
     }
 }

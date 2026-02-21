@@ -26,9 +26,11 @@ export function SchematronRulesManager() {
   const [openSet, setOpenSet] = useState<Set<number>>(new Set());
   const nextKeyRef = useRef(0);
   const [keys, setKeys] = useState<number[]>([]);
+  const isDirtyRef = useRef(false);
+  isDirtyRef.current = isDirty;
 
   useEffect(() => {
-    if (data?.rules) {
+    if (data?.rules && !isDirtyRef.current) {
       const flatRules: SchematronRuleFormData[] = [];
       for (const [schematronType, ruleList] of Object.entries(data.rules)) {
         for (const rule of ruleList) {
@@ -88,9 +90,14 @@ export function SchematronRulesManager() {
 
   const handleSave = async () => {
     const grouped: Record<string, { context: string; test: string; message: string; id?: string }[]> = {};
+    const incompleteIndices: number[] = [];
 
-    for (const rule of rules) {
-      if (!rule.context.trim() || !rule.test.trim() || !rule.message.trim()) continue;
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      if (!rule.context.trim() || !rule.test.trim() || !rule.message.trim()) {
+        incompleteIndices.push(i + 1);
+        continue;
+      }
       if (!grouped[rule.schematronType]) grouped[rule.schematronType] = [];
       grouped[rule.schematronType].push({
         context: rule.context.trim(),
@@ -100,11 +107,26 @@ export function SchematronRulesManager() {
       });
     }
 
+    if (incompleteIndices.length > 0 && Object.values(grouped).flat().length === 0) {
+      toast.error("Kaydedilecek geçerli kural yok", {
+        description: `Kural ${incompleteIndices.join(", ")}: Context, Test ve Mesaj alanları zorunludur.`,
+      });
+      return;
+    }
+
+    if (incompleteIndices.length > 0) {
+      toast.warning("Eksik kurallar atlandı", {
+        description: `Kural ${incompleteIndices.join(", ")} eksik alanlar nedeniyle kaydedilmedi.`,
+      });
+    }
+
     try {
-      await saveMutation.mutateAsync(grouped);
+      const response = await saveMutation.mutateAsync(grouped);
       setIsDirty(false);
+      const savedCount = (response as { totalRuleCount?: number })?.totalRuleCount
+        ?? Object.values(grouped).flat().length;
       toast.success("Global Schematron kuralları kaydedildi", {
-        description: `${Object.values(grouped).flat().length} kural kaydedildi.`,
+        description: `${savedCount} kural kaydedildi.`,
       });
     } catch {
       toast.error("Global Schematron kuralları kaydedilemedi.");

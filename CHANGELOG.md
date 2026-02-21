@@ -2,6 +2,104 @@
 
 Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
+## [1.2.0] - 2026-02-21
+
+### Breaking Changes
+
+#### `ublTrMainSchematronType` Parametresi Kaldırıldı
+
+`/v1/validate` endpoint'indeki `ublTrMainSchematronType` form alanı kaldırıldı. UBL-TR Schematron belge tipi artık genel `parameters` alanı üzerinden gönderilmelidir:
+
+```
+Eski: ublTrMainSchematronType=efatura
+Yeni: parameters=[{"key":"type","value":"efatura"}]
+```
+
+- **API**: `ublTrMainSchematronType` multipart form alanı artık kabul edilmiyor. `type` değeri `parameters` JSON array'i içinde `{"key":"type","value":"..."}` olarak gönderilmelidir.
+- **.NET Client SDK**: `ValidationRequest.UblTrMainSchematronType` property'si kaldırıldı. Yerine `Parameters = new[] { new SchematronParameter("type", "efatura") }` kullanılmalıdır.
+- `type` parametresi gönderilmezse Schematron XSLT'deki default değer (`efatura`) kullanılır.
+
+> **Not**: `type` parametresi yalnızca `UBL_TR_MAIN` Schematron tipi için geçerlidir. GİB'in UBL-TR Main Schematron'u bu değer üzerinden fatura profillerini kontrol eder. Kabul edilen değerler: `efatura` (e-Fatura) ve `earchive` (e-Arşiv).
+
+### Eklenen
+
+#### Schematron Parametre Desteği — Dinamik Değişken Geçirme
+
+Schematron doğrulama sırasında XSLT'ye özel parametre (`xsl:param`) geçirebilme özelliği eklendi. Custom Schematron kurallarında `$parametre_adi` şeklinde tanımlanan değişkenler artık doğrulama isteği sırasında doldurulabilir.
+
+- **Validate API**: `/v1/validate` endpoint'ine `parameters` alanı eklendi. JSON array formatında key/value çiftleri kabul eder (örn: `[{"key":"sessionBuyerIdentification","value":"1234567890"}]`).
+- **Otomatik parametre tanıma**: Custom rule test ifadelerindeki `$variableName` referansları otomatik tespit edilir. `<sch:let>` tanımları Schematron XML'e enjekte edilir ve ISO pipeline sonrası `<xsl:param>`'a dönüştürülür.
+- **Tüm Schematron tipleri desteklenir**: UBL-TR Main, e-Arşiv, e-Defter (Yevmiye, Kebir, Berat, Rapor), Envanter — herhangi bir XSLT parametresi gönderilebilir.
+- **Web UI**: Doğrulama formuna "Schematron Parametreleri" bölümü eklendi. Açılır/kapanır panel ile dinamik key/value satırları eklenip çıkarılabilir.
+- **Güvenlik**: Parametre sayısı 50 ile sınırlıdır. Geçersiz JSON sessizce yok sayılır.
+
+#### Dinamik Hata Mesajları — `{{xpath}}` Placeholder Desteği
+
+Custom Schematron kural mesajlarında `{{xpath_ifadesi}}` placeholder syntax'i ile XML'deki değerleri doğrudan hata mesajına yerleştirebilme özelliği eklendi.
+
+- Mesaj alanında `{{cbc:ID}}`, `{{$parametre}}` gibi XPath ifadeleri kullanılabilir.
+- Placeholder'lar derleme sırasında `<sch:value-of select="..."/>` elementlerine dönüştürülür.
+- Tek mesajda birden fazla placeholder desteklenir.
+- Placeholder içermeyen mesajlar etkilenmez (geriye uyumlu).
+
+**Örnek mesaj:**
+```
+Satıcı VKN ({{cac:AccountingSupplierParty/cac:Party/cac:PartyIdentification/cbc:ID}}) oturumdaki firma ({{$sessionSupplierIdentification}}) ile eşleşmiyor.
+```
+
+**Runtime çıktısı:**
+> Satıcı VKN (**9876543210**) oturumdaki firma (**1234567890**) ile eşleşmiyor.
+
+<details>
+<summary><strong>Kullanım Örneği: Oturum Bazlı Fatura Sahipliği Kontrolü</strong></summary>
+
+Faturayı gönderen kullanıcının (session) VKN/TCKN'si ile XML'deki satıcı bilgisinin eşleşip eşleşmediğini doğrulama aşamasında kontrol edebilirsiniz. Böylece yanlış firmaya ait faturalar iş katmanına hiç ulaşmadan reddedilebilir.
+
+**1. Admin panelinden global custom rule ekleyin:**
+
+| Alan | Değer |
+|------|-------|
+| **Schematron Tipi** | `UBL_TR_MAIN` |
+| **Context** | `inv:Invoice` |
+| **Test** | `cac:AccountingSupplierParty/cac:Party/cac:PartyIdentification/cbc:ID[@schemeID='VKN' or @schemeID='TCKN'] = $sessionSupplierIdentification` |
+| **Mesaj** | `Satıcı VKN ({{cac:AccountingSupplierParty/cac:Party/cac:PartyIdentification/cbc:ID[@schemeID='VKN' or @schemeID='TCKN']}}) oturumdaki firma ({{$sessionSupplierIdentification}}) ile eşleşmiyor.` |
+| **Flag** | `error` |
+
+Rule kaydedildiğinde:
+- `$sessionSupplierIdentification` parametresi otomatik olarak tanınır ve Schematron XML'e `<sch:let>` tanımı enjekte edilir.
+- `{{...}}` placeholder'ları `<sch:value-of>` elementlerine dönüştürülür.
+
+**2. Doğrulama isteğinde parametreyi geçirin:**
+
+```
+parameters=[{"key":"sessionSupplierIdentification","value":"1234567890"}]
+```
+
+**3. Sonuç:** XML'deki `AccountingSupplierParty` VKN/TCKN'si `1234567890` ile eşleşmezse, hata mesajında **her iki değer de** görünür:
+
+> Satıcı VKN (**9876543210**) oturumdaki firma (**1234567890**) ile eşleşmiyor.
+
+Bu yaklaşımla ihtiyacınız olan herhangi bir iş kuralını Schematron'a custom rule olarak ekleyip, gerekli parametreleri runtime'da geçirmeniz yeterlidir. Kod değişikliği gerektirmez.
+
+</details>
+
+#### Derlenmiş Dosya Önizleme
+
+Auto-generated (pipeline çıktısı) dosyalar için VS Code tarzı readonly önizleme özelliği eklendi:
+
+- Dosya tıklanarak Monaco Editor ile syntax-highlighted görüntüleme.
+- XML/XSL/XSD desteği, minimap, code folding, satır numaraları.
+- Kopyala butonu ile içerik panoya aktarılabilir.
+- API: `GET /v1/admin/auto-generated/content?path=...`
+
+#### .NET Client SDK Güncellemesi
+
+- `ValidationRequest` modeline `Parameters` özelliği eklendi (`IReadOnlyCollection<SchematronParameter>`).
+- `SchematronParameter` modeli eklendi (`Key`, `Value` çifti).
+- Client, parametreleri JSON array olarak serialize ederek multipart form'a ekler.
+
+---
+
 ## [1.1.0] - 2026-02-18
 
 ### Eklenen

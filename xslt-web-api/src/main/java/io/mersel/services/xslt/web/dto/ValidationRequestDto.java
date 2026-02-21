@@ -19,13 +19,6 @@ public class ValidationRequestDto {
     private MultipartFile source;
 
     @Size(max = 100)
-    @Schema(description = "UBL-TR Main Schematron alt tipi (sadece UBL-TR belgeleri için). " +
-            "Belirtilmezse varsayılan 'efatura' kullanılır.",
-            example = "efatura",
-            nullable = true)
-    private String ublTrMainSchematronType;
-
-    @Size(max = 100)
     @Schema(description = "Doğrulama profili adı. Profiller, belirli hataların bastırılmasını sağlar. " +
             "Örn: 'unsigned' imza kontrollerini, 'signed' tüm kontrolleri uygular.",
             example = "unsigned",
@@ -45,20 +38,24 @@ public class ValidationRequestDto {
             nullable = true)
     private String suppressions;
 
+    @Size(max = 5000)
+    @Schema(description = """
+            Schematron XSLT parametreleri (JSON array formatında). \
+            Doğrulama sırasında Schematron XSLT'sine xsl:param olarak geçirilir. \
+            Özel şematron kurallarında $parametre_adi şeklinde tanımlanan değişkenleri doldurmak için kullanılır. \
+            Her eleman {"key":"parametre_adi","value":"deger"} formatında olmalıdır. \
+            Not: 'type' parametresi UBL-TR Main Schematron alt tipini belirler (örn: "TEMELFATURA").""",
+            example = """
+            [{"key":"documentCurrency","value":"TRY"},{"key":"maxAmount","value":"1000"}]""",
+            nullable = true)
+    private String parameters;
+
     public MultipartFile getSource() {
         return source;
     }
 
     public void setSource(MultipartFile source) {
         this.source = source;
-    }
-
-    public String getUblTrMainSchematronType() {
-        return ublTrMainSchematronType;
-    }
-
-    public void setUblTrMainSchematronType(String ublTrMainSchematronType) {
-        this.ublTrMainSchematronType = ublTrMainSchematronType;
     }
 
     public String getProfile() {
@@ -75,5 +72,13 @@ public class ValidationRequestDto {
 
     public void setSuppressions(String suppressions) {
         this.suppressions = suppressions;
+    }
+
+    public String getParameters() {
+        return parameters;
+    }
+
+    public void setParameters(String parameters) {
+        this.parameters = parameters;
     }
 }

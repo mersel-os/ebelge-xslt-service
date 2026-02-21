@@ -43,9 +43,9 @@ public sealed class InvoiceService(IXsltServiceClient xsltClient)
         var response = await xsltClient.ValidateAsync(new ValidationRequest
         {
             Source = xml,
-            UblTrMainSchematronType = "efatura",
             Profile = "unsigned",
-            Suppressions = new[] { "InvoiceIDCheck" }
+            Suppressions = new[] { "InvoiceIDCheck" },
+            Parameters = new[] { new SchematronParameter("type", "TEMELFATURA") }
         }, ct);
 
         return response.Result;

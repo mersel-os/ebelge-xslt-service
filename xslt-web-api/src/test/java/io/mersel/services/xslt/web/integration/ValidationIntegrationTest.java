@@ -8,6 +8,7 @@ import io.mersel.services.xslt.application.models.SuppressionResult;
 import io.mersel.services.xslt.infrastructure.DocumentTypeDetector;
 import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import io.mersel.services.xslt.web.controllers.ValidationController;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -68,7 +69,8 @@ class ValidationIntegrationTest {
                 schemaValidator,
                 schematronValidator,
                 profileService,
-                xsltMetrics
+                xsltMetrics,
+                new ObjectMapper()
         );
 
         // @Value alanını reflection ile set et
@@ -265,7 +267,7 @@ class ValidationIntegrationTest {
                 .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(xsdErrors);
-        when(schematronValidator.validate(any(), any(), any(), any(), anyList(), any()))
+        when(schematronValidator.validate(any(), any(), any(), anyList(), any(), any()))
                 .thenReturn(schematronErrors);
         when(profileService.applyXsdSuppressions(anyList(), any(), anyList(), anySet()))
                 .thenReturn(xsdErrors);
@@ -350,7 +352,7 @@ class ValidationIntegrationTest {
                 .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), any(), any(), any(), anyList(), any()))
+        when(schematronValidator.validate(any(), any(), any(), anyList(), any(), any()))
                 .thenReturn(schematronErrors);
         when(profileService.applyXsdSuppressions(anyList(), any(), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());
@@ -392,7 +394,7 @@ class ValidationIntegrationTest {
                 .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), any(), any(), any(), anyList(), any()))
+        when(schematronValidator.validate(any(), any(), any(), anyList(), any(), any()))
                 .thenReturn(schematronErrors);
         when(profileService.applyXsdSuppressions(anyList(), eq("test-suppress"), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());
@@ -451,7 +453,7 @@ class ValidationIntegrationTest {
                 .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), any(), any(), any(), anyList(), any()))
+        when(schematronValidator.validate(any(), any(), any(), anyList(), any(), any()))
                 .thenReturn(allErrors);
         when(profileService.applyXsdSuppressions(anyList(), eq("only-id-suppress"), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());
@@ -495,7 +497,7 @@ class ValidationIntegrationTest {
                 .thenReturn(Collections.emptyList());
         when(schemaValidator.validate(any(), any(), anyList(), any()))
                 .thenReturn(Collections.emptyList());
-        when(schematronValidator.validate(any(), any(), any(), any(), anyList(), any()))
+        when(schematronValidator.validate(any(), any(), any(), anyList(), any(), any()))
                 .thenReturn(Collections.emptyList());
         when(profileService.applyXsdSuppressions(anyList(), any(), anyList(), anySet()))
                 .thenReturn(Collections.emptyList());

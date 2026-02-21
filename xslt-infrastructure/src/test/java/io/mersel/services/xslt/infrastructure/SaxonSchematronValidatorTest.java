@@ -60,7 +60,7 @@ class SaxonSchematronValidatorTest {
         byte[] source = "<Invoice/>".getBytes(StandardCharsets.UTF_8);
 
         List<SchematronError> errors = validator.validate(
-                source, SchematronValidationType.UBLTR_MAIN, null, null);
+                source, SchematronValidationType.UBLTR_MAIN, null, List.of(), null, null);
 
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).message())
@@ -92,7 +92,8 @@ class SaxonSchematronValidatorTest {
         byte[] source = "<Invoice><ID>INV001</ID></Invoice>".getBytes(StandardCharsets.UTF_8);
 
         List<SchematronError> errors = validator.validate(
-                source, SchematronValidationType.UBLTR_MAIN, "efatura", null);
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null, Map.of("type", "efatura"));
 
         assertThat(errors).isEmpty();
         verify(metrics).recordValidation(eq("schematron"), eq("UBLTR_MAIN"), eq("valid"), anyLong());
@@ -121,7 +122,8 @@ class SaxonSchematronValidatorTest {
         byte[] source = "<Invoice/>".getBytes(StandardCharsets.UTF_8);
 
         List<SchematronError> errors = validator.validate(
-                source, SchematronValidationType.UBLTR_MAIN, "efatura", null);
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null, Map.of("type", "efatura"));
 
         assertThat(errors).hasSize(2);
 
@@ -162,7 +164,8 @@ class SaxonSchematronValidatorTest {
 
         // "earchive" parametresi ile çağır — Error üretecek
         List<SchematronError> errors = validator.validate(
-                source, SchematronValidationType.UBLTR_MAIN, "earchive", null);
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null, Map.of("type", "earchive"));
 
         assertThat(errors).hasSize(1);
         assertThat(errors.get(0).ruleId()).isEqualTo("TYPE_CHECK");
@@ -378,8 +381,8 @@ class SaxonSchematronValidatorTest {
 
         // Boş custom rules — standart validate yoluna düşmeli
         List<SchematronError> errors = validator.validate(
-                source, SchematronValidationType.UBLTR_MAIN, "efatura", null,
-                List.of(), null);
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null, Map.of("type", "efatura"));
 
         assertThat(errors).isEmpty();
         verify(metrics).recordValidation(eq("schematron"), eq("UBLTR_MAIN"), eq("valid"), anyLong());
@@ -470,6 +473,342 @@ class SaxonSchematronValidatorTest {
     void getGlobalCustomRules_baslangicta_bos() {
         var result = validator.getGlobalCustomRules();
         assertThat(result).isEmpty();
+    }
+
+    // ── Test 17: Parametre Geçirme ──────────────────────────────────────
+
+    @Test
+    @DisplayName("validate_parametreler_xslt_ye_gecmeli — Özel parametreler XSLT'ye xsl:param olarak geçmeli")
+    void validate_parametreler_xslt_ye_gecmeli() throws Exception {
+        // Parametreleri çıktıya yazan XSLT
+        String xslt = """
+                <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:param name="maxAmount" select="'0'"/>
+                    <xsl:param name="currency" select="'USD'"/>
+                    <xsl:template match="/">
+                        <Result>
+                            <xsl:if test="$maxAmount = '1000' and $currency = 'TRY'">
+                                <Error ruleId="PARAM_CHECK" test="$maxAmount">Parametreler dogru: <xsl:value-of select="$maxAmount"/>/<xsl:value-of select="$currency"/></Error>
+                            </xsl:if>
+                        </Result>
+                    </xsl:template>
+                </xsl:stylesheet>
+                """;
+
+        XsltExecutable executable = compileXslt(xslt);
+        injectCompiledSchematron(SchematronValidationType.UBLTR_MAIN, executable);
+
+        byte[] source = "<Invoice/>".getBytes(StandardCharsets.UTF_8);
+
+        List<SchematronError> errors = validator.validate(
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null,
+                Map.of("maxAmount", "1000", "currency", "TRY"));
+
+        assertThat(errors).hasSize(1);
+        assertThat(errors.get(0).ruleId()).isEqualTo("PARAM_CHECK");
+        assertThat(errors.get(0).message()).contains("1000").contains("TRY");
+    }
+
+    // ── Test 18: Parametre type Override ──────────────────────────────
+
+    @Test
+    @DisplayName("validate_parameters_type — parameters[type] ile Schematron tipi belirlenebilmeli")
+    void validate_parameters_type() throws Exception {
+        // type parametresini kontrol eden XSLT
+        String xslt = """
+                <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:param name="type" select="'efatura'"/>
+                    <xsl:template match="/">
+                        <Result>
+                            <xsl:if test="$type = 'custom_override'">
+                                <Error ruleId="TYPE_OVERRIDE" test="$type">Override calisti: <xsl:value-of select="$type"/></Error>
+                            </xsl:if>
+                        </Result>
+                    </xsl:template>
+                </xsl:stylesheet>
+                """;
+
+        XsltExecutable executable = compileXslt(xslt);
+        injectCompiledSchematron(SchematronValidationType.UBLTR_MAIN, executable);
+
+        byte[] source = "<Invoice/>".getBytes(StandardCharsets.UTF_8);
+
+        // parameters.type="custom_override" ile Schematron tipi belirlenir
+        List<SchematronError> errors = validator.validate(
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null,
+                Map.of("type", "custom_override"));
+
+        assertThat(errors).hasSize(1);
+        assertThat(errors.get(0).ruleId()).isEqualTo("TYPE_OVERRIDE");
+        assertThat(errors.get(0).message()).contains("custom_override");
+    }
+
+    // ── Test 19: Boş Parametreler ──────────────────────────────────────
+
+    @Test
+    @DisplayName("validate_bos_parametreler — Boş parametre map'i hata vermemeli")
+    void validate_bos_parametreler_hata_vermemeli() throws Exception {
+        String xslt = """
+                <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:template match="/">
+                        <Result/>
+                    </xsl:template>
+                </xsl:stylesheet>
+                """;
+
+        XsltExecutable executable = compileXslt(xslt);
+        injectCompiledSchematron(SchematronValidationType.UBLTR_MAIN, executable);
+
+        byte[] source = "<Invoice/>".getBytes(StandardCharsets.UTF_8);
+
+        List<SchematronError> errors = validator.validate(
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null, Map.of());
+
+        assertThat(errors).isEmpty();
+    }
+
+    // ── Test 20: Null Parametreler ─────────────────────────────────────
+
+    @Test
+    @DisplayName("validate_null_parametreler — null parametre map'i hata vermemeli")
+    void validate_null_parametreler_hata_vermemeli() throws Exception {
+        String xslt = """
+                <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:template match="/">
+                        <Result/>
+                    </xsl:template>
+                </xsl:stylesheet>
+                """;
+
+        XsltExecutable executable = compileXslt(xslt);
+        injectCompiledSchematron(SchematronValidationType.UBLTR_MAIN, executable);
+
+        byte[] source = "<Invoice/>".getBytes(StandardCharsets.UTF_8);
+
+        List<SchematronError> errors = validator.validate(
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null, null);
+
+        assertThat(errors).isEmpty();
+    }
+
+    // ── Test 21: Non-UBLTR_MAIN Parametreler ──────────────────────────
+
+    @Test
+    @DisplayName("validate_non_ubltr_parametreler — UBLTR_MAIN olmayan tipler için de parametreler geçmeli")
+    void validate_non_ubltr_parametreler() throws Exception {
+        // type parametresi olmadan özel parametre kontrolü
+        String xslt = """
+                <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:param name="vkn" select="''"/>
+                    <xsl:template match="/">
+                        <Result>
+                            <xsl:if test="$vkn = '1234567890'">
+                                <Error ruleId="VKN_CHECK" test="$vkn">VKN parametresi: <xsl:value-of select="$vkn"/></Error>
+                            </xsl:if>
+                        </Result>
+                    </xsl:template>
+                </xsl:stylesheet>
+                """;
+
+        XsltExecutable executable = compileXslt(xslt);
+        injectCompiledSchematron(SchematronValidationType.EDEFTER_YEVMIYE, executable);
+
+        byte[] source = "<Defter/>".getBytes(StandardCharsets.UTF_8);
+
+        List<SchematronError> errors = validator.validate(
+                source, SchematronValidationType.EDEFTER_YEVMIYE, null,
+                List.of(), null,
+                Map.of("vkn", "1234567890"));
+
+        assertThat(errors).hasSize(1);
+        assertThat(errors.get(0).ruleId()).isEqualTo("VKN_CHECK");
+        assertThat(errors.get(0).message()).contains("1234567890");
+    }
+
+    // ── Test 22: Çoklu Parametreler ────────────────────────────────────
+
+    @Test
+    @DisplayName("validate_coklu_parametreler — Birden fazla parametre birlikte çalışmalı")
+    void validate_coklu_parametreler() throws Exception {
+        String xslt = """
+                <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:param name="type" select="'efatura'"/>
+                    <xsl:param name="threshold" select="'0'"/>
+                    <xsl:param name="mode" select="'strict'"/>
+                    <xsl:template match="/">
+                        <Result>
+                            <xsl:if test="$type = 'earchive' and $threshold = '500' and $mode = 'lenient'">
+                                <Error ruleId="MULTI_PARAM" test="combined">Tum parametreler dogru</Error>
+                            </xsl:if>
+                        </Result>
+                    </xsl:template>
+                </xsl:stylesheet>
+                """;
+
+        XsltExecutable executable = compileXslt(xslt);
+        injectCompiledSchematron(SchematronValidationType.UBLTR_MAIN, executable);
+
+        byte[] source = "<Invoice/>".getBytes(StandardCharsets.UTF_8);
+
+        List<SchematronError> errors = validator.validate(
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null,
+                Map.of("type", "earchive", "threshold", "500", "mode", "lenient"));
+
+        assertThat(errors).hasSize(1);
+        assertThat(errors.get(0).ruleId()).isEqualTo("MULTI_PARAM");
+    }
+
+    // ── Test 23: Parametre Varsayılan Değer ────────────────────────────
+
+    @Test
+    @DisplayName("validate_parametre_verilmezse_varsayilan — Tanımlanmayan parametreler XSLT varsayılanını kullanmalı")
+    void validate_parametre_verilmezse_varsayilan() throws Exception {
+        String xslt = """
+                <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:param name="type" select="'efatura'"/>
+                    <xsl:param name="custom_var" select="'default_value'"/>
+                    <xsl:template match="/">
+                        <Result>
+                            <xsl:if test="$custom_var = 'default_value'">
+                                <Error ruleId="DEFAULT_CHECK" test="$custom_var">Varsayilan kullanildi</Error>
+                            </xsl:if>
+                        </Result>
+                    </xsl:template>
+                </xsl:stylesheet>
+                """;
+
+        XsltExecutable executable = compileXslt(xslt);
+        injectCompiledSchematron(SchematronValidationType.UBLTR_MAIN, executable);
+
+        byte[] source = "<Invoice/>".getBytes(StandardCharsets.UTF_8);
+
+        // custom_var parametresi GÖNDERİLMİYOR — XSLT'deki default_value kullanılmalı
+        List<SchematronError> errors = validator.validate(
+                source, SchematronValidationType.UBLTR_MAIN, null,
+                List.of(), null, Map.of());
+
+        assertThat(errors).hasSize(1);
+        assertThat(errors.get(0).ruleId()).isEqualTo("DEFAULT_CHECK");
+    }
+
+    // ── Test 24: Message Placeholder — value-of enjeksiyonu ─────────────
+
+    @Test
+    @DisplayName("injectCustomRules — {{xpath}} placeholder'ları sch:value-of'a dönüşmeli")
+    void injectCustomRules_message_placeholder_value_of() throws Exception {
+        String originalXml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+                </sch:schema>
+                """;
+
+        List<SchematronCustomAssertion> customRules = List.of(
+                new SchematronCustomAssertion("inv:Invoice",
+                        "cac:AccountingSupplierParty/cac:Party/cac:PartyIdentification/cbc:ID = $sessionVkn",
+                        "Satıcı VKN ({{cac:AccountingSupplierParty/cac:Party/cac:PartyIdentification/cbc:ID}}) oturumdaki firma ({{$sessionVkn}}) ile eşleşmiyor.",
+                        "VKN-CHECK")
+        );
+
+        byte[] result = validator.injectCustomRules(
+                originalXml.getBytes(StandardCharsets.UTF_8), customRules, "test-profile");
+
+        String resultStr = new String(result, StandardCharsets.UTF_8);
+
+        assertThat(resultStr).contains("<sch:value-of select=\"cac:AccountingSupplierParty/cac:Party/cac:PartyIdentification/cbc:ID\"/>");
+        assertThat(resultStr).contains("<sch:value-of select=\"$sessionVkn\"/>");
+        assertThat(resultStr).contains("Satıcı VKN (");
+        assertThat(resultStr).contains(") oturumdaki firma (");
+        assertThat(resultStr).contains(") ile eşleşmiyor.");
+        assertThat(resultStr).doesNotContain("{{");
+        assertThat(resultStr).doesNotContain("}}");
+    }
+
+    // ── Test 25: Message Placeholder — placeholder olmayan mesaj ──────────
+
+    @Test
+    @DisplayName("injectCustomRules — Placeholder olmayan mesaj düz text olarak kalmalı")
+    void injectCustomRules_message_no_placeholder_plain_text() throws Exception {
+        String originalXml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+                </sch:schema>
+                """;
+
+        List<SchematronCustomAssertion> customRules = List.of(
+                new SchematronCustomAssertion("inv:Invoice",
+                        "cbc:ID", "Fatura ID zorunlu alandır.", "ID-CHECK")
+        );
+
+        byte[] result = validator.injectCustomRules(
+                originalXml.getBytes(StandardCharsets.UTF_8), customRules, "test-profile");
+
+        String resultStr = new String(result, StandardCharsets.UTF_8);
+
+        assertThat(resultStr).contains("Fatura ID zorunlu alandır.");
+        assertThat(resultStr).doesNotContain("sch:value-of");
+    }
+
+    // ── Test 26: Message Placeholder — birden fazla placeholder ──────────
+
+    @Test
+    @DisplayName("injectCustomRules — Birden fazla {{xpath}} placeholder doğru sırada dönüşmeli")
+    void injectCustomRules_message_multiple_placeholders() throws Exception {
+        String originalXml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <sch:schema xmlns:sch="http://purl.oclc.org/dsdl/schematron">
+                </sch:schema>
+                """;
+
+        List<SchematronCustomAssertion> customRules = List.of(
+                new SchematronCustomAssertion("inv:Invoice",
+                        "cbc:Amount > 0",
+                        "Tutar: {{cbc:Amount}}, Para birimi: {{cbc:CurrencyCode}}, ID: {{cbc:ID}}",
+                        "MULTI-PH")
+        );
+
+        byte[] result = validator.injectCustomRules(
+                originalXml.getBytes(StandardCharsets.UTF_8), customRules, "test-profile");
+
+        String resultStr = new String(result, StandardCharsets.UTF_8);
+
+        assertThat(resultStr).contains("<sch:value-of select=\"cbc:Amount\"/>");
+        assertThat(resultStr).contains("<sch:value-of select=\"cbc:CurrencyCode\"/>");
+        assertThat(resultStr).contains("<sch:value-of select=\"cbc:ID\"/>");
+
+        int amountIdx = resultStr.indexOf("select=\"cbc:Amount\"");
+        int currencyIdx = resultStr.indexOf("select=\"cbc:CurrencyCode\"");
+        int idIdx = resultStr.indexOf("select=\"cbc:ID\"");
+        assertThat(amountIdx).isLessThan(currencyIdx);
+        assertThat(currencyIdx).isLessThan(idIdx);
+    }
+
+    // ── Test 27: buildMessageContent unit test ──────────────────────────
+
+    @Test
+    @DisplayName("buildMessageContent — Placeholder ile text+value-of karışık DOM oluşturulmalı")
+    void buildMessageContent_mixed_content() throws Exception {
+        var factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        var builder = factory.newDocumentBuilder();
+        var doc = builder.newDocument();
+
+        var element = doc.createElementNS("http://purl.oclc.org/dsdl/schematron", "sch:assert");
+
+        SaxonSchematronValidator.buildMessageContent(doc, element,
+                "Değer: {{cbc:Amount}} - Birim: {{cbc:Code}} hatalı.");
+
+        assertThat(element.getChildNodes().getLength()).isEqualTo(5);
+        assertThat(element.getChildNodes().item(0).getTextContent()).isEqualTo("Değer: ");
+        assertThat(element.getChildNodes().item(1).getNodeName()).contains("value-of");
+        assertThat(((org.w3c.dom.Element) element.getChildNodes().item(1)).getAttribute("select")).isEqualTo("cbc:Amount");
+        assertThat(element.getChildNodes().item(2).getTextContent()).isEqualTo(" - Birim: ");
+        assertThat(element.getChildNodes().item(3).getNodeName()).contains("value-of");
+        assertThat(element.getChildNodes().item(4).getTextContent()).isEqualTo(" hatalı.");
     }
 
     // ── Yardımcı Metotlar ────────────────────────────────────────────────

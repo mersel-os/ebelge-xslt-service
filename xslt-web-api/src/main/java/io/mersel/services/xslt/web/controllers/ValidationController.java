@@ -27,6 +27,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.io.IOException;
 import java.util.*;
 
@@ -54,17 +57,20 @@ public class ValidationController {
     private final ISchematronValidator schematronValidator;
     private final IValidationProfileService profileService;
     private final XsltMetrics xsltMetrics;
+    private final ObjectMapper objectMapper;
 
     public ValidationController(IDocumentTypeDetector documentTypeDetector,
                                 ISchemaValidator schemaValidator,
                                 ISchematronValidator schematronValidator,
                                 IValidationProfileService profileService,
-                                XsltMetrics xsltMetrics) {
+                                XsltMetrics xsltMetrics,
+                                ObjectMapper objectMapper) {
         this.documentTypeDetector = documentTypeDetector;
         this.schemaValidator = schemaValidator;
         this.schematronValidator = schematronValidator;
         this.profileService = profileService;
         this.xsltMetrics = xsltMetrics;
+        this.objectMapper = objectMapper;
     }
 
     @Operation(
@@ -126,8 +132,9 @@ public class ValidationController {
         response.setAppliedSchematron(schematronType.name());
         response.setAppliedSchematronPath(DocumentTypeMapping.SCHEMATRON_PATH_MAP.get(schematronType));
 
-        log.info("Doğrulama isteği — Tespit: {}, XSD: {}, SCH: {}, Profil: {}",
-                documentType, schemaType, schematronType, requestDto.getProfile());
+        log.info("Doğrulama isteği — Tespit: {}, XSD: {}, SCH: {}, Profil: {}, Parametre: {}",
+                documentType, schemaType, schematronType, requestDto.getProfile(),
+                requestDto.getParameters() != null ? requestDto.getParameters() : "yok");
 
         // Metrics
         xsltMetrics.recordValidation(schemaType.name(), schematronType.name());
@@ -159,6 +166,9 @@ public class ValidationController {
             response.setSchemaValidationErrors(List.of("XSD doğrulama hatası: " + e.getMessage()));
         }
 
+        // ── Schematron parametreleri ──
+        Map<String, String> schematronParameters = parseParameters(requestDto.getParameters());
+
         // ── Schematron doğrulama ──
         try {
             // Orijinal dosya adı — e-Defter Schematron base-uri() kontrolü için gerekli
@@ -169,8 +179,8 @@ public class ValidationController {
                     profileName, schematronType.name());
 
             List<SchematronError> rawSchematronErrors = schematronValidator.validate(
-                    source, schematronType, requestDto.getUblTrMainSchematronType(), sourceFileName,
-                    customSchematronRules, profileName);
+                    source, schematronType, sourceFileName,
+                    customSchematronRules, profileName, schematronParameters);
 
             // Schematron bastırma uygula (scope-aware)
             SuppressionResult suppressionResult = profileService.applySchematronSuppressions(
@@ -213,6 +223,39 @@ public class ValidationController {
         }
 
         return ResponseEntity.ok(XsltServiceResponse.success(response));
+    }
+
+    /**
+     * JSON array formatındaki parametre stringini {@code Map<String, String>} olarak parse eder.
+     * <p>
+     * Beklenen format: {@code [{"key":"param1","value":"val1"},{"key":"param2","value":"val2"}]}
+     *
+     * @return Parse edilen parametre map'i; boş veya geçersiz ise boş map
+     */
+    private Map<String, String> parseParameters(String parametersJson) {
+        if (parametersJson == null || parametersJson.isBlank()) {
+            return Map.of();
+        }
+        try {
+            List<Map<String, String>> entries = objectMapper.readValue(
+                    parametersJson, new TypeReference<>() {});
+            if (entries.size() > 50) {
+                log.warn("Parametre sayısı sınırı aşıldı: {} (max: 50)", entries.size());
+                return Map.of();
+            }
+            var result = new LinkedHashMap<String, String>();
+            for (var entry : entries) {
+                String key = entry.get("key");
+                String value = entry.get("value");
+                if (key != null && !key.isBlank()) {
+                    result.put(key, value != null ? value : "");
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Parametre JSON parse hatası: {}", e.getMessage());
+            return Map.of();
+        }
     }
 
     /**

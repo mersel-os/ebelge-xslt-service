@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { Trash2, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -40,6 +39,116 @@ function ruleSummary(rule: SchematronRuleFormData): string {
   if (id && ctx) return `[${id}] ${ctx}`;
   if (ctx) return ctx;
   return "Yeni kural";
+}
+
+function AutoResizeInput({
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  const resize = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.max(36, el.scrollHeight)}px`;
+  }, []);
+
+  useEffect(() => resize(), [value, resize]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => {
+        e.target.value = e.target.value.replace(/\n/g, "");
+        onChange(e);
+        resize();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.preventDefault();
+      }}
+      placeholder={placeholder}
+      rows={1}
+      className={className}
+      onInput={resize}
+    />
+  );
+}
+
+const PLACEHOLDER_SPLIT = /(\{\{.+?\}\})/g;
+const PLACEHOLDER_TEST = /\{\{.+?\}\}/;
+
+function highlightPlaceholders(text: string): ReactNode[] {
+  if (!text) return [];
+  const parts = text.split(PLACEHOLDER_SPLIT);
+  return parts.map((part, i) =>
+    PLACEHOLDER_TEST.test(part) ? (
+      <mark
+        key={i}
+        className="rounded-sm bg-amber-400/20 text-amber-300 px-[1px] ring-1 ring-amber-400/30"
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  );
+}
+
+function HighlightedTextarea({
+  value,
+  onChange,
+  placeholder,
+  rows = 2,
+}: {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+  rows?: number;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+
+  const hasPlaceholders = useMemo(() => PLACEHOLDER_TEST.test(value), [value]);
+  const highlighted = useMemo(() => highlightPlaceholders(value), [value]);
+
+  const syncScroll = useCallback(() => {
+    if (textareaRef.current && backdropRef.current) {
+      backdropRef.current.scrollTop = textareaRef.current.scrollTop;
+      backdropRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    }
+  }, []);
+
+  return (
+    <div className="relative">
+      {hasPlaceholders && (
+        <div
+          ref={backdropRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words rounded-md px-3 py-2 text-sm text-foreground leading-[1.6]"
+        >
+          {highlighted}
+        </div>
+      )}
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={onChange}
+        onScroll={syncScroll}
+        placeholder={placeholder}
+        rows={rows}
+        className={`relative w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[60px] resize-none leading-[1.6] ${hasPlaceholders ? "text-transparent caret-foreground" : "text-foreground"}`}
+      />
+    </div>
+  );
 }
 
 export function SchematronRuleCard({
@@ -138,11 +247,11 @@ export function SchematronRuleCard({
             <Label className="text-[11px] text-muted-foreground font-medium">
               Context (XPath)
             </Label>
-            <Input
+            <AutoResizeInput
               value={rule.context}
               onChange={(e) => onUpdate("context", e.target.value)}
               placeholder="inv:Invoice"
-              className="h-9 text-sm font-mono"
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none overflow-hidden leading-snug"
             />
             <p className="text-[10px] text-muted-foreground/60">
               Kuralın uygulanacağı XPath bağlamı
@@ -153,11 +262,11 @@ export function SchematronRuleCard({
             <Label className="text-[11px] text-muted-foreground font-medium">
               Test (XPath İfadesi)
             </Label>
-            <Input
+            <AutoResizeInput
               value={rule.test}
               onChange={(e) => onUpdate("test", e.target.value)}
               placeholder="cac:AccountingSupplierParty/cac:Party/cac:PostalAddress"
-              className="h-9 text-sm font-mono"
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none overflow-hidden leading-snug"
             />
             <p className="text-[10px] text-muted-foreground/60">
               Doğrulanacak XPath koşulu (true = geçerli)
@@ -168,16 +277,19 @@ export function SchematronRuleCard({
             <Label className="text-[11px] text-muted-foreground font-medium">
               Hata Mesajı
             </Label>
-            <Textarea
+            <HighlightedTextarea
               value={rule.message}
               onChange={(e) => onUpdate("message", e.target.value)}
-              placeholder="Satıcı adresi zorunludur."
-              className="text-sm min-h-[60px] resize-none"
+              placeholder="Satıcı VKN ({{cac:AccountingSupplierParty/.../cbc:ID}}) eşleşmiyor."
               rows={2}
             />
-            <p className="text-[10px] text-muted-foreground/60">
-              Kural ihlal edildiğinde gösterilecek mesaj
-            </p>
+            <div className="rounded-md bg-blue-500/5 border border-blue-500/10 px-2.5 py-2 text-[10px] text-blue-400/90 leading-relaxed">
+              <span className="font-semibold">Dinamik değer desteği:</span>{" "}
+              Mesaj içinde <code className="rounded bg-blue-500/10 px-1 py-0.5 font-mono text-[10px]">{"{{xpath_ifadesi}}"}</code> kullanarak
+              XML'deki değerleri hata mesajına yerleştirebilirsiniz.
+              Örn: <code className="rounded bg-blue-500/10 px-1 py-0.5 font-mono text-[10px]">{"{{cbc:ID}}"}</code>,{" "}
+              <code className="rounded bg-blue-500/10 px-1 py-0.5 font-mono text-[10px]">{"{{$sessionVkn}}"}</code>
+            </div>
           </div>
         </div>
       )}

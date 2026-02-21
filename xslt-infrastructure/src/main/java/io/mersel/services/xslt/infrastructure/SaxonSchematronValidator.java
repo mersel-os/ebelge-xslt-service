@@ -313,19 +313,13 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
 
     @Override
     public List<SchematronError> validate(byte[] source, SchematronValidationType schematronType,
-                                          String ublTrMainSchematronType, String sourceFileName) {
-        return validate(source, schematronType, ublTrMainSchematronType, sourceFileName, List.of(), null);
-    }
-
-    @Override
-    public List<SchematronError> validate(byte[] source, SchematronValidationType schematronType,
-                                          String ublTrMainSchematronType, String sourceFileName,
-                                          List<SchematronCustomAssertion> customRules, String profileName) {
+                                          String sourceFileName,
+                                          List<SchematronCustomAssertion> customRules, String profileName,
+                                          Map<String, String> parameters) {
         long startTime = System.currentTimeMillis();
         List<SchematronError> errors = new ArrayList<>();
 
         try {
-            // Özel kurallar varsa, özel derlenmiş Schematron kullan
             XsltExecutable executable;
             if (customRules != null && !customRules.isEmpty() && profileName != null) {
                 executable = getOrCompileCustomSchematron(schematronType, customRules, profileName);
@@ -343,31 +337,22 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
 
             Xslt30Transformer transformer = executable.load30();
 
-            // UBL-TR Main schematron için tip parametresi ayarla
-            if (schematronType == SchematronValidationType.UBLTR_MAIN) {
-                String typeParam = (ublTrMainSchematronType != null && !ublTrMainSchematronType.isBlank())
-                        ? ublTrMainSchematronType : "efatura";
-                transformer.setStylesheetParameters(Map.of(
-                        new QName("type"), new XdmAtomicValue(typeParam)
-                ));
+            // XSLT parametrelerini oluştur
+            Map<QName, XdmValue> xsltParams = buildStylesheetParameters(parameters);
+            if (!xsltParams.isEmpty()) {
+                transformer.setStylesheetParameters(xsltParams);
             }
 
-            // StreamSource oluştur
             var streamSource = new StreamSource(new ByteArrayInputStream(source));
 
-            // Dosya adı varsa systemId olarak set et —
-            // e-Defter Schematron base-uri() ile dosya adını kontrol eder
-            // (örn: VKN/TCKN eşleştirmesi: contains($dosyaAdi, concat(xbrli:identifier,'-'))).
             if (sourceFileName != null && !sourceFileName.isBlank()) {
                 streamSource.setSystemId(sourceFileName);
             }
 
-            // Dönüşümü çalıştır
             var resultWriter = new StringWriter();
             var serializer = processor.newSerializer(resultWriter);
             transformer.transform(streamSource, serializer);
 
-            // Sonucu parse et ve Error elementlerini çıkar
             String result = resultWriter.toString();
             if (result != null && !result.isBlank()) {
                 errors.addAll(extractSchematronErrors(result));
@@ -389,6 +374,29 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
         }
 
         return errors;
+    }
+
+    /**
+     * Kullanıcı parametrelerini Saxon XSLT parametrelerine dönüştürür.
+     * <p>
+     * UBL-TR Main Schematron alt tipi ({@code type}) dahil tüm parametreler
+     * {@code parameters} map'inden alınır.
+     */
+    private Map<QName, XdmValue> buildStylesheetParameters(Map<String, String> parameters) {
+        var xsltParams = new HashMap<QName, XdmValue>();
+
+        if (parameters != null && !parameters.isEmpty()) {
+            for (var entry : parameters.entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue();
+                if (key != null && !key.isBlank() && value != null) {
+                    xsltParams.put(new QName(key), new XdmAtomicValue(value));
+                }
+            }
+            log.debug("Schematron parametreleri ayarlandı: {} adet", parameters.size());
+        }
+
+        return xsltParams;
     }
 
     // ── Global Kurallar ─────────────────────────────────────────────
@@ -548,6 +556,7 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
 
             // Kuralları context'e göre grupla (insertion order korunsun)
             Map<String, List<SchematronCustomAssertion>> groupedByContext = new LinkedHashMap<>();
+            Set<String> referencedVariables = new LinkedHashSet<>();
             for (var rule : customRules) {
                 if (rule.context() == null || rule.context().isBlank()
                         || rule.test() == null || rule.test().isBlank()
@@ -557,6 +566,28 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
                     continue;
                 }
                 groupedByContext.computeIfAbsent(rule.context(), k -> new ArrayList<>()).add(rule);
+                extractVariableReferences(rule.test(), referencedVariables);
+            }
+
+            // Mevcut <sch:let> tanımlarını topla — zaten tanımlı olanları tekrar ekleme
+            Set<String> existingLetNames = collectExistingLetNames(schemaElement);
+
+            // Özel kural test ifadelerinde referans edilen ancak tanımlanmamış değişkenler
+            // için <sch:let> tanımı enjekte et (ISO pipeline bunları xsl:variable üretir,
+            // postProcessVariablesToParams bunları xsl:param'a dönüştürür)
+            Set<String> injectedParams = new LinkedHashSet<>();
+            for (String varName : referencedVariables) {
+                if (!existingLetNames.contains(varName)) {
+                    Element letElement = doc.createElementNS(SCHEMATRON_NS, "sch:let");
+                    letElement.setAttribute("name", varName);
+                    letElement.setAttribute("value", "''");
+                    schemaElement.insertBefore(letElement, schemaElement.getFirstChild());
+                    injectedParams.add(varName);
+                }
+            }
+            if (!injectedParams.isEmpty()) {
+                log.info("Özel parametre tanımları enjekte edildi (profil: {}): {}",
+                        profileName, String.join(", ", injectedParams));
             }
 
             // Her context grubu için bir <sch:rule> oluştur
@@ -570,7 +601,7 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
                     if (assertion.id() != null && !assertion.id().isBlank()) {
                         assertElement.setAttribute("id", assertion.id());
                     }
-                    assertElement.setTextContent(assertion.message());
+                    buildMessageContent(doc, assertElement, assertion.message());
                     ruleElement.appendChild(assertElement);
                 }
 
@@ -679,6 +710,86 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
     private static String sanitizeForId(String input) {
         if (input == null || input.isBlank()) return "unknown";
         return input.replaceAll("[^a-zA-Z0-9_-]", "_");
+    }
+
+    // ── Message Placeholder Support ─────────────────────────────────
+
+    private static final java.util.regex.Pattern MESSAGE_PLACEHOLDER_PATTERN =
+            java.util.regex.Pattern.compile("\\{\\{(.+?)\\}\\}");
+
+    /**
+     * Mesaj metnini parse ederek {@code {{xpath}}} placeholder'larını
+     * {@code <sch:value-of select="xpath"/>} elementlerine dönüştürür.
+     * <p>
+     * Placeholder içermeyen mesajlar doğrudan text node olarak eklenir.
+     * Örnek: {@code "VKN ({{cbc:ID}}) eşleşmiyor"} →
+     * {@code VKN (<sch:value-of select="cbc:ID"/>) eşleşmiyor}
+     */
+    static void buildMessageContent(Document doc, Element assertElement, String message) {
+        var matcher = MESSAGE_PLACEHOLDER_PATTERN.matcher(message);
+        if (!matcher.find()) {
+            assertElement.setTextContent(message);
+            return;
+        }
+
+        matcher.reset();
+        int lastEnd = 0;
+        while (matcher.find()) {
+            if (matcher.start() > lastEnd) {
+                assertElement.appendChild(doc.createTextNode(message.substring(lastEnd, matcher.start())));
+            }
+            String xpath = matcher.group(1).strip();
+            Element valueOf = doc.createElementNS(SCHEMATRON_NS, "sch:value-of");
+            valueOf.setAttribute("select", xpath);
+            assertElement.appendChild(valueOf);
+            lastEnd = matcher.end();
+        }
+        if (lastEnd < message.length()) {
+            assertElement.appendChild(doc.createTextNode(message.substring(lastEnd)));
+        }
+    }
+
+    // ── Parameter Variable Extraction ───────────────────────────────
+
+    private static final java.util.regex.Pattern VARIABLE_REF_PATTERN =
+            java.util.regex.Pattern.compile("\\$([a-zA-Z_][a-zA-Z0-9_.-]*)");
+
+    /**
+     * XPath test ifadesindeki $variableName referanslarını çıkarır.
+     * XPath 2.0 standart fonksiyon/axis isimlerini (position, last vb.) atlar.
+     */
+    static void extractVariableReferences(String testExpression, Set<String> target) {
+        if (testExpression == null || testExpression.isBlank()) return;
+        var matcher = VARIABLE_REF_PATTERN.matcher(testExpression);
+        while (matcher.find()) {
+            String varName = matcher.group(1);
+            if (!isBuiltInXPathVariable(varName)) {
+                target.add(varName);
+            }
+        }
+    }
+
+    private static boolean isBuiltInXPathVariable(String name) {
+        return switch (name) {
+            case "type" -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Schematron dokümanındaki mevcut {@code <sch:let>} tanımlarının name değerlerini toplar.
+     */
+    private static Set<String> collectExistingLetNames(Element schemaElement) {
+        Set<String> names = new HashSet<>();
+        NodeList lets = schemaElement.getElementsByTagNameNS(SCHEMATRON_NS, "let");
+        for (int i = 0; i < lets.getLength(); i++) {
+            var letEl = (Element) lets.item(i);
+            String name = letEl.getAttribute("name");
+            if (name != null && !name.isBlank()) {
+                names.add(name);
+            }
+        }
+        return names;
     }
 
     // ── Error Extraction ────────────────────────────────────────────
