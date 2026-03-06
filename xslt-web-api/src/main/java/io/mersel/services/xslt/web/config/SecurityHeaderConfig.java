@@ -25,14 +25,17 @@ import java.io.IOException;
 public class SecurityHeaderConfig {
 
     private static final String DEFAULT_CSP =
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'";
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'";
 
-    @Value("${xslt.security.csp:" + DEFAULT_CSP + "}")
+    @Value("${xslt.security.csp:}")
     private String contentSecurityPolicy;
 
     @Bean
     FilterRegistrationBean<SecurityHeaderFilter> securityHeaderFilter() {
-        var filter = new SecurityHeaderFilter(contentSecurityPolicy);
+        String effectiveCsp = (contentSecurityPolicy == null || contentSecurityPolicy.isBlank())
+                ? DEFAULT_CSP
+                : contentSecurityPolicy;
+        var filter = new SecurityHeaderFilter(effectiveCsp);
         var bean = new FilterRegistrationBean<>(filter);
         bean.addUrlPatterns("/*");
         bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
@@ -55,10 +58,13 @@ public class SecurityHeaderConfig {
     /**
      * Güvenlik header'larını tüm yanıtlara ekler:
      * <ul>
-     *   <li>Content-Security-Policy (Scalar sayfası için gevşetilmiş)</li>
+     *   <li>Content-Security-Policy (Scalar sayfası için gevşetilmiş, transform endpoint'i atlanır)</li>
      *   <li>X-Frame-Options: SAMEORIGIN</li>
      *   <li>X-Content-Type-Options: nosniff</li>
      * </ul>
+     * <p>
+     * Transform endpoint ({@code POST /v1/transform}) kendi dinamik CSP'sini
+     * {@code TransformController} içinde oluşturur — bu filter CSP'yi atlar.
      */
     static class SecurityHeaderFilter extends OncePerRequestFilter {
 
@@ -71,8 +77,10 @@ public class SecurityHeaderConfig {
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                        FilterChain filterChain) throws ServletException, IOException {
-            String effectiveCsp = isScalarPage(request) ? SCALAR_CSP : csp;
-            response.setHeader("Content-Security-Policy", effectiveCsp);
+            if (!isTransformEndpoint(request)) {
+                String effectiveCsp = isScalarPage(request) ? SCALAR_CSP : csp;
+                response.setHeader("Content-Security-Policy", effectiveCsp);
+            }
             response.setHeader("X-Frame-Options", "SAMEORIGIN");
             response.setHeader("X-Content-Type-Options", "nosniff");
             response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -83,6 +91,11 @@ public class SecurityHeaderConfig {
         private boolean isScalarPage(HttpServletRequest request) {
             String uri = request.getRequestURI();
             return uri != null && (uri.equals("/scalar.html") || uri.startsWith("/scalar"));
+        }
+
+        private boolean isTransformEndpoint(HttpServletRequest request) {
+            String uri = request.getRequestURI();
+            return uri != null && uri.equals("/v1/transform") && "POST".equalsIgnoreCase(request.getMethod());
         }
     }
 }

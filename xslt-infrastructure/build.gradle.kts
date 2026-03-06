@@ -23,6 +23,9 @@ dependencies {
     // java-diff-utils - Asset versioning diff
     implementation(libs.java.diff.utils)
 
+    // Jsoup - HTML sanitization (script exfiltration protection)
+    implementation(libs.jsoup)
+
     // Jackson - Asset versioning JSON metadata
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")

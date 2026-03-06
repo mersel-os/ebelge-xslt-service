@@ -27,9 +27,10 @@ class SaxonXsltTransformerTest {
         var assetManager = new AssetManager();
         assetManager.init();
         var watermarkService = new WatermarkService();
+        var htmlSanitizer = new HtmlSanitizer();
         var embeddedXsltExtractor = new EmbeddedXsltExtractor();
         var metrics = new XsltMetrics(new SimpleMeterRegistry());
-        transformer = new SaxonXsltTransformer(assetManager, watermarkService, embeddedXsltExtractor, metrics);
+        transformer = new SaxonXsltTransformer(assetManager, watermarkService, htmlSanitizer, embeddedXsltExtractor, metrics);
     }
 
     @Test

@@ -1,5 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import DOMPurify from "dompurify";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -7,6 +6,7 @@ import {
   Clock,
   FileText,
   AlertTriangle,
+  ShieldAlert,
   Eye,
   Code2,
   Printer,
@@ -28,10 +28,7 @@ export function HtmlPreview({ html, meta }: HtmlPreviewProps) {
 
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
-  const sanitizedHtml = useMemo(
-    () => DOMPurify.sanitize(html, { WHOLE_DOCUMENT: true, ADD_TAGS: ["style", "link"], ADD_ATTR: ["target", "rel"] }),
-    [html]
-  );
+  const sanitizedHtml = html;
 
   const handlePrint = useCallback(() => {
     try {
@@ -84,6 +81,36 @@ export function HtmlPreview({ html, meta }: HtmlPreviewProps) {
         </div>
       </div>
 
+      {/* Security violation warning */}
+      {meta.securityViolations.length > 0 && (
+        <div className="rounded-xl border-2 border-red-400 bg-red-100 p-4 dark:border-red-500/60 dark:bg-red-950/50" role="alert">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500 shadow-lg shadow-red-500/25">
+              <ShieldAlert className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-red-800 dark:text-red-300">
+                Güvenlik İhlali Tespit Edildi
+              </p>
+              <p className="mt-1 text-xs font-medium text-red-700 dark:text-red-400">
+                XSLT şablonunda tehlikeli {meta.scriptsRemoved} script tespit edilip kaldırıldı.
+                Bu scriptler veri sızdırma veya kullanıcı deneyimini bozma riski taşıyordu.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {meta.securityViolations.map((v) => (
+                  <span
+                    key={v}
+                    className="inline-flex items-center rounded-md bg-red-600 px-2.5 py-1 font-mono text-[11px] font-semibold text-white shadow-sm dark:bg-red-500"
+                  >
+                    {v}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Browser frame */}
       <Tabs defaultValue="preview" className="w-full">
         <div className="overflow-hidden rounded-xl border border-border">
@@ -103,7 +130,7 @@ export function HtmlPreview({ html, meta }: HtmlPreviewProps) {
           </div>
 
           <TabsContent value="preview" className="mt-0">
-            <iframe srcDoc={sanitizedHtml} title="HTML Preview" className="w-full bg-white" style={{ height: "600px" }} sandbox="allow-same-origin" />
+            <iframe srcDoc={sanitizedHtml} title="HTML Preview" className="w-full bg-white" style={{ height: "600px" }} sandbox="allow-scripts allow-same-origin" />
           </TabsContent>
 
           <TabsContent value="source" className="relative mt-0">

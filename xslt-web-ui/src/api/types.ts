@@ -96,6 +96,8 @@ export interface TransformMeta {
   durationMs: number;
   watermarkApplied: boolean;
   outputSize: number;
+  scriptsRemoved: number;
+  securityViolations: string[];
 }
 
 export interface TransformResult {

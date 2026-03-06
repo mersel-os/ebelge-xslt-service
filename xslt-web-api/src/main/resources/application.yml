@@ -61,8 +61,11 @@ xslt:
   watcher:
     debounce-ms: ${XSLT_WATCHER_DEBOUNCE_MS:500}
   # ── Güvenlik Başlıkları ────────────────────────────────────────────
+  # Bu CSP, transform dışı endpoint'ler (validation, admin, UI) için kullanılır.
+  # Transform endpoint (/v1/transform) kendi dinamik CSP'sini oluşturur —
+  # script hash'leri, connect-src 'none', form-action 'none' ile.
   security:
-    csp: ${XSLT_SECURITY_CSP:default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'}
+    csp: ${XSLT_SECURITY_CSP:}
   # ── Filigran (Watermark) ─────────────────────────────────────────
   watermark:
     count: ${XSLT_WATERMARK_COUNT:3}

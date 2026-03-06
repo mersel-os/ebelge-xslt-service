@@ -1,5 +1,6 @@
 package io.mersel.services.xslt.web.config;
 
+import io.mersel.services.xslt.web.infrastructure.XsltHeaders;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -41,6 +42,16 @@ public class WebConfig implements WebMvcConfigurer {
         var mapping = registry.addMapping("/**")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
+                .exposedHeaders(
+                        XsltHeaders.DEFAULT_USED,
+                        XsltHeaders.EMBEDDED_USED,
+                        XsltHeaders.CUSTOM_ERROR,
+                        XsltHeaders.DURATION_MS,
+                        XsltHeaders.WATERMARK_APPLIED,
+                        XsltHeaders.OUTPUT_SIZE,
+                        XsltHeaders.SCRIPTS_REMOVED,
+                        XsltHeaders.SECURITY_VIOLATIONS
+                )
                 .maxAge(3600);
 
         if (origins.length > 0) {

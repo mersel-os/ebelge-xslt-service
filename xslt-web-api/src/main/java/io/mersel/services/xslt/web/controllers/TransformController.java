@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * XSLT dönüşüm endpoint'i.
@@ -100,7 +102,9 @@ public class TransformController {
                                     @Header(name = "X-Xslt-Custom-Error", description = "Özel/gömülü XSLT hata mesajı (varsa)", schema = @Schema(type = "string")),
                                     @Header(name = "X-Xslt-Duration-Ms", description = "İşlem süresi (ms)", schema = @Schema(type = "integer")),
                                     @Header(name = "X-Xslt-Watermark-Applied", description = "Filigran uygulandı mı", schema = @Schema(type = "boolean")),
-                                    @Header(name = "X-Xslt-Output-Size", description = "Çıktı boyutu (byte)", schema = @Schema(type = "integer"))
+                                    @Header(name = "X-Xslt-Output-Size", description = "Çıktı boyutu (byte)", schema = @Schema(type = "integer")),
+                                    @Header(name = "X-Xslt-Scripts-Removed", description = "Güvenlik nedeniyle kaldırılan script sayısı", schema = @Schema(type = "integer")),
+                                    @Header(name = "X-Xslt-Security-Violations", description = "Tespit edilen güvenlik ihlalleri (virgülle ayrılmış). Yoksa ihlal tespit edilmemiş demektir.", schema = @Schema(type = "string"))
                             }
                     ),
                     @ApiResponse(responseCode = "400", description = "Geçersiz istek (eksik dosya, geçersiz tip)", content = @Content(mediaType = "application/problem+json")),
@@ -180,6 +184,21 @@ public class TransformController {
         headers.set(XsltHeaders.DURATION_MS, String.valueOf(result.getDurationMs()));
         headers.set(XsltHeaders.WATERMARK_APPLIED, String.valueOf(result.isWatermarkApplied()));
         headers.set(XsltHeaders.OUTPUT_SIZE, String.valueOf(result.getHtmlContent().length));
+        headers.set(XsltHeaders.SCRIPTS_REMOVED, String.valueOf(result.getRemovedScriptCount()));
+
+        // Güvenlik ihlalleri — tüketici incelesin diye
+        if (!result.getSecurityViolations().isEmpty()) {
+            String violations = result.getSecurityViolations().stream()
+                    .map(v -> v.replaceAll("[\\r\\n]", " "))
+                    .collect(Collectors.joining(", "));
+            if (violations.length() > 1000) {
+                violations = violations.substring(0, 1000);
+            }
+            headers.set(XsltHeaders.SECURITY_VIOLATIONS, violations);
+        }
+
+        // Dinamik CSP — izin verilen scriptlerin hash'leri ile
+        headers.set("Content-Security-Policy", buildTransformCsp(result.getAllowedScriptHashes()));
 
         if (result.getCustomXsltError() != null) {
             // CRLF sanitize — HTTP Response Splitting koruması
@@ -192,5 +211,37 @@ public class TransformController {
         }
 
         return new ResponseEntity<>(result.getHtmlContent(), headers, HttpStatus.OK);
+    }
+
+    /**
+     * Transform yanıtları için dinamik CSP header'ı oluşturur.
+     * <p>
+     * Çift katmanlı savunma: script içeriği sanitize edilmiş olsa bile,
+     * CSP seviyesinde ağ erişimi ve form submit tamamen engellenir.
+     *
+     * @param scriptHashes izin verilen script'lerin Base64-encoded SHA-256 hash'leri
+     * @return CSP header değeri
+     */
+    static String buildTransformCsp(List<String> scriptHashes) {
+        String scriptSrc;
+        if (scriptHashes == null || scriptHashes.isEmpty()) {
+            scriptSrc = "script-src 'none'";
+        } else {
+            scriptSrc = scriptHashes.stream()
+                    .map(h -> "'sha256-" + h + "'")
+                    .collect(Collectors.joining(" ", "script-src ", ""));
+        }
+
+        return String.join("; ",
+                "default-src 'none'",
+                scriptSrc,
+                "style-src 'self' 'unsafe-inline'",
+                "img-src 'self' data: https:",
+                "font-src 'self' data:",
+                "connect-src 'none'",
+                "form-action 'none'",
+                "frame-src 'none'",
+                "object-src 'none'"
+        );
     }
 }

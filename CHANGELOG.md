@@ -2,6 +2,179 @@
 
 Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
+## [1.3.0] - 2026-03-06
+
+### Eklenen
+
+#### HTML Güvenlik Katmanı — No-Exfiltration Sandbox
+
+XSLT dönüşümden çıkan HTML içeriğine otomatik güvenlik sanitization uygulanır. Temel felsefe: **scriptler çalışsın ama dışarıya veri çıkaramasın**. QR kod, barkod, canvas gibi yerel işlemler serbest; cookie, fetch, location gibi exfiltration API'leri engellenir.
+
+Sanitization iki katmanlı savunma sağlar:
+
+1. **HtmlSanitizer (Jsoup)** — HTML DOM üzerinde tehlikeli elementleri ve exfiltration içeren scriptleri temizler
+2. **Dinamik CSP** — İzin verilen scriptlerin SHA-256 hash'leri ile `Content-Security-Policy` header'ı oluşturulur; ağ erişimi ve form submit CSP seviyesinde engellenir
+
+##### Kaldırılan Tehlikeli Elementler
+
+HTML çıktısından aşağıdaki elementler ve attribute'lar otomatik olarak kaldırılır:
+
+| Element / Attribute | Açıklama | Saldırı Vektörü |
+|---------------------|----------|-----------------|
+| `<iframe>` | Gömülü frame | Clickjacking, cross-origin saldırılar |
+| `<object>` | Gömülü nesne (Flash, Java vb.) | Zararlı plugin çalıştırma |
+| `<embed>` | Gömülü içerik | Zararlı plugin çalıştırma |
+| `<applet>` | Java applet | Uzaktan kod çalıştırma |
+| `<base>` | Base URL değiştirme | Base URL hijacking ile tüm linkleri ele geçirme |
+| `<meta http-equiv="refresh">` | Otomatik yönlendirme | Open redirect, phishing |
+| `<link rel="import">` | HTML import | Harici zararlı HTML yükleme |
+| `<link rel="preload" as="script">` | Script ön yükleme | Harici zararlı script yükleme |
+| `<link rel="modulepreload">` | Modül ön yükleme | Harici zararlı modül yükleme |
+| `on*` attribute'lar | Event handler'lar (onclick, onerror, onload, onmouseover vb.) | Inline JavaScript çalıştırma |
+| `javascript:` URL | href/src/action'da JavaScript URL | Tıklama ile kod çalıştırma |
+| `vbscript:` URL | href/src/action'da VBScript URL | Tıklama ile kod çalıştırma |
+
+##### Korunan (Kaldırılmayan) Elementler
+
+| Element | Açıklama |
+|---------|----------|
+| `<img src="data:image/...">` | Base64 görseller (QR kod çıktısı) |
+| `<img src="https://...">` | Harici görseller (logo, imza vb.) |
+| `<style>` | CSS stilleri |
+| `<link rel="stylesheet">` | Harici CSS dosyaları |
+| Normal `<a href="https://...">` | HTTPS linkleri |
+
+##### Script Exfiltration Analizi
+
+Her `<script>` tag'ının içeriği aşağıdaki exfiltration pattern listesine karşı taranır. **Herhangi biri** tespit edilirse script **kaldırılır** ve ihlal response header'ında raporlanır.
+
+| # | Pattern | Violation Mesajı | Saldırı Senaryosu |
+|---|---------|-----------------|---------------------|
+| 1 | `document.cookie` | `cookie access` | Cookie çalarak session hijacking |
+| 2 | `document.domain` | `domain manipulation` | Same-origin policy bypass |
+| 3 | `localStorage` | `localStorage access` | Token/session verisi çalma |
+| 4 | `sessionStorage` | `sessionStorage access` | Geçici oturum verisi çalma |
+| 5 | `window.location` | `redirect/exfiltration via location` | URL'ye veri ekleyerek redirect ile çalma |
+| 6 | `location.href =` | `redirect/exfiltration via location.href` | Redirect ile veri sızdırma |
+| 7 | `location.replace(` | `redirect/exfiltration via location.replace` | History'siz redirect ile veri sızdırma |
+| 8 | `location.assign(` | `redirect/exfiltration via location.assign` | Redirect ile veri sızdırma |
+| 9 | `window.open(` | `window.open exfiltration` | Yeni pencere açarak veri gönderme |
+| 10 | `XMLHttpRequest` | `XHR network call` | Ağ üzerinden veri gönderme |
+| 11 | `fetch(` | `fetch API network call` | Ağ üzerinden veri gönderme |
+| 12 | `navigator.sendBeacon(` | `sendBeacon exfiltration` | Sayfa kapanırken veri gönderme |
+| 13 | `new WebSocket(` | `WebSocket connection` | Kalıcı bağlantı ile veri akışı |
+| 14 | `postMessage(` | `cross-origin messaging` | Cross-origin pencereler arası veri gönderme |
+| 15 | `eval(` | `dynamic code execution (eval)` | Dinamik kod çalıştırma (diğer kontrolleri bypass) |
+| 16 | `new Function(` | `dynamic code execution (Function constructor)` | Dinamik kod çalıştırma (diğer kontrolleri bypass) |
+| 17 | `import(` | `dynamic module import` | Harici modül yükleme |
+| 18 | `alert(` | `UI blocking dialog (alert)` | Kullanıcıyı engelleyen dialog açma |
+| 19 | `confirm(` | `UI blocking dialog (confirm)` | Kullanıcıyı engelleyen onay dialogu açma |
+| 20 | `prompt(` | `UI blocking dialog (prompt)` | Kullanıcıdan veri isteyen dialog açma |
+| 21 | `<script src="...">` | `Harici script kaynağı engellendi: {url}` | Dışarıdan zararlı script yükleme |
+
+> **Not**: Pattern taraması case-insensitive regex ile yapılır. Obfuscation girişimlerinin çoğunu yakalar; ancak CSP ikinci savunma katmanı olarak `connect-src 'none'` ile ağ erişimini tamamen keser.
+
+##### İzin Verilen Script API'leri
+
+Aşağıdaki API'ler exfiltration riski taşımadığı için **engellenmez**:
+
+| API | Kullanım Alanı |
+|-----|----------------|
+| `getContext`, `toDataURL`, `drawImage` | Canvas API — QR kod/barkod üretimi |
+| `getElementById`, `querySelector`, `getElementsBy*` | DOM okuma |
+| `createElement`, `appendChild`, `textContent`, `setAttribute` | DOM yazma |
+| `innerHTML` | QR kütüphaneleri container'a yazmak için kullanır |
+| `document.write` / `document.writeln` | Eski XSLT şablonlarının çıktı yöntemi |
+| `Math`, `String`, `Array`, `Date` | Hesaplama ve formatlama |
+
+##### Dinamik CSP Header
+
+Transform yanıtlarında `Content-Security-Policy` header'ı dinamik olarak oluşturulur:
+
+```
+Content-Security-Policy:
+  default-src 'none';
+  script-src 'sha256-{hash1}' 'sha256-{hash2}';
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: https:;
+  font-src 'self' data:;
+  connect-src 'none';
+  form-action 'none';
+  frame-src 'none';
+  object-src 'none'
+```
+
+| Direktif | Değer | Etki |
+|----------|-------|------|
+| `script-src` | `'sha256-...'` | Sadece hash'i eşleşen scriptler çalışır |
+| `connect-src` | `'none'` | fetch, XHR, WebSocket tamamen engel |
+| `form-action` | `'none'` | Form submit ile veri gönderme engel |
+| `frame-src` | `'none'` | iframe açma engel |
+| `object-src` | `'none'` | Plugin yükleme engel |
+| `img-src` | `'self' data: https:` | Base64 ve harici görseller serbest |
+
+> Script yoksa `script-src 'none'` olur. `'unsafe-inline'` **asla** kullanılmaz.
+
+##### Yeni Response Header'ları
+
+| Header | Tip | Açıklama |
+|--------|-----|----------|
+| `X-Xslt-Scripts-Removed` | integer | Güvenlik nedeniyle kaldırılan script sayısı. `0` ise hiçbir script engellenmemiş. |
+| `X-Xslt-Security-Violations` | string | Tespit edilen ihlaller (virgülle ayrılmış). Header yoksa ihlal yok. Maks 1000 karakter. |
+
+**Temiz yanıt örneği** (ihlal yok):
+```
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+X-Xslt-Scripts-Removed: 0
+Content-Security-Policy: default-src 'none'; script-src 'sha256-K7gN...'; ...
+```
+
+**İhlal tespit edilen yanıt örneği**:
+```
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+X-Xslt-Scripts-Removed: 2
+X-Xslt-Security-Violations: Script exfiltration API içeriyor: cookie access, Script exfiltration API içeriyor: fetch API network call
+Content-Security-Policy: default-src 'none'; script-src 'sha256-K7gN...'; ...
+```
+
+##### .NET Client SDK
+
+`TransformResponse` modeline eklenen property'ler:
+
+| Property | Tip | Açıklama |
+|----------|-----|----------|
+| `ScriptsRemoved` | `int` | Kaldırılan script sayısı |
+| `SecurityViolations` | `IReadOnlyList<string>` | İhlal detay listesi |
+| `HasSecurityViolations` | `bool` | Hızlı kontrol: `SecurityViolations.Count > 0` |
+
+```csharp
+var result = await xsltClient.TransformAsync(request, ct);
+
+if (result.HasSecurityViolations)
+{
+    logger.LogWarning(
+        "XSLT güvenlik ihlalleri ({Count} script kaldırıldı): {Violations}",
+        result.ScriptsRemoved,
+        string.Join("; ", result.SecurityViolations));
+}
+```
+
+### Değişen
+
+- `SecurityHeaderConfig`: Transform endpoint (`POST /v1/transform`) artık kendi dinamik CSP'sini oluşturur; genel filter bu endpoint'i atlar.
+- `application.yml`: Varsayılan CSP'de `img-src` genişletildi (`data:` + `https:` eklendi).
+
+### Teknik Detaylar
+
+- Yeni dependency: [Jsoup 1.18.3](https://jsoup.org/) (HTML parsing ve DOM manipülasyonu)
+- Yeni sınıflar: `HtmlSanitizer` (infrastructure), `SanitizationResult` (application/models)
+- Değişen sınıflar: `SaxonXsltTransformer`, `TransformResult`, `TransformController`, `SecurityHeaderConfig`, `XsltHeaders`
+- 27 yeni test (toplam 75+ test)
+
+---
+
 ## [1.2.0] - 2026-02-21
 
 ### Breaking Changes

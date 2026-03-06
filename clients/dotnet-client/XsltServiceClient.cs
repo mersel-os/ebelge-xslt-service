@@ -108,7 +108,9 @@ public sealed class XsltServiceClient : IXsltServiceClient
             CustomXsltError = ReadStringHeader(response, "X-Xslt-Custom-Error"),
             DurationMs = ReadIntHeader(response, "X-Xslt-Duration-Ms"),
             WatermarkApplied = ReadBoolHeader(response, "X-Xslt-Watermark-Applied"),
-            OutputSize = ReadIntHeader(response, "X-Xslt-Output-Size")
+            OutputSize = ReadIntHeader(response, "X-Xslt-Output-Size"),
+            ScriptsRemoved = ReadIntHeader(response, "X-Xslt-Scripts-Removed"),
+            SecurityViolations = ReadSecurityViolations(response)
         };
     }
 
@@ -142,5 +144,16 @@ public sealed class XsltServiceClient : IXsltServiceClient
         }
 
         return values.FirstOrDefault();
+    }
+
+    private static IReadOnlyList<string> ReadSecurityViolations(HttpResponseMessage response)
+    {
+        var raw = ReadStringHeader(response, "X-Xslt-Security-Violations");
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return [];
+        }
+
+        return raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
 }

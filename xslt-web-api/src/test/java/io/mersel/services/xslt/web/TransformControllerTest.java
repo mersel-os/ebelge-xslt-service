@@ -232,4 +232,30 @@ class TransformControllerTest {
                 .andExpect(header().string(XsltHeaders.EMBEDDED_USED, "false"))
                 .andExpect(header().string(XsltHeaders.DEFAULT_USED, "true"));
     }
+
+    // ── Sanitization Header Testleri ─────────────────────────────────
+
+    @Test
+    @DisplayName("Yanıt X-Xslt-Scripts-Removed header'ı ve CSP içermeli")
+    void shouldReturnScriptsRemovedHeaderAndCsp() throws Exception {
+        var result = TransformResult.builder()
+                .htmlContent("<html><body>Test</body></html>".getBytes())
+                .defaultXslUsed(true)
+                .watermarkApplied(false)
+                .removedScriptCount(3)
+                .durationMs(100)
+                .build();
+
+        when(xsltTransformer.transform(any())).thenReturn(result);
+
+        var xmlFile = new MockMultipartFile("document", "test.xml", "text/xml",
+                "<Invoice/>".getBytes());
+
+        mockMvc.perform(multipart("/v1/transform")
+                        .file(xmlFile)
+                        .param("transformType", "INVOICE"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(XsltHeaders.SCRIPTS_REMOVED, "3"))
+                .andExpect(header().exists("Content-Security-Policy"));
+    }
 }

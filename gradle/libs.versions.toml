@@ -15,6 +15,7 @@ mockito = "5.14.2"
 wiremock = "3.9.2"
 awaitility = "4.2.2"
 java-diff-utils = "4.12"
+jsoup = "1.18.3"
 
 [libraries]
 # Saxon HE
@@ -35,6 +36,7 @@ mockito-junit = { module = "org.mockito:mockito-junit-jupiter", version.ref = "m
 wiremock-jre8 = { module = "org.wiremock:wiremock-standalone", version.ref = "wiremock" }
 awaitility = { module = "org.awaitility:awaitility", version.ref = "awaitility" }
 java-diff-utils = { module = "io.github.java-diff-utils:java-diff-utils", version.ref = "java-diff-utils" }
+jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

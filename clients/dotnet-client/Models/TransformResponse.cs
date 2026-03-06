@@ -15,4 +15,23 @@ public sealed class TransformResponse
     public bool WatermarkApplied { get; set; }
 
     public int OutputSize { get; set; }
+
+    /// <summary>
+    /// Sanitization sırasında kaldırılan script sayısı.
+    /// 0 ise hiçbir script güvenlik nedeniyle kaldırılmamış demektir.
+    /// </summary>
+    public int ScriptsRemoved { get; set; }
+
+    /// <summary>
+    /// Tespit edilen güvenlik ihlalleri listesi.
+    /// Boşsa ihlal yok demektir. XSLT kaynağının güvenilirliğini
+    /// değerlendirmek için kullanılabilir.
+    /// Örnek: ["cookie access", "fetch API network call"]
+    /// </summary>
+    public IReadOnlyList<string> SecurityViolations { get; set; } = [];
+
+    /// <summary>
+    /// Herhangi bir güvenlik ihlali tespit edilip edilmediğini gösterir.
+    /// </summary>
+    public bool HasSecurityViolations => SecurityViolations.Count > 0;
 }

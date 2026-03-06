@@ -100,6 +100,7 @@ export function useTransform() {
       });
 
       const headers = response.headers;
+      const violationsRaw = headers["x-xslt-security-violations"] as string | undefined;
       const meta: TransformMeta = {
         defaultUsed: headers["x-xslt-default-used"] === "true",
         embeddedUsed: headers["x-xslt-embedded-used"] === "true",
@@ -107,6 +108,10 @@ export function useTransform() {
         durationMs: parseInt(headers["x-xslt-duration-ms"] || "0", 10),
         watermarkApplied: headers["x-xslt-watermark-applied"] === "true",
         outputSize: parseInt(headers["x-xslt-output-size"] || "0", 10),
+        scriptsRemoved: parseInt(headers["x-xslt-scripts-removed"] || "0", 10),
+        securityViolations: violationsRaw
+          ? violationsRaw.split(",").map((v: string) => v.trim()).filter(Boolean)
+          : [],
       };
 
       return { html: response.data as string, meta };

@@ -47,4 +47,18 @@ public final class XsltHeaders {
 
     /** Çıktı boyutu (byte). */
     public static final String OUTPUT_SIZE = "X-Xslt-Output-Size";
+
+    /** Sanitization sırasında kaldırılan script sayısı. */
+    public static final String SCRIPTS_REMOVED = "X-Xslt-Scripts-Removed";
+
+    /**
+     * Tespit edilen güvenlik ihlalleri (virgülle ayrılmış).
+     * <p>
+     * Boşsa veya header yoksa ihlal tespit edilmemiş demektir.
+     * Tüketici uygulama bu header'ı inceleyerek XSLT şablonundaki
+     * potansiyel saldırı vektörlerini değerlendirebilir.
+     * <p>
+     * Örnek: {@code cookie access, fetch API network call, redirect/exfiltration via location}
+     */
+    public static final String SECURITY_VIOLATIONS = "X-Xslt-Security-Violations";
 }

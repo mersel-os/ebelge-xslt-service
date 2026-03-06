@@ -4,6 +4,7 @@ import io.mersel.services.xslt.application.enums.TransformType;
 import io.mersel.services.xslt.application.interfaces.IXsltTransformer;
 import io.mersel.services.xslt.application.interfaces.Reloadable;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
+import io.mersel.services.xslt.application.models.SanitizationResult;
 import io.mersel.services.xslt.application.models.TransformRequest;
 import io.mersel.services.xslt.application.models.TransformResult;
 import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
@@ -33,6 +34,7 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
 
     private final AssetManager assetManager;
     private final WatermarkService watermarkService;
+    private final HtmlSanitizer htmlSanitizer;
     private final EmbeddedXsltExtractor embeddedXsltExtractor;
     private final XsltMetrics metrics;
     private final Processor processor;
@@ -52,9 +54,11 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
     private volatile Map<TransformType, XsltExecutable> compiledTransforms = Map.of();
 
     public SaxonXsltTransformer(AssetManager assetManager, WatermarkService watermarkService,
+                               HtmlSanitizer htmlSanitizer,
                                EmbeddedXsltExtractor embeddedXsltExtractor, XsltMetrics metrics) {
         this.assetManager = assetManager;
         this.watermarkService = watermarkService;
+        this.htmlSanitizer = htmlSanitizer;
         this.embeddedXsltExtractor = embeddedXsltExtractor;
         this.metrics = metrics;
         this.processor = new Processor(false);
@@ -172,6 +176,10 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
             watermarkApplied = true;
         }
 
+        // ── Sanitization (No-Exfiltration Sandbox) ───────────────────
+        SanitizationResult sanitizationResult = htmlSanitizer.sanitize(htmlContent);
+        htmlContent = sanitizationResult.sanitizedHtml();
+
         long durationMs = (System.nanoTime() - startTime) / 1_000_000;
 
         metrics.recordTransform(
@@ -188,6 +196,9 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
                 .embeddedXsltUsed(embeddedXsltUsed)
                 .customXsltError(customXsltError)
                 .watermarkApplied(watermarkApplied)
+                .allowedScriptHashes(sanitizationResult.allowedScriptHashes())
+                .removedScriptCount(sanitizationResult.removedScriptCount())
+                .securityViolations(sanitizationResult.removalReasons())
                 .durationMs(durationMs)
                 .build();
     }

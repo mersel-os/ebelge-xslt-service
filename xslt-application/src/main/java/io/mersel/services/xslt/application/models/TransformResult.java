@@ -1,5 +1,7 @@
 package io.mersel.services.xslt.application.models;
 
+import java.util.List;
+
 /**
  * XSLT dönüşüm sonucu.
  * <p>
@@ -18,6 +20,9 @@ public class TransformResult {
     private final String customXsltError;
     private final boolean watermarkApplied;
     private final long durationMs;
+    private final List<String> allowedScriptHashes;
+    private final int removedScriptCount;
+    private final List<String> securityViolations;
 
     private TransformResult(Builder builder) {
         this.htmlContent = builder.htmlContent;
@@ -26,6 +31,9 @@ public class TransformResult {
         this.customXsltError = builder.customXsltError;
         this.watermarkApplied = builder.watermarkApplied;
         this.durationMs = builder.durationMs;
+        this.allowedScriptHashes = builder.allowedScriptHashes != null ? builder.allowedScriptHashes : List.of();
+        this.removedScriptCount = builder.removedScriptCount;
+        this.securityViolations = builder.securityViolations != null ? builder.securityViolations : List.of();
     }
 
     /** Dönüştürülmüş HTML içeriği (ham byte dizisi, UTF-8). */
@@ -61,6 +69,25 @@ public class TransformResult {
         return durationMs;
     }
 
+    /** Sanitization sonrası izin verilen script'lerin Base64-encoded SHA-256 hash'leri. */
+    public List<String> getAllowedScriptHashes() {
+        return allowedScriptHashes;
+    }
+
+    /** Sanitization sırasında kaldırılan (engellenen) script sayısı. */
+    public int getRemovedScriptCount() {
+        return removedScriptCount;
+    }
+
+    /**
+     * Tespit edilen güvenlik ihlalleri listesi.
+     * Boşsa ihlal yok demektir. Tüketici uygulama bu listeyi inceleyerek
+     * XSLT kaynağının güvenilirliğini değerlendirebilir.
+     */
+    public List<String> getSecurityViolations() {
+        return securityViolations;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -72,6 +99,9 @@ public class TransformResult {
         private String customXsltError;
         private boolean watermarkApplied;
         private long durationMs;
+        private List<String> allowedScriptHashes;
+        private int removedScriptCount;
+        private List<String> securityViolations;
 
         private Builder() {
         }
@@ -103,6 +133,21 @@ public class TransformResult {
 
         public Builder durationMs(long durationMs) {
             this.durationMs = durationMs;
+            return this;
+        }
+
+        public Builder allowedScriptHashes(List<String> allowedScriptHashes) {
+            this.allowedScriptHashes = allowedScriptHashes;
+            return this;
+        }
+
+        public Builder removedScriptCount(int removedScriptCount) {
+            this.removedScriptCount = removedScriptCount;
+            return this;
+        }
+
+        public Builder securityViolations(List<String> securityViolations) {
+            this.securityViolations = securityViolations;
             return this;
         }
 
