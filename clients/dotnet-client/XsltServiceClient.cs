@@ -30,8 +30,8 @@ public sealed class XsltServiceClient : IXsltServiceClient
         }
 
         var suppressions = request.Suppressions
-            .Where(static x => !string.IsNullOrWhiteSpace(x))
-            .ToArray();
+                                  .Where(static x => !string.IsNullOrWhiteSpace(x))
+                                  .ToArray();
 
         if (suppressions.Length > 0)
         {
@@ -39,8 +39,8 @@ public sealed class XsltServiceClient : IXsltServiceClient
         }
 
         var parameters = request.Parameters
-            .Where(static p => !string.IsNullOrWhiteSpace(p.Key))
-            .ToArray();
+                                .Where(static p => !string.IsNullOrWhiteSpace(p.Key))
+                                .ToArray();
 
         if (parameters.Length > 0)
         {
@@ -57,8 +57,8 @@ public sealed class XsltServiceClient : IXsltServiceClient
         using var response = await _httpClient.PostAsync("/v1/validate", form, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync<XsltServiceResponse<ValidationResponse>>(cancellationToken: ct).ConfigureAwait(false)
-               ?? new XsltServiceResponse<ValidationResponse>
+        return await response.Content.ReadFromJsonAsync<XsltServiceResponse<ValidationResponse>>(cancellationToken: ct).ConfigureAwait(false) ??
+               new XsltServiceResponse<ValidationResponse>
                {
                    ErrorMessage = "Failed to deserialize validate response."
                };
@@ -92,7 +92,7 @@ public sealed class XsltServiceClient : IXsltServiceClient
 
         if (request.Transformer is not null && request.Transformer.Length > 0)
         {
-            using var transformer = new ByteArrayContent(request.Transformer);
+            var transformer = new ByteArrayContent(request.Transformer);
             transformer.Headers.ContentType = MediaTypeHeaderValue.Parse("application/xml");
             form.Add(transformer, "transformer", $"{Guid.NewGuid()}.xslt");
         }
@@ -133,7 +133,7 @@ public sealed class XsltServiceClient : IXsltServiceClient
     private static int ReadIntHeader(HttpResponseMessage response, string headerName)
     {
         var raw = ReadStringHeader(response, headerName);
-        return int.TryParse(raw, out var parsed) ? parsed : 0;
+        return int.TryParse(raw, out var parsed)? parsed: 0;
     }
 
     private static string? ReadStringHeader(HttpResponseMessage response, string headerName)
@@ -151,7 +151,7 @@ public sealed class XsltServiceClient : IXsltServiceClient
         var raw = ReadStringHeader(response, "X-Xslt-Security-Violations");
         if (string.IsNullOrWhiteSpace(raw))
         {
-            return [];
+            return Array.Empty<string>();
         }
 
         return raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);

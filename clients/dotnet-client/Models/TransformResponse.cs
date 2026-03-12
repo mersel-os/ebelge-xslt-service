@@ -28,7 +28,7 @@ public sealed class TransformResponse
     /// değerlendirmek için kullanılabilir.
     /// Örnek: ["cookie access", "fetch API network call"]
     /// </summary>
-    public IReadOnlyList<string> SecurityViolations { get; set; } = [];
+    public IReadOnlyList<string> SecurityViolations { get; set; } = Array.Empty<string>();
 
     /// <summary>
     /// Herhangi bir güvenlik ihlali tespit edilip edilmediğini gösterir.
