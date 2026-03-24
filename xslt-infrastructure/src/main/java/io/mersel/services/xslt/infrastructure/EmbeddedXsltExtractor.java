@@ -55,7 +55,9 @@ public class EmbeddedXsltExtractor {
     private static final String XPATH_EXPRESSION =
             "//cac:AdditionalDocumentReference/cac:Attachment/cbc:EmbeddedDocumentBinaryObject" +
                     "[substring(@filename, string-length(@filename) - 4) = '.xslt'" +
-                    " or substring(@filename, string-length(@filename) - 3) = '.xsl']";
+                    " or substring(@filename, string-length(@filename) - 3) = '.xsl'" +
+                    " or substring(@filename, string-length(@filename) - 4) = '.XSLT'" +
+                    " or substring(@filename, string-length(@filename) - 3) = '.XSL']";
 
     /**
      * Verilen XML belgesinden gömülü XSLT şablonunu çıkarır.
