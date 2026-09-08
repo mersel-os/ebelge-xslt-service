@@ -1,5 +1,7 @@
 package io.mersel.services.xslt.web.integration;
 
+import io.mersel.services.xslt.application.enums.SchemaValidationType;
+import io.mersel.services.xslt.application.enums.SchematronValidationType;
 import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
 import io.mersel.services.xslt.application.interfaces.ISchematronValidator;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
@@ -24,6 +26,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -118,10 +121,17 @@ class ValidationIntegrationTest {
     @Test
     @DisplayName("UBL-TR CreditNote — otomatik tespit edip CREDIT_NOTE olarak doğrulamalı")
     void shouldDetectAndValidateUblTrCreditNote() throws Exception {
+        // e-Döviz, e-Dekont ve e-Gider Pusulası belgeleri de bu kökü kullanır.
+        // Belge türü root element'ten belirlendiği için ProfileID'ye göre ayrı bir
+        // yönlendirme yoktur.
         String creditNoteXml = """
                 <?xml version="1.0" encoding="UTF-8"?>
-                <CreditNote xmlns="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2">
-                    <ID>CN2024000001</ID>
+                <CreditNote xmlns="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2"
+                            xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                    <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+                    <cbc:CustomizationID>TR1.2.1</cbc:CustomizationID>
+                    <cbc:ProfileID>DOVIZALIM</cbc:ProfileID>
+                    <cbc:ID>CN2024000001</cbc:ID>
                 </CreditNote>
                 """;
 
@@ -132,7 +142,15 @@ class ValidationIntegrationTest {
 
         mockMvc.perform(multipart("/v1/validate").file(xmlFile))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.detectedDocumentType").value("CREDIT_NOTE"));
+                .andExpect(jsonPath("$.result.detectedDocumentType").value("CREDIT_NOTE"))
+                .andExpect(jsonPath("$.result.appliedXsd").value("UBL-CreditNote-2.1.xsd"))
+                .andExpect(jsonPath("$.result.appliedXsdPath")
+                        .value("validator/ubl-tr-package/schema/maindoc/UBL-CreditNote-2.1.xsd"))
+                .andExpect(jsonPath("$.result.appliedSchematron").value("UBLTR_MAIN"));
+
+        verify(schemaValidator).validate(any(), eq(SchemaValidationType.CREDIT_NOTE), anyList(), any());
+        verify(schematronValidator).validate(any(), eq(SchematronValidationType.UBLTR_MAIN),
+                any(), anyList(), any(), anyMap());
     }
 
     // ────────────────────────────────────────────────────────────────────

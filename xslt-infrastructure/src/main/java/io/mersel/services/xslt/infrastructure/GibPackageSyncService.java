@@ -1,23 +1,28 @@
 package io.mersel.services.xslt.infrastructure;
 
+import com.github.junrar.Archive;
+import com.github.junrar.exception.RarException;
 import io.mersel.services.xslt.application.interfaces.IGibPackageSyncService;
 import io.mersel.services.xslt.application.models.GibPackageDefinition;
 import io.mersel.services.xslt.application.models.GibPackageDefinition.FileExtraction;
+import io.mersel.services.xslt.application.models.GibPackageDefinition.FileExtraction.ExtractionMode;
 import io.mersel.services.xslt.application.models.PackageSyncResult;
 import io.mersel.services.xslt.infrastructure.config.GibSyncProperties;
 import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.FilterOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.*;
-import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,10 +31,11 @@ import java.util.zip.ZipFile;
 /**
  * GİB resmi web sitesinden XML paketlerini indiren ve asset dizinine yerleştiren servis.
  * <p>
- * ZIP dosyasını indirir, geçici dizine çıkartır, dosya eşleştirme kurallarına göre
+ * ZIP veya RAR dosyasını indirir, geçici dizine çıkartır, dosya eşleştirme kurallarına göre
  * hedef dizine kopyalar ve asset registry'yi yeniden yükler.
  * <p>
- * İndirme başarısız olursa mevcut asset'ler korunur (atomic swap).
+ * İndirme, arşiv açma veya zorunlu dosya eşleştirme başarısız olursa
+ * live hedefe dokunulmaz ve mevcut asset'ler korunur.
  */
 @Service
 public class GibPackageSyncService implements IGibPackageSyncService {
@@ -38,10 +44,16 @@ public class GibPackageSyncService implements IGibPackageSyncService {
 
     /** ZIP dosyası magic bytes (PK header) */
     private static final byte[] ZIP_MAGIC = { 0x50, 0x4B, 0x03, 0x04 };
+    /** RAR 4.x ve 5.x dosyalarının ortak magic bytes başlangıcı. */
+    private static final byte[] RAR_MAGIC_PREFIX = { 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07 };
+    private static final int MAX_ARCHIVE_ENTRY_COUNT = 10_000;
+    private static final long MAX_ARCHIVE_ENTRY_SIZE = 200L * 1024 * 1024;
+    private static final long MAX_TOTAL_EXTRACTED_SIZE = 500L * 1024 * 1024;
 
     private final GibSyncProperties properties;
     private final AssetRegistry assetRegistry;
     private final XsltMetrics xsltMetrics;
+    private final EmbeddedXsltExtractor embeddedXsltExtractor;
     private final HttpClient httpClient;
 
     @Value("${xslt.assets.external-path:}")
@@ -73,12 +85,45 @@ public class GibPackageSyncService implements IGibPackageSyncService {
             new GibPackageDefinition(
                     "earsiv",
                     "e-Arşiv Paketi",
-                    "https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/earsiv_paket_v1.1_6.zip",
+                    "https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/earsiv_paket_v1.1_8.zip",
                     List.of(
                             new FileExtraction("*.xsl", "validator/earchive/schematron/"),
                             new FileExtraction("*.xsd", "validator/earchive/schema/")
                     ),
                     "GİB e-Arşiv Schematron ve XSD dosyaları"
+            ),
+            new GibPackageDefinition(
+                    "edoviz",
+                    "e-Döviz ve Kıymetli Maden Paketi",
+                    "https://ebelge.gib.gov.tr/dosyalar/e-doviz_ve_kiymetlimaden_alim-satim_paketi_v1.2.rar",
+                    List.of(
+                            new FileExtraction("alim.xslt", "default_transformers/", "eDovizAlim_Base.xslt"),
+                            new FileExtraction("satim.xslt", "default_transformers/", "eDovizSatim_Base.xslt"),
+                            new FileExtraction("eArsiv.xsd", "validator/earchive-edoviz/schema/"),
+                            new FileExtraction("earsiv_schematron.xsl", "validator/earchive-edoviz/schematron/")
+                    ),
+                    "GİB e-Döviz/e-Kıymetli Maden görüntüleme, XSD ve Schematron dosyaları"
+            ),
+            new GibPackageDefinition(
+                    "edekont",
+                    "e-Dekont Paketi",
+                    "https://ebelge.gib.gov.tr/dosyalar/eDekont_Paketi.rar",
+                    List.of(
+                            new FileExtraction("**/*.xml", "default_transformers/", "eDekont_Base.xslt",
+                                    ExtractionMode.EMBEDDED_XSLT),
+                            new FileExtraction("**/eArsiv.xsd", "validator/earchive-edekont/schema/")
+                    ),
+                    "GİB e-Dekont gömülü görüntüleme dosyası ve XSD"
+            ),
+            new GibPackageDefinition(
+                    "egider-pusulasi",
+                    "e-Gider Pusulası Paketi",
+                    "https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/e-Gider_Pusulasi_Paketi.rar",
+                    List.of(
+                            new FileExtraction("**/giderPusulasi.xslt", "default_transformers/", "eGiderPusulasi_Base.xslt"),
+                            new FileExtraction("**/eArsiv.xsd", "validator/earchive-egider-pusulasi/schema/")
+                    ),
+                    "GİB e-Gider Pusulası görüntüleme dosyası ve XSD"
             ),
             new GibPackageDefinition(
                     "edefter",
@@ -94,8 +139,9 @@ public class GibPackageSyncService implements IGibPackageSyncService {
     );
 
     @org.springframework.beans.factory.annotation.Autowired
-    public GibPackageSyncService(GibSyncProperties properties, AssetRegistry assetRegistry, XsltMetrics xsltMetrics) {
-        this(properties, assetRegistry, xsltMetrics, HttpClient.newBuilder()
+    public GibPackageSyncService(GibSyncProperties properties, AssetRegistry assetRegistry,
+                                 XsltMetrics xsltMetrics, EmbeddedXsltExtractor embeddedXsltExtractor) {
+        this(properties, assetRegistry, xsltMetrics, embeddedXsltExtractor, HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .executor(java.util.concurrent.Executors.newFixedThreadPool(4))
@@ -106,10 +152,12 @@ public class GibPackageSyncService implements IGibPackageSyncService {
      * Constructor with injectable HttpClient for testing.
      */
     GibPackageSyncService(GibSyncProperties properties, AssetRegistry assetRegistry,
-                          XsltMetrics xsltMetrics, HttpClient httpClient) {
+                          XsltMetrics xsltMetrics, EmbeddedXsltExtractor embeddedXsltExtractor,
+                          HttpClient httpClient) {
         this.properties = properties;
         this.assetRegistry = assetRegistry;
         this.xsltMetrics = xsltMetrics;
+        this.embeddedXsltExtractor = embeddedXsltExtractor;
         this.httpClient = httpClient;
     }
 
@@ -218,14 +266,16 @@ public class GibPackageSyncService implements IGibPackageSyncService {
         log.info("  Staging sync: {} — {} → {}", pkg.id(), pkg.downloadUrl(), targetDir);
 
         try {
-            byte[] zipBytes = downloadZip(pkg.downloadUrl());
-            if (!isValidZip(zipBytes)) {
+            byte[] archiveBytes = downloadArchive(pkg.downloadUrl());
+            ArchiveFormat archiveFormat = detectArchiveFormat(archiveBytes);
+            if (archiveFormat == null) {
                 return PackageSyncResult.failure(pkg.id(), pkg.displayName(),
                         System.currentTimeMillis() - startTime,
-                        "İndirilen dosya geçerli bir ZIP formatında değil");
+                        "İndirilen dosya geçerli bir ZIP veya RAR formatında değil");
             }
 
-            List<String> extractedFiles = extractAndMap(zipBytes, pkg.fileMapping(), targetDir);
+            List<String> extractedFiles = extractAndMap(
+                    archiveBytes, archiveFormat, pkg.fileMapping(), targetDir);
 
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("  {} staging sync tamamlandı: {} dosya, {}ms", pkg.id(), extractedFiles.size(), elapsed);
@@ -257,21 +307,23 @@ public class GibPackageSyncService implements IGibPackageSyncService {
         log.info("  Sync: {} — {}", pkg.id(), pkg.downloadUrl());
 
         try {
-            // 1. ZIP indir
-            byte[] zipBytes = downloadZip(pkg.downloadUrl());
-
-            // 2. ZIP magic bytes kontrolü
-            if (!isValidZip(zipBytes)) {
-                return PackageSyncResult.failure(pkg.id(), pkg.displayName(),
-                        System.currentTimeMillis() - startTime,
-                        "İndirilen dosya geçerli bir ZIP formatında değil");
-            }
-
-            // 3. Hedef dizin belirle
+            // 1. Hedefi doğrula
             Path targetBase = resolveTargetPath();
 
+            // 2. Arşivi indir
+            byte[] archiveBytes = downloadArchive(pkg.downloadUrl());
+
+            // 3. Formatı magic bytes üzerinden doğrula
+            ArchiveFormat archiveFormat = detectArchiveFormat(archiveBytes);
+            if (archiveFormat == null) {
+                return PackageSyncResult.failure(pkg.id(), pkg.displayName(),
+                        System.currentTimeMillis() - startTime,
+                        "İndirilen dosya geçerli bir ZIP veya RAR formatında değil");
+            }
+
             // 4. Geçici dizine çıkart ve eşleştir
-            List<String> extractedFiles = extractAndMap(zipBytes, pkg.fileMapping(), targetBase);
+            List<String> extractedFiles = extractAndMap(
+                    archiveBytes, archiveFormat, pkg.fileMapping(), targetBase);
 
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("  {} sync tamamlandı: {} dosya, {}ms", pkg.id(), extractedFiles.size(), elapsed);
@@ -299,10 +351,10 @@ public class GibPackageSyncService implements IGibPackageSyncService {
     }
 
     /**
-     * ZIP dosyasını HTTP üzerinden indirir.
+     * Arşiv dosyasını HTTP üzerinden indirir.
      * baseUrlOverride ayarlanmışsa URL'nin host kısmı değiştirilir (test için).
      */
-    private byte[] downloadZip(String url) throws IOException, InterruptedException {
+    private byte[] downloadArchive(String url) throws IOException, InterruptedException {
         String effectiveUrl = url;
         if (properties.getBaseUrlOverride() != null && !properties.getBaseUrlOverride().isBlank()) {
             try {
@@ -338,16 +390,28 @@ public class GibPackageSyncService implements IGibPackageSyncService {
     }
 
     /**
-     * ZIP magic bytes kontrolü.
+     * Arşiv formatını dosya uzantısına güvenmeden magic bytes üzerinden belirler.
      */
-    private boolean isValidZip(byte[] data) {
-        if (data == null || data.length < 4) {
+    private ArchiveFormat detectArchiveFormat(byte[] data) {
+        if (startsWith(data, ZIP_MAGIC)) {
+            return ArchiveFormat.ZIP;
+        }
+        if (startsWith(data, RAR_MAGIC_PREFIX)) {
+            return ArchiveFormat.RAR;
+        }
+        return null;
+    }
+
+    private boolean startsWith(byte[] data, byte[] magic) {
+        if (data == null || data.length < magic.length) {
             return false;
         }
-        return data[0] == ZIP_MAGIC[0]
-                && data[1] == ZIP_MAGIC[1]
-                && data[2] == ZIP_MAGIC[2]
-                && data[3] == ZIP_MAGIC[3];
+        for (int i = 0; i < magic.length; i++) {
+            if (data[i] != magic[i]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -381,15 +445,16 @@ public class GibPackageSyncService implements IGibPackageSyncService {
     }
 
     /**
-     * ZIP içeriğini çıkartır ve eşleştirme kurallarına göre hedef dizine kopyalar.
+     * ZIP/RAR içeriğini çıkartır ve eşleştirme kurallarına göre hedef dizine kopyalar.
      * <p>
      * GİB ZIP dosyaları Türkçe karakterli dosya/klasör isimleri içerir (ör: "İrsaliye", "Şema").
      * Bu isimler genellikle CP437 veya Windows-1254 encoding ile yazılmıştır.
      * {@link ZipFile}, charset parametresi ile bu encoding'i doğru okuyabilir;
      * {@code ZipInputStream} ise yalnızca UTF-8 destekler ve "malformed input" hatası verir.
      */
-    private List<String> extractAndMap(byte[] zipBytes, List<FileExtraction> fileMappings, Path targetBase)
-            throws IOException {
+    private List<String> extractAndMap(byte[] archiveBytes, ArchiveFormat archiveFormat,
+                                       List<FileExtraction> fileMappings, Path targetBase)
+            throws IOException, RarException {
 
         var extractedFiles = new ArrayList<String>();
 
@@ -397,63 +462,81 @@ public class GibPackageSyncService implements IGibPackageSyncService {
         Path tempDir = Files.createTempDirectory("gib-sync-");
 
         try {
-            // ZIP byte'larını geçici dosyaya yaz (ZipFile dosya sistemi gerektirir)
-            Path tempZip = tempDir.resolve("download.zip");
-            Files.write(tempZip, zipBytes);
+            Path tempArchive = tempDir.resolve(
+                    archiveFormat == ArchiveFormat.ZIP ? "download.zip" : "download.rar");
+            Files.write(tempArchive, archiveBytes);
 
-            // ZipFile ile charset belirterek aç — Türkçe dosya isimlerini doğru okur
-            try (var zipFile = new ZipFile(tempZip.toFile(), java.nio.charset.Charset.forName("CP437"))) {
-                var entries = zipFile.entries();
-                while (entries.hasMoreElements()) {
-                    var entry = entries.nextElement();
-                    if (entry.isDirectory()) continue;
-
-                    String entryName = entry.getName();
-                    Path entryPath = tempDir.resolve(entryName).normalize();
-
-                    // Path traversal koruması
-                    if (!entryPath.startsWith(tempDir)) {
-                        log.warn("  ZIP entry path traversal engellendi: {}", entryName);
-                        continue;
-                    }
-
-                    Files.createDirectories(entryPath.getParent());
-                    try (var is = zipFile.getInputStream(entry)) {
-                        Files.copy(is, entryPath, StandardCopyOption.REPLACE_EXISTING);
-                    }
-                }
+            Path archiveContentDir = Files.createDirectory(tempDir.resolve("content"));
+            if (archiveFormat == ArchiveFormat.ZIP) {
+                extractZip(tempArchive, archiveContentDir);
+            } else {
+                extractRar(tempArchive, archiveContentDir);
             }
 
-            // Geçici ZIP dosyasını sil
-            Files.deleteIfExists(tempZip);
+            Files.deleteIfExists(tempArchive);
+
+            // Live hedefe dokunmadan önce bütün zorunlu eşleşmeleri ve gömülü
+            // XSLT'leri doğrula. Paket yapısı değiştiğinde mevcut asset'ler korunur.
+            var resolvedExtractions = new ArrayList<ResolvedExtraction>(fileMappings.size());
+            for (var mapping : fileMappings) {
+                List<Path> matchedFiles = findMatchingFiles(
+                        archiveContentDir, mapping.zipPathPattern());
+                if (matchedFiles.isEmpty()) {
+                    throw new IOException("Arşivde zorunlu pattern ile eşleşen dosya bulunamadı: "
+                            + mapping.zipPathPattern());
+                }
+                if (mapping.targetFileName() != null && matchedFiles.size() > 1
+                        && mapping.extractionMode() == ExtractionMode.COPY) {
+                    throw new IOException("Sabit hedef dosya adı birden fazla arşiv girdisiyle eşleşti: "
+                            + mapping.zipPathPattern());
+                }
+                byte[] embeddedXslt = mapping.extractionMode() == ExtractionMode.EMBEDDED_XSLT
+                        ? findEmbeddedXslt(mapping, matchedFiles)
+                        : null;
+                resolvedExtractions.add(new ResolvedExtraction(mapping, matchedFiles, embeddedXslt));
+            }
 
             // Hedef dizinleri temizle — her benzersiz dizin sadece bir kez silinir
             var cleanedDirs = new java.util.HashSet<Path>();
-            for (var mapping : fileMappings) {
+            for (var resolved : resolvedExtractions) {
+                FileExtraction mapping = resolved.mapping();
                 Path targetDir = targetBase.resolve(mapping.targetDir());
-                if (cleanedDirs.add(targetDir) && Files.isDirectory(targetDir)) {
-                    log.debug("  Hedef dizin temizleniyor: {}", targetDir);
-                    deleteRecursively(targetDir);
+                if (mapping.targetFileName() != null) {
+                    // default_transformers gibi paylaşılan dizinlerde yalnızca bu paketin
+                    // yönettiği dosyayı yenile; diğer belge şablonlarını koru.
+                    Files.createDirectories(targetDir);
+                } else {
+                    if (cleanedDirs.add(targetDir) && Files.isDirectory(targetDir)) {
+                        log.debug("  Hedef dizin temizleniyor: {}", targetDir);
+                        deleteRecursively(targetDir);
+                    }
+                    Files.createDirectories(targetDir);
                 }
-                Files.createDirectories(targetDir);
             }
 
             // Eşleştirme kurallarına göre dosyaları hedef dizine kopyala
-            for (var mapping : fileMappings) {
+            for (var resolved : resolvedExtractions) {
+                FileExtraction mapping = resolved.mapping();
                 Path targetDir = targetBase.resolve(mapping.targetDir());
 
-                List<Path> matchedFiles = findMatchingFiles(tempDir, mapping.zipPathPattern());
+                if (mapping.extractionMode() == ExtractionMode.EMBEDDED_XSLT) {
+                    writeEmbeddedXslt(mapping, resolved.embeddedXslt(),
+                            targetDir, extractedFiles);
+                    continue;
+                }
 
                 // Glob pattern'den "anchor" dizin bul — alt klasör yapısını korumak için
                 String anchorDir = findAnchorDirectory(mapping.zipPathPattern());
 
-                for (Path matchedFile : matchedFiles) {
+                for (Path matchedFile : resolved.matchedFiles()) {
                     // Alt klasör yapısını koru: anchor dizinden sonraki göreceli yolu hesapla
-                    Path relativeSubPath = extractRelativePath(tempDir.relativize(matchedFile), anchorDir);
+                    Path relativeSubPath = mapping.targetFileName() != null
+                            ? Path.of(mapping.targetFileName())
+                            : extractRelativePath(archiveContentDir.relativize(matchedFile), anchorDir);
                     Path target = targetDir.resolve(relativeSubPath);
                     Files.createDirectories(target.getParent());
                     Files.copy(matchedFile, target, StandardCopyOption.REPLACE_EXISTING);
-                    String relativePath = mapping.targetDir() + relativeSubPath.toString().replace('\\', '/');
+                    String relativePath = assetPath(mapping.targetDir(), relativeSubPath.toString());
                     extractedFiles.add(relativePath);
                     log.debug("  Kopyalandı: {} → {}", matchedFile, target);
                 }
@@ -465,6 +548,138 @@ public class GibPackageSyncService implements IGibPackageSyncService {
         }
 
         return extractedFiles;
+    }
+
+    /**
+     * Eşleşen UBL örneklerini sırayla tarar ve ilk geçerli gömülü XSLT'yi döndürür.
+     * Bazı GİB e-Dekont örnekleri yalnızca placeholder içerdiği için tek bir dosya adına
+     * bağlı kalınmaz.
+     */
+    private byte[] findEmbeddedXslt(FileExtraction mapping, List<Path> matchedFiles) throws IOException {
+        if (mapping.targetFileName() == null || mapping.targetFileName().isBlank()) {
+            throw new IOException("Gömülü XSLT çıkarma kuralı için sabit hedef dosya adı gerekli");
+        }
+
+        for (Path matchedFile : matchedFiles) {
+            byte[] xslt = embeddedXsltExtractor.extract(Files.readAllBytes(matchedFile));
+            if (xslt == null || xslt.length == 0) {
+                continue;
+            }
+            log.debug("  Geçerli gömülü XSLT bulundu: {}", matchedFile);
+            return xslt;
+        }
+
+        throw new IOException("Pattern ile eşleşen dosyalarda geçerli gömülü XSLT bulunamadı: "
+                + mapping.zipPathPattern());
+    }
+
+    private void writeEmbeddedXslt(FileExtraction mapping, byte[] xslt,
+                                   Path targetDir, List<String> extractedFiles) throws IOException {
+        Path normalizedTargetDir = targetDir.normalize();
+        Path target = normalizedTargetDir.resolve(mapping.targetFileName()).normalize();
+        if (!target.startsWith(normalizedTargetDir)) {
+            throw new IOException("Gömülü XSLT hedef yolu geçersiz: " + mapping.targetFileName());
+        }
+
+        Files.createDirectories(target.getParent());
+        Files.write(target, xslt, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        String relativePath = assetPath(mapping.targetDir(), mapping.targetFileName());
+        extractedFiles.add(relativePath);
+        log.debug("  Gömülü XSLT yazıldı: {}", target);
+    }
+
+    private void extractZip(Path archiveFile, Path tempDir) throws IOException {
+        // ZipFile ile charset belirterek aç — Türkçe dosya isimlerini doğru okur
+        try (var zipFile = new ZipFile(archiveFile.toFile(), java.nio.charset.Charset.forName("CP437"))) {
+            var entries = zipFile.entries();
+            int entryCount = 0;
+            long totalExtractedSize = 0;
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                if (entry.isDirectory()) continue;
+
+                String entryName = entry.getName();
+                entryCount++;
+                validateArchiveEntry(entryName, entryCount, entry.getSize(), totalExtractedSize);
+                Path entryPath = safeArchiveEntryPath(tempDir, entryName, "ZIP");
+                if (entryPath == null) continue;
+
+                Files.createDirectories(entryPath.getParent());
+                try (var input = zipFile.getInputStream(entry);
+                     var fileOutput = Files.newOutputStream(entryPath,
+                             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                     var output = new LimitedOutputStream(
+                             fileOutput, entryName,
+                             Math.min(MAX_ARCHIVE_ENTRY_SIZE,
+                                     MAX_TOTAL_EXTRACTED_SIZE - totalExtractedSize))) {
+                    input.transferTo(output);
+                    totalExtractedSize += output.getWrittenBytes();
+                }
+            }
+        }
+    }
+
+    private void extractRar(Path archiveFile, Path tempDir) throws IOException, RarException {
+        try (var archive = new Archive(archiveFile.toFile())) {
+            int entryCount = 0;
+            long totalExtractedSize = 0;
+            for (var header : archive.getFileHeaders()) {
+                if (header.isDirectory()) continue;
+
+                String entryName = header.getFileName().replace('\\', '/');
+                if (header.isSplitBefore() || header.isSplitAfter()) {
+                    throw new IOException("Çok parçalı RAR arşivleri desteklenmiyor: " + entryName);
+                }
+                entryCount++;
+                validateArchiveEntry(
+                        entryName, entryCount, header.getFullUnpackSize(), totalExtractedSize);
+                Path entryPath = safeArchiveEntryPath(tempDir, entryName, "RAR");
+                if (entryPath == null) continue;
+
+                Files.createDirectories(entryPath.getParent());
+                try (var fileOutput = Files.newOutputStream(entryPath,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                     var output = new LimitedOutputStream(
+                             fileOutput, entryName,
+                             Math.min(MAX_ARCHIVE_ENTRY_SIZE,
+                                     MAX_TOTAL_EXTRACTED_SIZE - totalExtractedSize))) {
+                    archive.extractFile(header, output);
+                    totalExtractedSize += output.getWrittenBytes();
+                }
+            }
+        }
+    }
+
+    private void validateArchiveEntry(String entryName, int entryCount,
+                                      long declaredSize, long totalExtractedSize) throws IOException {
+        if (entryCount > MAX_ARCHIVE_ENTRY_COUNT) {
+            throw new IOException("Arşiv entry sayısı sınırı aşıldı: "
+                    + MAX_ARCHIVE_ENTRY_COUNT);
+        }
+        if (declaredSize > MAX_ARCHIVE_ENTRY_SIZE) {
+            throw new IOException("Arşiv girdisi boyut sınırını aşıyor: " + entryName);
+        }
+        if (declaredSize >= 0 && declaredSize > MAX_TOTAL_EXTRACTED_SIZE - totalExtractedSize) {
+            throw new IOException("Arşivin açılmış toplam boyut sınırı aşıldı: "
+                    + MAX_TOTAL_EXTRACTED_SIZE + " byte");
+        }
+    }
+
+    private Path safeArchiveEntryPath(Path tempDir, String entryName, String format) {
+        Path entryPath = tempDir.resolve(entryName).normalize();
+        if (!entryPath.startsWith(tempDir)) {
+            log.warn("  {} entry path traversal engellendi: {}", format, entryName);
+            return null;
+        }
+        return entryPath;
+    }
+
+    private String assetPath(String targetDir, String relativePath) {
+        String normalizedDir = targetDir.replace('\\', '/');
+        String normalizedRelativePath = relativePath.replace('\\', '/');
+        return normalizedDir.endsWith("/")
+                ? normalizedDir + normalizedRelativePath
+                : normalizedDir + "/" + normalizedRelativePath;
     }
 
     /**
@@ -524,7 +739,6 @@ public class GibPackageSyncService implements IGibPackageSyncService {
 
         try (var stream = Files.walk(baseDir)) {
             stream.filter(Files::isRegularFile)
-                    .filter(path -> !path.getFileName().toString().equals("download.zip"))
                     .filter(path -> {
                         Path relativePath = baseDir.relativize(path);
                         boolean matches = matcher.matches(relativePath);
@@ -557,6 +771,54 @@ public class GibPackageSyncService implements IGibPackageSyncService {
                     });
         } catch (IOException e) {
             log.debug("Geçici dizin temizlenemedi: {}", dir);
+        }
+    }
+
+    private enum ArchiveFormat {
+        ZIP,
+        RAR
+    }
+
+    private record ResolvedExtraction(
+            FileExtraction mapping,
+            List<Path> matchedFiles,
+            byte[] embeddedXslt
+    ) { }
+
+    private static final class LimitedOutputStream extends FilterOutputStream {
+        private final String entryName;
+        private final long maxBytes;
+        private long writtenBytes;
+
+        private LimitedOutputStream(OutputStream output, String entryName, long maxBytes) {
+            super(output);
+            this.entryName = entryName;
+            this.maxBytes = maxBytes;
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            ensureCapacity(1);
+            out.write(value);
+            writtenBytes++;
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            ensureCapacity(length);
+            out.write(bytes, offset, length);
+            writtenBytes += length;
+        }
+
+        private void ensureCapacity(int additionalBytes) throws IOException {
+            if (writtenBytes > maxBytes - additionalBytes) {
+                throw new IOException("Arşiv girdisi veya toplam açılmış boyut sınırı aşıldı: "
+                        + entryName);
+            }
+        }
+
+        private long getWrittenBytes() {
+            return writtenBytes;
         }
     }
 }

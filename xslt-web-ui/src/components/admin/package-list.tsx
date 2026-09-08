@@ -152,10 +152,10 @@ export function PackageList() {
                       <p className="font-medium mb-2 text-xs">Dosya Eşlemesi</p>
                       <div className="space-y-1.5">
                         {pkg.fileMapping.map((fm) => (
-                          <div key={`fm-${fm.zipPathPattern}-${fm.targetDir}`} className="flex items-center gap-2 font-mono rounded-lg bg-muted/30 px-3 py-2">
+                          <div key={`fm-${fm.zipPathPattern}-${fm.targetDir}-${fm.targetFileName ?? ""}`} className="flex items-center gap-2 font-mono rounded-lg bg-muted/30 px-3 py-2">
                             <span className="text-muted-foreground truncate text-[11px]">{fm.zipPathPattern}</span>
                             <span className="text-muted-foreground/40 shrink-0">&rarr;</span>
-                            <span className="truncate text-[11px]">{fm.targetDir}</span>
+                            <span className="truncate text-[11px]">{fm.targetDir}{fm.targetFileName ?? ""}</span>
                           </div>
                         ))}
                       </div>

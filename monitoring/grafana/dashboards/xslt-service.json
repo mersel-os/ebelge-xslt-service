@@ -227,7 +227,7 @@
         "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }
       },
       "title": "XSD Şema Tipi Dağılımı",
-      "description": "Hangi XSD şemaları ile doğrulama yapılıyor (INVOICE, DESPATCH_ADVICE, CREDIT_NOTE, EARCHIVE, EDEFTER, EENVANTER)",
+      "description": "Hangi XSD şemaları ile doğrulama yapılıyor (INVOICE, DESPATCH_ADVICE, CREDIT_NOTE, EARCHIVE_REPORT, EDEFTER, EENVANTER)",
       "type": "piechart",
       "targets": [
         { "expr": "sum(xslt_validation_total{application=\"mersel-xslt-service\"}) by (schema_type)", "legendFormat": "{{schema_type}}" }
@@ -248,7 +248,7 @@
         "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }
       },
       "title": "Schematron Tipi Dağılımı",
-      "description": "Hangi Schematron kuralları ile doğrulama yapılıyor (UBLTR_MAIN, EARCHIVE, EDEFTER_YEVMIYE, EDEFTER_KEBIR, EDEFTER_BERAT vb.)",
+      "description": "Hangi Schematron kuralları ile doğrulama yapılıyor (UBLTR_MAIN, EARCHIVE_REPORT, EDEFTER_YEVMIYE, EDEFTER_KEBIR, EDEFTER_BERAT vb.)",
       "type": "piechart",
       "targets": [
         { "expr": "sum(xslt_validation_total{application=\"mersel-xslt-service\"}) by (schematron_type)", "legendFormat": "{{schematron_type}}" }

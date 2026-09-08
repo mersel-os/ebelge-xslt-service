@@ -4,6 +4,39 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Eklenen
+
+- `EDOVIZ_ALIM`, `EDOVIZ_SATIM`, `EDEKONT`, `EGIDER_PUSULASI` XSLT dönüşüm tipleri; ayrıca enum'da bulunup şablon eşlemesi olmayan `ECHECK` (e-Adisyon) tamamlandı ve web arayüzünde eksik olan `ESMM` eklendi. Java API, web arayüzü ve .NET istemci aynı listeyi kullanıyor
+- Resmi e-Döviz, e-Dekont ve e-Gider Pusulası görüntüleme şablonları için GİB paket senkronizasyonu; arşiv formatı (ZIP/RAR) URL uzantısına değil magic byte'lara göre belirleniyor
+- e-Dekont paketinde XSLT ayrı dosya olarak bulunmadığından resmi örnek XML'in içindeki gömülü şablon çıkarılıp `eDekont_Base.xslt` adıyla kaydediliyor; yalnızca placeholder içeren örnekler atlanıyor
+- Paket eşleştirmelerinde sabit hedef dosya adı desteği; bu sayede paylaşılan `default_transformers/` dizinine yazan paketler diğer belge tiplerinin şablonlarını silmiyor
+- `eArsivRaporu` raporları için ürün bazlı şema doğrulama: `EARCHIVE_REPORT_EDOVIZ`, `EARCHIVE_REPORT_EDEKONT` ve `EARCHIVE_REPORT_EGIDER_PUSULASI` şema tipleri ile e-Döviz raporu için `EARCHIVE_REPORT_EDOVIZ` Schematron tipi. GİB aynı `eArsivRaporu` kökünü her ürün paketinde farklı bir `eArsiv.xsd` ile yayınladığı için rapor ailesi `baslik`'tan sonraki içerik elemanına (`belge`, `bankReceipt`, `eGiderPusulasi` ve iptal varyantları) göre belirleniyor; tanınmayan içerik genel `EARCHIVE_REPORT` şemasına düşüyor. Şemalar aynı namespace'te aynı kök elementi ve sekiz tip adını farklı tanımlarla içerdiği için birleştirilemez — tek bir `SchemaFactory`'ye verildiklerinde hata üretmeyip sessizce yalnızca ilki kullanılır
+- Ürün paketlerinden gelen `eArsiv.xsd` dosyaları, dosya adları aynı olduğu için ayrı dizinlere (`validator/earchive-edoviz/`, `validator/earchive-edekont/`, `validator/earchive-egider-pusulasi/`) senkronize ediliyor. Bu paketler XAdES ve xmldsig şemalarını `xs:import` ile isteyip göndermediğinden imza şemaları genel e-Arşiv paketinin dizininden çözülüyor
+- `transformType` için OpenAPI şeması elle yazılan liste yerine doğrudan `TransformType` enum'ından üretiliyor
+- `.dockerignore`
+
+### Değişen
+
+- `SchemaValidationType.EARCHIVE` sabiti `EARCHIVE_REPORT` olarak yeniden adlandırıldı. Bu tip e-Arşiv faturasını değil `eArsivRaporu` belgesini doğruluyor; `DocumentType` ve `SchematronValidationType` zaten `EARCHIVE_REPORT` adını kullanıyordu. `validation-profiles.yml` içindeki `xsd-overrides` anahtarları ve bastırma kurallarının `scope` değerleri istek anında düz string karşılaştırmasıyla eşleştiği için eski ad sessizce eşleşmeyi bırakırdı; profil okunurken eski `EARCHIVE` adı otomatik olarak yeni ada çevriliyor ve bir uyarı loglanıyor. Prometheus'taki `schema_type` / `document_type` etiket değeri de değiştiği için bu tipe ait zaman serisi eski adla devam etmez
+- `belge`, `bankReceipt` ve `eGiderPusulasi` içerikli `eArsivRaporu` belgeleri daha önce genel `EArsiv.xsd` ile doğrulanıyordu; bu şema söz konusu içerik elemanlarını tanımlamadığı için doğrulama her zaman başarısız oluyordu. Bu raporlar artık ilgili ürün paketinin şemasına yönleniyor. e-Dekont ve e-Gider Pusulası paketleri Schematron göndermediği için o ailelerde Schematron adımı atlanıyor
+- GİB paket senkronizasyonundaki tüm dosya eşleştirmeleri artık zorunludur; paket yapısı değişir veya herhangi bir eşleşme bulunamazsa kısmi güncelleme yerine işlem bütünüyle başarısız olur. Tüm eşleşmeler hedef dizine dokunulmadan önce çözümlendiği için başarısız sync mevcut asset'leri bozmaz. Bu davranış mevcut `efatura`, `ubltr-xsd`, `earsiv` ve `edefter` paketleri için de geçerlidir
+- Gömülü XSLT çıkarımı, içeriğin gerçekten XSLT olduğunu doğruluyor; geçersizse belge içi şablon yoksayılıp varsayılan şablona dönülüyor (`defaultXslUsed` ile raporlanır). Şablon içindeki dahili DTD entity tanımları kabul edilir, harici DTD/entity çözümlemesi kapalıdır
+- `earsiv` paketi `v1.1_6` yerine `v1.1_8` sürümüne bağlandı. `EArsiv.xsd`'ye `YTBTEVKIFAT` ve `YTBTEVKIFATIADE` fatura tipleri eklendi, `earsiv_schematron.xsl`'deki "`ytbBilgileri` zorunlu" kuralı bu iki tipi de kapsıyor ve `esuRaporID` birden fazla kez tekrarlanabiliyor. **Genel e-Arşiv raporlarında doğrulama sıkılaşıyor:** `aliciType` ve `aliciTypeMin` içindeki `tuzelKisi`/`gercekKisi` ikilisi, ikisi de `minOccurs="0"` olan bir `xs:sequence` yerine artık zorunlu bir `xs:choice`. Bu iki tip `fatura`, `mustahsilMakbuz`, `serbestMeslekMakbuz` ve `adisyon` kayıtlarının zorunlu `aliciBilgileri` / `mustahsilBilgileri` alanında kullanıldığı için, alıcı bloğu boş bırakılmış raporlar önceden geçerken artık reddediliyor. GİB'in yürürlükteki kural setini yansıtması için bu sürüm esas alındı; gerekirse mevcut XSD override mekanizmasıyla profil bazında gevşetilebilir. Paketteki XAdES ve xmldsig şemaları `v1.1_6` ile birebir aynı olduğundan ürün paketlerinin bu dizinden çözdüğü imza şemaları etkilenmiyor
+
+### Düzeltilen
+
+- XSD override'lı doğrulama yolunda lokal şema resolver'ı kurulmuyordu; e-Defter/XBRL şemalarının HTTP `xs:import` referansları artık bu yolda da lokal dosyalara yönleniyor
+- Göreceli `xs:import` / `xs:include` referansları önce bildiren şemanın kendi konumuna göre, sonra arama dizinlerinde göreceli yolun tamamına göre çözümleniyor; yalnızca dosya adı eşleştirilmediği için farklı alt dizinlerdeki aynı adlı şemalar birbirinin yerine yüklenemiyor
+- Dockerfile release JAR'ını `*.jar` joker'i yerine adıyla eşleştiriyor; build context'te kalmış eski JAR'lar image'a alınamıyor
+- Ayrı dağıtılan e-Döviz, e-Dekont ve e-Gider Pusulası paketleri sync edilmemişse XSD ve Schematron reload'u bunları hata saymıyor. Aksi halde bu tipler eklendiği için mevcut her kurulum reload sonrası `PARTIAL` durumuna düşüyordu. Atlama yalnızca dosyanın yokluğunda geçerlidir; dosya mevcut olup derlenemiyorsa hata olarak raporlanmaya devam ediyor
+- Lokal şema resolver'ı, ayrıştırılamayan HTTP `xs:import` referanslarında istisna fırlatıp şema derlemesini kesmiyor; referans çözümlenemedi sayılıp varsayılan davranışa dönülüyor
+- Lokal şema resolver'ı çözdüğü dosyalara sabit `UTF-8` encoding'i dayatmıyor; import edilen şemanın kendi XML bildirimindeki encoding geçerli oluyor
+
+### Güvenlik
+
+- Arşiv çıkarma; girdi sayısı, girdi başına boyut ve toplam açılmış boyut ile sınırlandırıldı. Sınırlar başlıkta beyan edilen boyuta güvenilmeden akış sırasında uygulanıyor
+- Path traversal koruması ZIP ve RAR çıkarma yolları arasında paylaşılıyor
+
 ## [1.3.1] - 2026-06-07
 
 ### Eklenen

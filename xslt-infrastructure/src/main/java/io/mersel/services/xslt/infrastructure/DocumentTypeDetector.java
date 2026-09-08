@@ -19,12 +19,14 @@ import java.util.Map;
  * SAX tabanlı XML belge türü tespit implementasyonu.
  * <p>
  * Performans için full DOM parse yapmaz — sadece root element, namespace URI,
- * namespace prefix ve e-Defter belgelerinde {@code xbrli:context id} attribute'ını okur.
+ * namespace prefix, e-Defter belgelerinde {@code xbrli:context id} attribute'ı ve
+ * e-Arşiv raporlarında {@code baslik}'tan sonraki içerik elementi okunur.
  * <p>
  * Tespit kuralları:
  * <ul>
  *   <li>UBL-TR namespace ({@code urn:oasis:...:*-2}) → root element adına göre belge türü</li>
- *   <li>e-Arşiv namespace ({@code http://earsiv.efatura.gov.tr}) → EARCHIVE_REPORT</li>
+ *   <li>e-Arşiv namespace ({@code http://earsiv.efatura.gov.tr}) → {@code baslik}'tan sonraki
+ *       içerik elementine göre rapor ailesi; tanınmayan içerikte EARCHIVE_REPORT</li>
  *   <li>e-Defter namespace ({@code http://www.edefter.gov.tr}) + prefix "edefter" → root element ve context id'ye göre</li>
  *   <li>e-Envanter namespace ({@code http://www.edefter.gov.tr}) + prefix "envanter" → root element'e göre</li>
  * </ul>
@@ -46,6 +48,30 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
             "DespatchAdvice", DocumentType.DESPATCH_ADVICE,
             "ReceiptAdvice", DocumentType.RECEIPT_ADVICE,
             "ApplicationResponse", DocumentType.APPLICATION_RESPONSE
+    );
+
+    /**
+     * eArsivRaporu içerik elementi → rapor ailesi eşlemesi.
+     * <p>
+     * GİB bu ürünleri kendi paketlerindeki {@code eArsiv.xsd} ile yayınlıyor; şemalar
+     * aynı namespace'te aynı kök elementi farklı içerik modelleriyle tanımladığı için
+     * birleştirilemez. Listede olmayan içerik elementleri (fatura, mustahsilMakbuz,
+     * serbestMeslekMakbuz, mRapor, ymRapor) genel e-Arşiv paketi şemasına düşer.
+     * e-Adisyon da genel XSD kullanır; uyumsuz Schematron'u atlamak için ayrı türdür.
+     * <p>
+     * {@code bankReceipt} genel pakette de tanımlı ama içerik modeli e-Dekont paketindeki
+     * sürümden farklı. GİB'in e-Dekont rapor örnekleri paket sürümüne uyduğu ve o sürüm
+     * belirgin biçimde daha kapsamlı olduğu için ürün paketi şeması esas alınır.
+     */
+    private static final Map<String, DocumentType> EARCHIVE_CONTENT_MAP = Map.of(
+            "adisyon", DocumentType.EARCHIVE_REPORT_EADISYON,
+            "adisyonIptal", DocumentType.EARCHIVE_REPORT_EADISYON,
+            "belge", DocumentType.EARCHIVE_REPORT_EDOVIZ,
+            "belgeIptal", DocumentType.EARCHIVE_REPORT_EDOVIZ,
+            "bankReceipt", DocumentType.EARCHIVE_REPORT_EDEKONT,
+            "bankReceiptIptal", DocumentType.EARCHIVE_REPORT_EDEKONT,
+            "eGiderPusulasi", DocumentType.EARCHIVE_REPORT_EGIDER_PUSULASI,
+            "eGiderPusulasiIptal", DocumentType.EARCHIVE_REPORT_EGIDER_PUSULASI
     );
 
     // ── e-Defter / e-Envanter context id sabitleri ──
@@ -121,6 +147,8 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
 
         // e-Defter defter root'u için context id aranıyor mu?
         private boolean searchingForContextId = false;
+        // e-Arşiv raporunda ürün ailesini belirleyen içerik elementi aranıyor mu?
+        private boolean searchingForEarchiveContent = false;
         private int depth = 0;
 
         DocumentType getDetectedType() {
@@ -156,6 +184,15 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
 
                 detectedType = resolveFromRoot(uri, rootPrefix, localName);
 
+                // e-Arşiv raporlarında ürün ailesi kök elementten anlaşılmaz: GİB her ürün
+                // paketinde aynı eArsivRaporu kökünü farklı bir eArsiv.xsd ile yayınlıyor.
+                // Ayrım baslik'tan sonraki içerik elementiyle yapılır; genel rapor türü
+                // fallback olarak kalır.
+                if (detectedType == DocumentType.EARCHIVE_REPORT) {
+                    searchingForEarchiveContent = true;
+                    return; // Parse'a devam et
+                }
+
                 // e-Defter "defter" ve "berat" root'larında context id araması gerekiyor.
                 // "berat" için: GIB hem e-Defter beratını hem envanter beratını
                 // edefter:berat root'u ile yayınlıyor, ayrım context id ile yapılır.
@@ -173,6 +210,18 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
                 if (!searchingForContextId) {
                     throw new DetectionCompleteException();
                 }
+            }
+
+            // e-Arşiv rapor ailesi araması: baslik'tan sonraki ilk içerik elementi belirleyici
+            if (searchingForEarchiveContent && depth == 2) {
+                if ("baslik".equals(localName)) {
+                    return; // Başlığı (imza bölümü dahil) atla
+                }
+                DocumentType contentType = EARCHIVE_CONTENT_MAP.get(localName);
+                if (contentType != null) {
+                    detectedType = contentType;
+                }
+                throw new DetectionCompleteException();
             }
 
             // e-Defter/envanter context id araması: xbrli:context elementini bul

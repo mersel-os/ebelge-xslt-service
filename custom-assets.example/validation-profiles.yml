@@ -21,10 +21,12 @@
 #
 #   Kabul edilen scope değerleri:
 #     Schema Tipleri:     INVOICE, DESPATCH_ADVICE, RECEIPT_ADVICE,
-#                         CREDIT_NOTE, FREELANCER_VOUCHER, EARCHIVE_REPORT
-#     Schematron Tipleri: UBLTR_MAIN, EARCHIVE_REPORT, EDEFTER_YEVMIYE,
-#                         EDEFTER_KEBIR, EDEFTER_BERAT, EDEFTER_RAPOR,
-#                         ENVANTER_BERAT, ENVANTER_DEFTER
+#                         CREDIT_NOTE, APPLICATION_RESPONSE, EARCHIVE_REPORT,
+#                         EARCHIVE_REPORT_EDOVIZ, EARCHIVE_REPORT_EDEKONT,
+#                         EARCHIVE_REPORT_EGIDER_PUSULASI, EDEFTER
+#     Schematron Tipleri: UBLTR_MAIN, EARCHIVE_REPORT, EARCHIVE_REPORT_EDOVIZ,
+#                         EDEFTER_YEVMIYE, EDEFTER_KEBIR, EDEFTER_BERAT,
+#                         EDEFTER_RAPOR, ENVANTER_BERAT, ENVANTER_DEFTER
 #
 # XSD Override desteği (xsd-overrides):
 #   GIB orijinal XSD dosyalarını değiştirmeden minOccurs/maxOccurs

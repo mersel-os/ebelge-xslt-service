@@ -120,7 +120,7 @@ public class ValidationController {
         SchemaValidationType schemaType = DocumentTypeMapping.SCHEMA_MAP.get(documentType);
         SchematronValidationType schematronType = DocumentTypeMapping.SCHEMATRON_MAP.get(documentType);
 
-        if (schemaType == null || schematronType == null) {
+        if (schemaType == null) {
             return ResponseEntity.badRequest().body(XsltServiceResponse.error(
                     "Tespit edilen belge türü için doğrulama eşleştirmesi bulunamadı: " + documentType));
         }
@@ -129,15 +129,17 @@ public class ValidationController {
         response.setDetectedDocumentType(documentType.name());
         response.setAppliedXsd(DocumentTypeMapping.getXsdFileName(documentType));
         response.setAppliedXsdPath(DocumentTypeMapping.XSD_PATH_MAP.get(documentType));
-        response.setAppliedSchematron(schematronType.name());
-        response.setAppliedSchematronPath(DocumentTypeMapping.SCHEMATRON_PATH_MAP.get(schematronType));
+        if (schematronType != null) {
+            response.setAppliedSchematron(schematronType.name());
+            response.setAppliedSchematronPath(DocumentTypeMapping.SCHEMATRON_PATH_MAP.get(schematronType));
+        }
 
         log.info("Doğrulama isteği — Tespit: {}, XSD: {}, SCH: {}, Profil: {}, Parametre: {}",
                 documentType, schemaType, schematronType, requestDto.getProfile(),
                 requestDto.getParameters() != null ? requestDto.getParameters() : "yok");
 
         // Metrics
-        xsltMetrics.recordValidation(schemaType.name(), schematronType.name());
+        xsltMetrics.recordValidation(schemaType.name(), schematronType != null ? schematronType.name() : "SKIPPED");
 
         // Ad-hoc bastırma kurallarını parse et
         List<String> additionalSuppressions = parseSuppressions(requestDto.getSuppressions());
@@ -146,7 +148,7 @@ public class ValidationController {
         // Aktif doğrulama tiplerini topla (scope filtresi için)
         Set<String> activeTypes = new LinkedHashSet<>();
         activeTypes.add(schemaType.name());
-        activeTypes.add(schematronType.name());
+        if (schematronType != null) activeTypes.add(schematronType.name());
 
         // ── Schema (XSD) doğrulama ──
         try {
@@ -166,38 +168,45 @@ public class ValidationController {
             response.setSchemaValidationErrors(List.of("XSD doğrulama hatası: " + e.getMessage()));
         }
 
-        // ── Schematron parametreleri ──
-        Map<String, String> schematronParameters = parseParameters(requestDto.getParameters());
+        if (schematronType == null) {
+            // Uyumlu Schematron bulunmayan raporlarda yalnızca XSD sonucu belirleyicidir.
+            response.setValidSchematron(true);
+            response.setSchematronValidationErrors(List.of());
+        } else {
+            // ── Schematron parametreleri ──
+            Map<String, String> schematronParameters = parseParameters(requestDto.getParameters());
 
-        // ── Schematron doğrulama ──
-        try {
-            // Orijinal dosya adı — e-Defter Schematron base-uri() kontrolü için gerekli
-            String sourceFileName = requestDto.getSource().getOriginalFilename();
+            // ── Schematron doğrulama ──
+            try {
+                // Orijinal dosya adı — e-Defter Schematron base-uri() kontrolü için gerekli
+                String sourceFileName = requestDto.getSource().getOriginalFilename();
 
-            // Profil bazlı özel Schematron kurallarını çözümle
-            List<SchematronCustomAssertion> customSchematronRules = profileService.resolveSchematronRules(
-                    profileName, schematronType.name());
+                // Profil bazlı özel Schematron kurallarını çözümle
+                List<SchematronCustomAssertion> customSchematronRules = profileService.resolveSchematronRules(
+                        profileName, schematronType.name());
 
-            List<SchematronError> rawSchematronErrors = schematronValidator.validate(
-                    source, schematronType, sourceFileName,
-                    customSchematronRules, profileName, schematronParameters);
+                List<SchematronError> rawSchematronErrors = schematronValidator.validate(
+                        source, schematronType, sourceFileName,
+                        customSchematronRules, profileName, schematronParameters);
 
-            // Schematron bastırma uygula (scope-aware)
-            SuppressionResult suppressionResult = profileService.applySchematronSuppressions(
-                    rawSchematronErrors, profileName, additionalSuppressions, activeTypes);
+                // Schematron bastırma uygula (scope-aware)
+                SuppressionResult suppressionResult = profileService.applySchematronSuppressions(
+                        rawSchematronErrors, profileName, additionalSuppressions, activeTypes);
 
-            response.setSchematronValidationErrors(suppressionResult.activeErrors());
-            response.setValidSchematron(suppressionResult.activeErrors().isEmpty());
+                response.setSchematronValidationErrors(suppressionResult.activeErrors());
+                response.setValidSchematron(suppressionResult.activeErrors().isEmpty());
 
-            // Bastırma bilgisi — profil veya ek kurallar uygulandıysa ekle
-            if ((profileName != null && !profileName.isBlank()) || !additionalSuppressions.isEmpty()) {
-                response.setSuppressionInfo(buildSuppressionInfo(suppressionResult, rawSchematronErrors.size()));
+                // Bastırma bilgisi — profil veya ek kurallar uygulandıysa ekle
+                if ((profileName != null && !profileName.isBlank()) || !additionalSuppressions.isEmpty()) {
+                    response.setSuppressionInfo(buildSuppressionInfo(suppressionResult, rawSchematronErrors.size()));
+                }
+
+            } catch (Exception e) {
+                response.setValidSchematron(false);
+                response.setSchematronValidationErrors(List.of(
+                        new SchematronError(null, null, "Schematron doğrulama hatası: " + e.getMessage())));
             }
 
-        } catch (Exception e) {
-            response.setValidSchematron(false);
-            response.setSchematronValidationErrors(List.of(
-                    new SchematronError(null, null, "Schematron doğrulama hatası: " + e.getMessage())));
         }
 
         log.info("Doğrulama tamamlandı — Tür: {}, Schema: {}, Schematron: {}{}",

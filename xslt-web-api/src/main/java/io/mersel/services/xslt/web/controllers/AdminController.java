@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Asset yönetimi, doğrulama profilleri ve GİB paket sync API endpoint'leri.
@@ -47,23 +48,33 @@ public class AdminController {
     private static final int MAX_SUPPRESSION_PATTERN_LENGTH = 500;
 
     /** TransformType → default_transformers dizinindeki dosya adı eşlemesi */
-    private static final Map<TransformType, String> TRANSFORM_XSL_MAP = Map.of(
-            TransformType.INVOICE, "default_transformers/eInvoice_Base.xslt",
-            TransformType.ARCHIVE_INVOICE, "default_transformers/eArchive_Base.xslt",
-            TransformType.DESPATCH_ADVICE, "default_transformers/eDespatch_Base.xslt",
-            TransformType.RECEIPT_ADVICE, "default_transformers/eDespatch_Answer_Base.xslt",
-            TransformType.EMM, "default_transformers/eMM_Base.xslt",
-            TransformType.ESMM, "default_transformers/eSMM_Base.xslt"
+    private static final Map<TransformType, String> TRANSFORM_XSL_MAP = Map.ofEntries(
+            Map.entry(TransformType.INVOICE, "default_transformers/eInvoice_Base.xslt"),
+            Map.entry(TransformType.ARCHIVE_INVOICE, "default_transformers/eArchive_Base.xslt"),
+            Map.entry(TransformType.DESPATCH_ADVICE, "default_transformers/eDespatch_Base.xslt"),
+            Map.entry(TransformType.RECEIPT_ADVICE, "default_transformers/eDespatch_Answer_Base.xslt"),
+            Map.entry(TransformType.EMM, "default_transformers/eMM_Base.xslt"),
+            Map.entry(TransformType.ESMM, "default_transformers/eSMM_Base.xslt"),
+            Map.entry(TransformType.ECHECK, "default_transformers/eAdisyon_Base.xslt"),
+            Map.entry(TransformType.EDOVIZ_ALIM, "default_transformers/eDovizAlim_Base.xslt"),
+            Map.entry(TransformType.EDOVIZ_SATIM, "default_transformers/eDovizSatim_Base.xslt"),
+            Map.entry(TransformType.EDEKONT, "default_transformers/eDekont_Base.xslt"),
+            Map.entry(TransformType.EGIDER_PUSULASI, "default_transformers/eGiderPusulasi_Base.xslt")
     );
 
     /** TransformType için kullanıcı dostu etiketler */
-    private static final Map<TransformType, String> TRANSFORM_TYPE_LABELS = Map.of(
-            TransformType.INVOICE, "e-Fatura",
-            TransformType.ARCHIVE_INVOICE, "e-Arşiv Fatura",
-            TransformType.DESPATCH_ADVICE, "e-İrsaliye",
-            TransformType.RECEIPT_ADVICE, "e-İrsaliye Yanıt",
-            TransformType.EMM, "e-Müstahsil Makbuzu",
-            TransformType.ESMM, "e-Serbest Meslek Makbuzu"
+    private static final Map<TransformType, String> TRANSFORM_TYPE_LABELS = Map.ofEntries(
+            Map.entry(TransformType.INVOICE, "e-Fatura"),
+            Map.entry(TransformType.ARCHIVE_INVOICE, "e-Arşiv Fatura"),
+            Map.entry(TransformType.DESPATCH_ADVICE, "e-İrsaliye"),
+            Map.entry(TransformType.RECEIPT_ADVICE, "e-İrsaliye Yanıt"),
+            Map.entry(TransformType.EMM, "e-Müstahsil Makbuzu"),
+            Map.entry(TransformType.ESMM, "e-Serbest Meslek Makbuzu"),
+            Map.entry(TransformType.ECHECK, "e-Adisyon"),
+            Map.entry(TransformType.EDOVIZ_ALIM, "e-Döviz Alım Belgesi"),
+            Map.entry(TransformType.EDOVIZ_SATIM, "e-Döviz Satım Belgesi"),
+            Map.entry(TransformType.EDEKONT, "e-Dekont"),
+            Map.entry(TransformType.EGIDER_PUSULASI, "e-Gider Pusulası")
     );
 
     private final AssetRegistry assetRegistry;
@@ -685,8 +696,9 @@ public class AdminController {
     @PostMapping("/packages/sync")
     @Operation(
             summary = "GİB paketlerini sync et",
-            description = "GİB resmi web sitesinden e-Fatura, UBL-TR XSD, e-Arşiv ve e-Defter "
-                    + "paketlerini indirir, ZIP'ten çıkartır ve asset dizinine yerleştirir. "
+            description = "GİB resmi web sitesinden e-Fatura, UBL-TR XSD, e-Arşiv, e-Döviz, "
+                    + "e-Dekont, e-Gider Pusulası ve e-Defter paketlerini indirir, ZIP/RAR "
+                    + "arşivlerinden çıkartır ve asset dizinine yerleştirir. "
                     + "İsteğe bağlı 'package' parametresi ile tek paket sync edilebilir. "
                     + "Sync sonrası asset'ler otomatik yeniden yüklenir."
     )
@@ -737,15 +749,34 @@ public class AdminController {
         var packageList = packages.stream()
                 .map(pkg -> {
                     var fileMapping = pkg.fileMapping().stream()
-                            .map(fm -> new FileMappingDto(fm.zipPathPattern(), fm.targetDir()))
+                            .map(fm -> new FileMappingDto(
+                                    fm.zipPathPattern(), fm.targetDir(), fm.targetFileName()))
                             .toList();
 
                     var fileTrees = new LinkedHashMap<String, Object>();
                     int totalFileCount = 0;
-                    for (var fm : pkg.fileMapping()) {
-                        var tree = assetManager.listFileTree(fm.targetDir());
+                    var mappingsByTargetDir = pkg.fileMapping().stream()
+                            .collect(Collectors.groupingBy(
+                                    GibPackageDefinition.FileExtraction::targetDir,
+                                    LinkedHashMap::new,
+                                    Collectors.toList()));
+
+                    for (var entry : mappingsByTargetDir.entrySet()) {
+                        var tree = assetManager.listFileTree(entry.getKey());
+                        boolean wholeDirectory = entry.getValue().stream()
+                                .anyMatch(mapping -> mapping.targetFileName() == null);
+
+                        if (!wholeDirectory) {
+                            Set<String> packageFileNames = entry.getValue().stream()
+                                    .map(GibPackageDefinition.FileExtraction::targetFileName)
+                                    .collect(Collectors.toSet());
+                            tree = tree.stream()
+                                    .filter(node -> packageFileNames.contains(node.get("name")))
+                                    .toList();
+                        }
+
                         if (!tree.isEmpty()) {
-                            fileTrees.put(fm.targetDir(), tree);
+                            fileTrees.put(entry.getKey(), tree);
                             totalFileCount += countTreeFiles(tree);
                         }
                     }
@@ -1053,7 +1084,8 @@ public class AdminController {
                         long successCount, int totalCount, String currentAssetSource,
                         List<SyncPackageResultDto> packages) {}
 
-    record FileMappingDto(String zipPathPattern, String targetDir) {}
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record FileMappingDto(String zipPathPattern, String targetDir, String targetFileName) {}
     record PackageDetailDto(String id, String displayName, String downloadUrl, String description,
                             List<FileMappingDto> fileMapping, Map<String, Object> fileTrees,
                             int totalLoadedFileCount) {}

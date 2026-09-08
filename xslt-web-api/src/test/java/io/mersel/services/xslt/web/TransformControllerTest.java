@@ -1,16 +1,21 @@
 package io.mersel.services.xslt.web;
 
+import io.mersel.services.xslt.application.enums.TransformType;
 import io.mersel.services.xslt.application.interfaces.IXsltTransformer;
 import io.mersel.services.xslt.application.interfaces.IXsltTransformer.TransformException;
 import io.mersel.services.xslt.application.models.TransformResult;
 import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import io.mersel.services.xslt.web.controllers.TransformController;
+import io.mersel.services.xslt.web.dto.TransformRequestDto;
 import io.mersel.services.xslt.web.infrastructure.GlobalExceptionHandler;
 import io.mersel.services.xslt.web.infrastructure.XsltHeaders;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -19,6 +24,9 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -158,7 +166,42 @@ class TransformControllerTest {
                         .param("transformType", "INVALID_TYPE"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("Geçersiz dönüşüm tipi")));
+                .andExpect(jsonPath("$.detail").value(containsString("Geçersiz dönüşüm tipi")))
+                .andExpect(jsonPath("$.detail").value(containsString("INVOICE, ARCHIVE_INVOICE")))
+                .andExpect(jsonPath("$.detail").value(not(containsString("[INVOICE"))));
+    }
+
+    @Test
+    @DisplayName("OpenAPI dönüşüm tipi değerlerini doğrudan enum'dan üretmeli")
+    void shouldDeriveOpenApiTransformTypesFromEnum() throws Exception {
+        Schema schema = TransformRequestDto.class
+                .getDeclaredField("transformType")
+                .getAnnotation(Schema.class);
+
+        assertThat(schema.allowableValues()).isEmpty();
+        assertThat(schema.implementation()).isEqualTo(TransformType.class);
+    }
+
+    @ParameterizedTest(name = "{0} dönüşüm tipi kabul edilmeli")
+    @ValueSource(strings = {
+            "ESMM", "ECHECK", "EDOVIZ_ALIM", "EDOVIZ_SATIM", "EDEKONT", "EGIDER_PUSULASI"
+    })
+    void shouldAcceptAllNewTransformTypes(String transformType) throws Exception {
+        var result = TransformResult.builder()
+                .htmlContent("<html><body>Belge</body></html>".getBytes())
+                .defaultXslUsed(true)
+                .durationMs(1)
+                .build();
+        when(xsltTransformer.transform(any())).thenReturn(result);
+
+        var xmlFile = new MockMultipartFile("document", "belge.xml", "text/xml",
+                "<CreditNote/>".getBytes());
+
+        mockMvc.perform(multipart("/v1/transform")
+                        .file(xmlFile)
+                        .param("transformType", transformType))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
     }
 
     @Test

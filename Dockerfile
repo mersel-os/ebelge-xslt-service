@@ -44,7 +44,9 @@ RUN apk add --no-cache curl su-exec
 # Non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-COPY --from=build /app/xslt-web-api/build/libs/*.jar app.jar
+# Yalnızca Spring Boot release JAR'ını kopyala. Build context içinde kalmış eski
+# plain JAR'ların wildcard sırasıyla image'a alınmasını engeller.
+COPY --from=build /app/xslt-web-api/build/libs/mersel-xslt-service-*.jar app.jar
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 

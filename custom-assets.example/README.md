@@ -35,7 +35,12 @@ custom-assets/
 │   ├── eDespatch_Base.xslt
 │   ├── eDespatch_Answer_Base.xslt
 │   ├── eMM_Base.xslt
-│   └── eSMM_Base.xslt
+│   ├── eSMM_Base.xslt
+│   ├── eAdisyon_Base.xslt
+│   ├── eDovizAlim_Base.xslt
+│   ├── eDovizSatim_Base.xslt
+│   ├── eDekont_Base.xslt
+│   └── eGiderPusulasi_Base.xslt
 └── validator/
     ├── ubl-tr-package/                # UBL-TR paket dosyaları
     │   ├── schematron/                # GİB kaynak Schematron XML'leri
@@ -89,4 +94,8 @@ curl -F "source=@fatura.xml" -F "profile=my-company" \
 - Override edilmeyen dosyalar otomatik olarak dahili (bundled) versiyondan yüklenir
 - Servis startup'ta hangi dosyaların override edildiğini loglar
 - Asset dosyaları GIB paket sync ile otomatik indirilebilir veya manuel olarak ilgili dizinlere kopyalanabilir
+- e-Döviz, e-Dekont ve e-Gider Pusulası belgeleri `CreditNote` olarak
+  `validator/ubl-tr-package/` altındaki XSD ve Schematron ile doğrulanır
+- e-Dekont varsayılan XSLT'si paket sync sırasında resmi örnek XML'in içinden çıkarılır ve `eDekont_Base.xslt` adıyla kaydedilir
+- e-Adisyon varsayılan XSLT'si GİB paketinden gelmez; `eAdisyon_Base.xslt` adıyla manuel yüklenmelidir
 - Doğrulama profilleri hot-reload destekler — dosya değişikliği algılandığında otomatik yüklenir

@@ -10,5 +10,9 @@ public enum TransformType {
     RECEIPT_ADVICE,
     EMM,
     ESMM,
-    ECHECK
+    ECHECK,
+    EDOVIZ_ALIM,
+    EDOVIZ_SATIM,
+    EDEKONT,
+    EGIDER_PUSULASI
 }

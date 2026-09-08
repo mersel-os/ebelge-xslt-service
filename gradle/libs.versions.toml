@@ -16,6 +16,7 @@ wiremock = "3.9.2"
 awaitility = "4.2.2"
 java-diff-utils = "4.12"
 jsoup = "1.18.3"
+junrar = "8.1.1"
 
 [libraries]
 # Saxon HE
@@ -37,6 +38,7 @@ wiremock-jre8 = { module = "org.wiremock:wiremock-standalone", version.ref = "wi
 awaitility = { module = "org.awaitility:awaitility", version.ref = "awaitility" }
 java-diff-utils = { module = "io.github.java-diff-utils:java-diff-utils", version.ref = "java-diff-utils" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+junrar = { module = "com.github.junrar:junrar", version.ref = "junrar" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

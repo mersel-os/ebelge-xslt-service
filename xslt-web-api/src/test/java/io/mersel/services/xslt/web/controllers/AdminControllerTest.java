@@ -25,6 +25,7 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.hamcrest.Matchers.hasItems;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -197,5 +198,26 @@ class AdminControllerTest {
                 .andExpect(jsonPath("$.packages[0].success").value(true))
                 .andExpect(jsonPath("$.packages[0].filesExtracted").value(15))
                 .andExpect(jsonPath("$.syncedAt").exists());
+    }
+
+    @Test
+    @DisplayName("Varsayılan XSLT listesi tüm desteklenen dönüşüm tiplerini içermeli")
+    void defaultXsltListShouldContainAllSupportedTransformTypes() throws Exception {
+        mockMvc.perform(get("/v1/admin/default-xslt"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.count").value(11))
+                .andExpect(jsonPath("$.templates[*].transformType", hasItems(
+                        "ESMM",
+                        "ECHECK",
+                        "EDOVIZ_ALIM",
+                        "EDOVIZ_SATIM",
+                        "EDEKONT",
+                        "EGIDER_PUSULASI")))
+                .andExpect(jsonPath("$.templates[*].fileName", hasItems(
+                        "eAdisyon_Base.xslt",
+                        "eDovizAlim_Base.xslt",
+                        "eDovizSatim_Base.xslt",
+                        "eDekont_Base.xslt",
+                        "eGiderPusulasi_Base.xslt")));
     }
 }

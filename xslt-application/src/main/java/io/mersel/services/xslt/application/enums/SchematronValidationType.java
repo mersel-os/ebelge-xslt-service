@@ -6,6 +6,7 @@ package io.mersel.services.xslt.application.enums;
 public enum SchematronValidationType {
     UBLTR_MAIN,
     EARCHIVE_REPORT,
+    EARCHIVE_REPORT_EDOVIZ,
     EDEFTER_YEVMIYE,
     EDEFTER_KEBIR,
     EDEFTER_BERAT,

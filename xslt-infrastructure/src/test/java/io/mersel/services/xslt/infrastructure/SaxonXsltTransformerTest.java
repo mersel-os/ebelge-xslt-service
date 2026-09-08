@@ -10,9 +10,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * SaxonXsltTransformer birim testleri.
@@ -88,10 +92,50 @@ class SaxonXsltTransformerTest {
     }
 
     @Test
+    @DisplayName("DOCTYPE ve dahili entity içeren gömülü XSLT ile dönüşüm çalışmalı")
+    void shouldTransformWithEmbeddedXsltContainingInternalDoctype() throws TransformException {
+        String xslt = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE xsl:stylesheet [<!ENTITY label "Gömülü şablon">]>
+                <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:template match="/">
+                        <html><head></head><body><h1>&label;</h1></body></html>
+                    </xsl:template>
+                </xsl:stylesheet>""";
+        String encodedXslt = Base64.getEncoder().encodeToString(
+                xslt.getBytes(StandardCharsets.UTF_8));
+        String ublXml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+                         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                    <cac:AdditionalDocumentReference>
+                        <cac:Attachment>
+                            <cbc:EmbeddedDocumentBinaryObject filename="embedded.xslt"
+                                encodingCode="Base64">%s</cbc:EmbeddedDocumentBinaryObject>
+                        </cac:Attachment>
+                    </cac:AdditionalDocumentReference>
+                </Invoice>""".formatted(encodedXslt);
+
+        var request = new TransformRequest();
+        request.setTransformType(TransformType.ECHECK);
+        request.setDocument(ublXml.getBytes(StandardCharsets.UTF_8));
+        request.setUseEmbeddedXslt(true);
+
+        var result = transformer.transform(request);
+
+        assertThat(result.isEmbeddedXsltUsed()).isTrue();
+        assertThat(result.isDefaultXslUsed()).isFalse();
+        assertThat(result.getCustomXsltError()).isNull();
+        assertThat(new String(result.getHtmlContent(), StandardCharsets.UTF_8))
+                .contains("Gömülü şablon");
+    }
+
+    @Test
     @DisplayName("Varsayılan XSLT yüklü değilse TransformException fırlatmalı")
     void shouldThrowTransformExceptionWhenDefaultNotLoaded() {
         var request = new TransformRequest();
-        request.setTransformType(TransformType.ECHECK); // ECHECK haritada yok
+        request.setTransformType(TransformType.ECHECK); // ECHECK şablonu test cache'inde yüklü değil
         request.setDocument("<root/>".getBytes(StandardCharsets.UTF_8));
 
         assertThatThrownBy(() -> transformer.transform(request))
@@ -114,4 +158,56 @@ class SaxonXsltTransformerTest {
         assertThatThrownBy(() -> transformer.transform(request))
                 .isInstanceOf(TransformException.class);
     }
+
+    @Test
+    @DisplayName("Tüm yeni varsayılan XSLT yolları reload sırasında taranmalı")
+    void shouldScanAllNewDefaultXsltPathsOnReload() {
+        var assetManager = mock(AssetManager.class);
+        when(assetManager.assetExists(org.mockito.ArgumentMatchers.anyString())).thenReturn(false);
+
+        var metrics = new XsltMetrics(new SimpleMeterRegistry());
+        var reloadableTransformer = new SaxonXsltTransformer(
+                assetManager,
+                new WatermarkService(),
+                new HtmlSanitizer(),
+                new EmbeddedXsltExtractor(),
+                metrics);
+
+        reloadableTransformer.reload();
+
+        verify(assetManager).assetExists("default_transformers/eAdisyon_Base.xslt");
+        verify(assetManager).assetExists("default_transformers/eDovizAlim_Base.xslt");
+        verify(assetManager).assetExists("default_transformers/eDovizSatim_Base.xslt");
+        verify(assetManager).assetExists("default_transformers/eDekont_Base.xslt");
+        verify(assetManager).assetExists("default_transformers/eGiderPusulasi_Base.xslt");
+    }
+
+    @Test
+    @DisplayName("Kısa biçimli gömülü XSLT varsayılan şablona düşmeden dönüştürülmeli")
+    void shouldTransformWithSimplifiedEmbeddedStylesheet() throws Exception {
+        String xslt = """
+                <html xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xsl:version="2.0">
+                    <body><xsl:value-of select="/*/local-name()"/></body>
+                </html>""";
+        String xml = """
+                <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+                    xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                    xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                    <cac:AdditionalDocumentReference><cac:Attachment>
+                    <cbc:EmbeddedDocumentBinaryObject filename="style.xslt">%s</cbc:EmbeddedDocumentBinaryObject>
+                    </cac:Attachment></cac:AdditionalDocumentReference>
+                </Invoice>""".formatted(Base64.getEncoder().encodeToString(xslt.getBytes(StandardCharsets.UTF_8)));
+        var request = new TransformRequest();
+        request.setTransformType(TransformType.INVOICE);
+        request.setDocument(xml.getBytes(StandardCharsets.UTF_8));
+        request.setUseEmbeddedXslt(true);
+
+        var result = transformer.transform(request);
+
+        assertThat(result.isEmbeddedXsltUsed()).isTrue();
+        assertThat(result.isDefaultXslUsed()).isFalse();
+        assertThat(result.getCustomXsltError()).isNull();
+        assertThat(new String(result.getHtmlContent(), StandardCharsets.UTF_8)).contains("Invoice");
+    }
+
 }

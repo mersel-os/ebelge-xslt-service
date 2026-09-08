@@ -81,6 +81,7 @@ public class AssetVersioningService implements IAssetVersioningService {
 
         // Staging dizinini hazırla (temizle + oluştur)
         Path stagingDir = getStagingDir(packageId);
+        pendingPreviews.remove(packageId);
         cleanDirectory(stagingDir);
         Files.createDirectories(stagingDir);
 
@@ -92,8 +93,14 @@ public class AssetVersioningService implements IAssetVersioningService {
         }
 
         // Live vs staging arasında diff hesapla ve preview oluştur
-        GibPackageDefinition pkg = findPackageDefinition(packageId);
-        SyncPreview preview = buildPreview(packageId, pkg.displayName(), syncResult.durationMs());
+        SyncPreview preview;
+        try {
+            GibPackageDefinition pkg = findPackageDefinition(packageId);
+            preview = buildPreview(packageId, pkg.displayName(), syncResult.durationMs());
+        } catch (IOException | RuntimeException e) {
+            cleanDirectory(stagingDir);
+            throw e;
+        }
         pendingPreviews.put(packageId, preview);
 
         log.info("Staging sync tamamlandı: {} — {} dosya, {}ms",
@@ -129,39 +136,63 @@ public class AssetVersioningService implements IAssetVersioningService {
             GibPackageDefinition pkg = findPackageDefinition(packageId);
             Path externalDir = Path.of(externalPath);
             Path stagingDir = getStagingDir(packageId);
+            validateStagingMappings(pkg, stagingDir);
 
             Path snapshotDir = getSnapshotDir(versionId);
 
             // 1. _before: Mevcut live dosyaları kaydet (güncelleme öncesi)
             Path beforeDir = snapshotDir.resolve("_before");
             Files.createDirectories(beforeDir);
+            Set<String> snapshottedBeforeDirs = new HashSet<>();
             for (var fm : pkg.fileMapping()) {
                 Path liveSubDir = externalDir.resolve(fm.targetDir());
                 Path beforeSubDir = beforeDir.resolve(fm.targetDir());
-                if (Files.isDirectory(liveSubDir)) {
+                if (fm.targetFileName() == null && snapshottedBeforeDirs.add(fm.targetDir())
+                        && Files.isDirectory(liveSubDir)) {
                     copyDirectory(liveSubDir, beforeSubDir);
+                } else if (fm.targetFileName() != null) {
+                    copyFileIfExists(
+                            liveSubDir.resolve(fm.targetFileName()),
+                            beforeSubDir.resolve(fm.targetFileName()));
                 }
             }
 
             // 2. _after: Staging (yeni) dosyaları kaydet (güncelleme sonrası)
             Path afterDir = snapshotDir.resolve("_after");
             Files.createDirectories(afterDir);
+            Set<String> snapshottedAfterDirs = new HashSet<>();
             for (var fm : pkg.fileMapping()) {
                 Path stagingSubDir = stagingDir.resolve(fm.targetDir());
                 Path afterSubDir = afterDir.resolve(fm.targetDir());
-                if (Files.isDirectory(stagingSubDir)) {
+                if (fm.targetFileName() == null && snapshottedAfterDirs.add(fm.targetDir())
+                        && Files.isDirectory(stagingSubDir)) {
                     copyDirectory(stagingSubDir, afterSubDir);
+                } else if (fm.targetFileName() != null) {
+                    copyFileIfExists(
+                            stagingSubDir.resolve(fm.targetFileName()),
+                            afterSubDir.resolve(fm.targetFileName()));
                 }
             }
 
             // 3. Staging dosyalarını live dizine kopyala (live'ı güncelle)
+            Set<String> replacedLiveDirs = new HashSet<>();
             for (var fm : pkg.fileMapping()) {
                 Path liveSubDir = externalDir.resolve(fm.targetDir());
                 Path stagingSubDir = stagingDir.resolve(fm.targetDir());
-                if (Files.isDirectory(stagingSubDir)) {
+                if (fm.targetFileName() == null && replacedLiveDirs.add(fm.targetDir())
+                        && Files.isDirectory(stagingSubDir)) {
                     cleanDirectory(liveSubDir);
                     Files.createDirectories(liveSubDir);
                     copyDirectory(stagingSubDir, liveSubDir);
+                } else if (fm.targetFileName() != null) {
+                    Path stagingFile = stagingSubDir.resolve(fm.targetFileName());
+                    if (!Files.isRegularFile(stagingFile)) {
+                        throw new IOException("Staging dosyası bulunamadı: "
+                                + assetPath(fm.targetDir(), fm.targetFileName()));
+                    }
+                    Path liveFile = liveSubDir.resolve(fm.targetFileName());
+                    Files.createDirectories(liveFile.getParent());
+                    Files.copy(stagingFile, liveFile, StandardCopyOption.REPLACE_EXISTING);
                 }
             }
 
@@ -320,12 +351,20 @@ public class AssetVersioningService implements IAssetVersioningService {
             Path liveSubDir = externalDir.resolve(fm.targetDir());
             Path stagingSubDir = stagingDir.resolve(fm.targetDir());
 
+            if (fm.targetFileName() != null) {
+                Path liveFile = liveSubDir.resolve(fm.targetFileName());
+                Path stagingFile = stagingSubDir.resolve(fm.targetFileName());
+                String relativePath = assetPath(fm.targetDir(), fm.targetFileName());
+                allDiffs.add(computeFileSummary(liveFile, stagingFile, relativePath));
+                continue;
+            }
+
             if (Files.isDirectory(liveSubDir) || Files.isDirectory(stagingSubDir)) {
                 List<FileDiffSummary> diffs = diffService.computeDirectoryDiff(liveSubDir, stagingSubDir);
                 // Prefix paths with targetDir
                 for (var diff : diffs) {
                     allDiffs.add(new FileDiffSummary(
-                            fm.targetDir() + diff.path(),
+                            assetPath(fm.targetDir(), diff.path()),
                             diff.status(), diff.oldSize(), diff.newSize()));
                 }
 
@@ -426,6 +465,57 @@ public class AssetVersioningService implements IAssetVersioningService {
                 }
             }
         }
+    }
+
+    private void copyFileIfExists(Path source, Path target) throws IOException {
+        if (!Files.isRegularFile(source)) {
+            return;
+        }
+        Files.createDirectories(target.getParent());
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private void validateStagingMappings(GibPackageDefinition pkg, Path stagingDir) throws IOException {
+        for (var mapping : pkg.fileMapping()) {
+            Path stagedTargetDir = stagingDir.resolve(mapping.targetDir());
+            if (mapping.targetFileName() == null) {
+                if (!Files.isDirectory(stagedTargetDir)) {
+                    throw new IOException("Staging hedef dizini bulunamadı: " + mapping.targetDir());
+                }
+            } else if (!Files.isRegularFile(stagedTargetDir.resolve(mapping.targetFileName()))) {
+                throw new IOException("Staging dosyası bulunamadı: "
+                        + assetPath(mapping.targetDir(), mapping.targetFileName()));
+            }
+        }
+    }
+
+    private FileDiffSummary computeFileSummary(Path oldFile, Path newFile, String path) throws IOException {
+        boolean oldExists = Files.isRegularFile(oldFile);
+        boolean newExists = Files.isRegularFile(newFile);
+        long oldSize = oldExists ? Files.size(oldFile) : -1;
+        long newSize = newExists ? Files.size(newFile) : -1;
+
+        FileChangeStatus status;
+        if (!oldExists && newExists) {
+            status = FileChangeStatus.ADDED;
+        } else if (oldExists && !newExists) {
+            status = FileChangeStatus.REMOVED;
+        } else if (!oldExists) {
+            throw new IOException("Karşılaştırılacak dosya live veya staging dizininde bulunamadı: " + path);
+        } else {
+            status = Files.mismatch(oldFile, newFile) == -1
+                    ? FileChangeStatus.UNCHANGED
+                    : FileChangeStatus.MODIFIED;
+        }
+        return new FileDiffSummary(path, status, oldSize, newSize);
+    }
+
+    private String assetPath(String targetDir, String relativePath) {
+        String normalizedDir = targetDir.replace('\\', '/');
+        String normalizedRelativePath = relativePath.replace('\\', '/');
+        return normalizedDir.endsWith("/")
+                ? normalizedDir + normalizedRelativePath
+                : normalizedDir + "/" + normalizedRelativePath;
     }
 
     private void cleanDirectory(Path dir) {

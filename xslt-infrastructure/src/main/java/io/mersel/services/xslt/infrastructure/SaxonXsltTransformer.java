@@ -39,13 +39,18 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
     private final XsltMetrics metrics;
     private final Processor processor;
 
-    private static final Map<TransformType, String> TRANSFORM_XSL_MAP = Map.of(
-            TransformType.INVOICE, "default_transformers/eInvoice_Base.xslt",
-            TransformType.ARCHIVE_INVOICE, "default_transformers/eArchive_Base.xslt",
-            TransformType.DESPATCH_ADVICE, "default_transformers/eDespatch_Base.xslt",
-            TransformType.RECEIPT_ADVICE, "default_transformers/eDespatch_Answer_Base.xslt",
-            TransformType.EMM, "default_transformers/eMM_Base.xslt",
-            TransformType.ESMM, "default_transformers/eSMM_Base.xslt"
+    private static final Map<TransformType, String> TRANSFORM_XSL_MAP = Map.ofEntries(
+            Map.entry(TransformType.INVOICE, "default_transformers/eInvoice_Base.xslt"),
+            Map.entry(TransformType.ARCHIVE_INVOICE, "default_transformers/eArchive_Base.xslt"),
+            Map.entry(TransformType.DESPATCH_ADVICE, "default_transformers/eDespatch_Base.xslt"),
+            Map.entry(TransformType.RECEIPT_ADVICE, "default_transformers/eDespatch_Answer_Base.xslt"),
+            Map.entry(TransformType.EMM, "default_transformers/eMM_Base.xslt"),
+            Map.entry(TransformType.ESMM, "default_transformers/eSMM_Base.xslt"),
+            Map.entry(TransformType.ECHECK, "default_transformers/eAdisyon_Base.xslt"),
+            Map.entry(TransformType.EDOVIZ_ALIM, "default_transformers/eDovizAlim_Base.xslt"),
+            Map.entry(TransformType.EDOVIZ_SATIM, "default_transformers/eDovizSatim_Base.xslt"),
+            Map.entry(TransformType.EDEKONT, "default_transformers/eDekont_Base.xslt"),
+            Map.entry(TransformType.EGIDER_PUSULASI, "default_transformers/eGiderPusulasi_Base.xslt")
     );
 
     /**

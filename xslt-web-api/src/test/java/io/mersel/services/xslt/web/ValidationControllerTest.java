@@ -17,6 +17,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import io.mersel.services.xslt.infrastructure.DocumentTypeDetector;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -73,6 +76,44 @@ class ValidationControllerTest {
         sizeField.setInt(validationController, 100);
 
         mockMvc = MockMvcBuilders.standaloneSetup(validationController).build();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "adisyon,EARCHIVE_REPORT_EADISYON,EARCHIVE_REPORT",
+            "adisyonIptal,EARCHIVE_REPORT_EADISYON,EARCHIVE_REPORT",
+            "bankReceipt,EARCHIVE_REPORT_EDEKONT,EARCHIVE_REPORT_EDEKONT",
+            "bankReceiptIptal,EARCHIVE_REPORT_EDEKONT,EARCHIVE_REPORT_EDEKONT",
+            "eGiderPusulasi,EARCHIVE_REPORT_EGIDER_PUSULASI,EARCHIVE_REPORT_EGIDER_PUSULASI",
+            "eGiderPusulasiIptal,EARCHIVE_REPORT_EGIDER_PUSULASI,EARCHIVE_REPORT_EGIDER_PUSULASI"
+    })
+    @DisplayName("Uyumlu Schematron olmayan raporlar XSD ile doğrulanmalı; Schematron çağrılmamalı")
+    void shouldValidateReportsWithoutSchematron(String element, DocumentType expectedType,
+                                               SchemaValidationType schemaType) throws Exception {
+        when(documentTypeDetector.detect(any(byte[].class)))
+                .thenAnswer(invocation -> new DocumentTypeDetector().detect(invocation.getArgument(0)));
+        when(schemaValidator.validate(any(), eq(schemaType), anyList(), isNull()))
+                .thenReturn(List.of("Eksik zorunlu XSD alanı"));
+        when(profileService.applyXsdSuppressions(anyList(), isNull(), anyList(), anySet()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        var xml = "<eArsivRaporu xmlns=\"http://earsiv.efatura.gov.tr\"><baslik/><"
+                + element + "/></eArsivRaporu>";
+        mockMvc.perform(multipart("/v1/validate")
+                        .file(new MockMultipartFile("source", "report.xml", "text/xml", xml.getBytes())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.detectedDocumentType").value(expectedType.name()))
+                .andExpect(jsonPath("$.result.validSchema").value(false))
+                .andExpect(jsonPath("$.result.schemaValidationErrors[0]").value("Eksik zorunlu XSD alanı"))
+                .andExpect(jsonPath("$.result.validSchematron").value(true))
+                .andExpect(jsonPath("$.result.appliedSchematron").doesNotExist())
+                .andExpect(jsonPath("$.result.appliedSchematronPath").doesNotExist())
+                .andExpect(jsonPath("$.result.schematronValidationErrors").isEmpty());
+
+        verify(schemaValidator).validate(any(), eq(schemaType), anyList(), isNull());
+        verifyNoInteractions(schematronValidator);
+        verify(profileService, never()).resolveSchematronRules(any(), any());
+        verify(xsltMetrics).recordDocumentTypeValidation(expectedType.name(), false);
     }
 
     @Test

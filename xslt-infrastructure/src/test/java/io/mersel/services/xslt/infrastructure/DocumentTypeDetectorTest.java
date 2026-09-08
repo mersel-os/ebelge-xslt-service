@@ -5,7 +5,6 @@ import io.mersel.services.xslt.application.interfaces.DocumentTypeDetectionExcep
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * DocumentTypeDetector birim testleri.
  * <p>
- * 12 belge türü için XML byte içeriğinden doğru tespit yapıldığını,
+ * Desteklenen belge türleri için XML byte içeriğinden doğru tespit yapıldığını,
  * hatalı/tanınmayan XML'ler için uygun exception fırlatıldığını test eder.
  */
 @DisplayName("DocumentTypeDetector")
@@ -44,6 +43,8 @@ class DocumentTypeDetectorTest {
         @Test
         @DisplayName("CreditNote namespace → CREDIT_NOTE")
         void detect_creditNote() throws Exception {
+            // e-Müstahsil Makbuzu, e-Döviz, e-Dekont ve e-Gider Pusulası belgeleri
+            // bu kökü paylaşır; ayrım ProfileID ile değil root element ile yapılır.
             byte[] xml = xml("""
                     <CreditNote xmlns="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2">
                         <ID>CN-001</ID>
@@ -97,12 +98,161 @@ class DocumentTypeDetectorTest {
     class EArchiveDocuments {
 
         @Test
-        @DisplayName("e-Arşiv namespace → EARCHIVE_REPORT")
+        @DisplayName("Genel e-Arşiv rapor içeriği → EARCHIVE_REPORT")
         void detect_earchiveReport() throws Exception {
             byte[] xml = xml("""
-                    <EarsivRapor xmlns="http://earsiv.efatura.gov.tr">
-                        <RaporNo>R-001</RaporNo>
-                    </EarsivRapor>
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <fatura/>
+                    </eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT);
+        }
+
+        @Test
+        @DisplayName("e-Döviz rapor içeriği → EARCHIVE_REPORT_EDOVIZ")
+        void detect_edovizReport() throws Exception {
+            byte[] xml = xml("""
+                    <earsiv:eArsivRaporu xmlns:earsiv="http://earsiv.efatura.gov.tr">
+                        <earsiv:baslik/>
+                        <earsiv:belge>YmVsZ2U=</earsiv:belge>
+                    </earsiv:eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT_EDOVIZ);
+        }
+
+        @Test
+        @DisplayName("e-Dekont rapor içeriği → EARCHIVE_REPORT_EDEKONT")
+        void detect_edekontReport() throws Exception {
+            byte[] xml = xml("""
+                    <earsiv:eArsivRaporu xmlns:earsiv="http://earsiv.efatura.gov.tr">
+                        <earsiv:baslik/>
+                        <earsiv:bankReceipt/>
+                    </earsiv:eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT_EDEKONT);
+        }
+
+        @Test
+        @DisplayName("e-Gider Pusulası rapor içeriği → EARCHIVE_REPORT_EGIDER_PUSULASI")
+        void detect_egiderPusulasiReport() throws Exception {
+            byte[] xml = xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <eGiderPusulasi/>
+                    </eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT_EGIDER_PUSULASI);
+        }
+
+        @Test
+        @DisplayName("İptal içerikleri de kendi rapor ailesine yönlenir")
+        void detect_cancellationContentRoutesToSameFamily() throws Exception {
+            assertThat(detector.detect(xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <belgeIptal/>
+                    </eArsivRaporu>
+                    """))).isEqualTo(DocumentType.EARCHIVE_REPORT_EDOVIZ);
+
+            assertThat(detector.detect(xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <bankReceiptIptal/>
+                    </eArsivRaporu>
+                    """))).isEqualTo(DocumentType.EARCHIVE_REPORT_EDEKONT);
+
+            assertThat(detector.detect(xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <eGiderPusulasiIptal/>
+                    </eArsivRaporu>
+                    """))).isEqualTo(DocumentType.EARCHIVE_REPORT_EGIDER_PUSULASI);
+        }
+
+        @Test
+        @DisplayName("baslik içindeki imza bölümü ürün ayrımını bozmaz")
+        void detect_signatureInsideBaslikDoesNotAffectRouting() throws Exception {
+            // baslik'ın altındaki ds:Signature ağacı derinlik 3'te kaldığı için
+            // içerik elementi taramasını etkilemez.
+            byte[] xml = xml("""
+                    <earsiv:eArsivRaporu xmlns:earsiv="http://earsiv.efatura.gov.tr"
+                                         xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+                        <earsiv:baslik>
+                            <earsiv:versiyon>1.0</earsiv:versiyon>
+                            <ds:Signature>
+                                <ds:SignedInfo>
+                                    <ds:Reference URI=""/>
+                                </ds:SignedInfo>
+                            </ds:Signature>
+                        </earsiv:baslik>
+                        <earsiv:bankReceipt/>
+                    </earsiv:eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT_EDEKONT);
+        }
+
+        @Test
+        @DisplayName("Yalnızca baslik içeren rapor → genel EARCHIVE_REPORT")
+        void detect_reportWithOnlyBaslik_fallsBackToGenericReport() throws Exception {
+            byte[] xml = xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                    </eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT);
+        }
+
+        @Test
+        @DisplayName("e-Adisyon rapor içeriği → EARCHIVE_REPORT_EADISYON")
+        void detect_echeckReport() throws Exception {
+            byte[] xml = xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <adisyon/>
+                    </eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT_EADISYON);
+        }
+
+        @Test
+        @DisplayName("e-Adisyon iptal raporu → EARCHIVE_REPORT_EADISYON")
+        void detect_echeckCancellationReport() throws Exception {
+            byte[] xml = xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <adisyonIptal/>
+                    </eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT_EADISYON);
+        }
+
+        @Test
+        @DisplayName("Bilinmeyen e-Arşiv rapor içeriği → geriye uyumlu EARCHIVE_REPORT")
+        void detect_unknownEarchiveContent_fallsBackToGenericReport() throws Exception {
+            byte[] xml = xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <gelecekteEklenecekRapor/>
+                    </eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT);
+        }
+
+        @Test
+        @DisplayName("Farklı root kullanan e-Arşiv belgesi → geriye uyumlu EARCHIVE_REPORT")
+        void detect_earchiveNamespaceWithDifferentRoot_fallsBackToGenericReport() throws Exception {
+            byte[] xml = xml("""
+                    <gelecektekiRapor xmlns="http://earsiv.efatura.gov.tr"/>
                     """);
 
             assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT);

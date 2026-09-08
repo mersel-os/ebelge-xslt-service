@@ -1,0 +1,7 @@
+.git
+.gradle
+**/build
+xslt-web-ui/dist
+xslt-web-ui/node_modules
+*.log
+.DS_Store

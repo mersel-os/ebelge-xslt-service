@@ -1,5 +1,6 @@
 package io.mersel.services.xslt.web.dto;
 
+import io.mersel.services.xslt.application.enums.TransformType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -16,7 +17,7 @@ public class TransformRequestDto {
     @NotBlank(message = "Dönüşüm tipi boş olamaz")
     @Schema(description = "Dönüşüm tipi",
             example = "INVOICE",
-            allowableValues = {"INVOICE", "ARCHIVE_INVOICE", "DESPATCH_ADVICE", "RECEIPT_ADVICE", "EMM", "ECHECK"})
+            implementation = TransformType.class)
     private String transformType;
 
     @Size(max = 200)

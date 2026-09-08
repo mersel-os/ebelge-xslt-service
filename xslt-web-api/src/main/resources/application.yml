@@ -94,8 +94,8 @@ xslt:
     token-cache-max-size: ${XSLT_ADMIN_TOKEN_CACHE_MAX_SIZE:10000}
 
 # ── GİB Paket Otomatik Sync ──────────────────────────────────────
-# GİB resmi web sitesinden e-Fatura, UBL-TR XSD, e-Arşiv ve e-Defter
-# paketlerini indirip asset dizinine yerleştirme.
+# GİB resmi web sitesinden e-Fatura, UBL-TR XSD, e-Arşiv, e-Döviz,
+# e-Dekont, e-Gider Pusulası ve e-Defter paketlerini indirip asset dizinine yerleştirme.
 # POST /v1/admin/packages/sync ile tetiklenir.
 #
 # enabled: Sync özelliğini aç/kapa

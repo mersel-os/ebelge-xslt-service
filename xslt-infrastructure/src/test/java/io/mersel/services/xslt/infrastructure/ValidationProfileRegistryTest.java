@@ -960,4 +960,49 @@ class ValidationProfileRegistryTest {
         assertThat(profileRules).hasSize(1);
         assertThat(profileRules.get(0).id()).isEqualTo("PROFILE-001");
     }
+
+    // ── Eski tip adlarıyla geriye dönük uyumluluk ──────────────────────
+
+    @Test
+    @DisplayName("eski EARCHIVE anahtari xsd override icin EARCHIVE_REPORT olarak okunur")
+    void eski_earchive_anahtari_xsd_override_icin_cevrilir() throws IOException {
+        writeProfiles("""
+            profiles:
+              legacy-profile:
+                xsd-overrides:
+                  EARCHIVE:
+                    - element: "ds:Signature"
+                      minOccurs: "0"
+            """);
+
+        ValidationProfileRegistry registry = createAndReload();
+
+        assertThat(registry.resolveXsdOverrides("legacy-profile", "EARCHIVE_REPORT"))
+                .singleElement()
+                .satisfies(override -> assertThat(override.element()).isEqualTo("ds:Signature"));
+    }
+
+    @Test
+    @DisplayName("eski EARCHIVE scope degeri EARCHIVE_REPORT belgelerinde eslesir")
+    void eski_earchive_scope_degeri_eslesir() throws IOException {
+        writeProfiles("""
+            profiles:
+              legacy-profile:
+                suppressions:
+                  - match: ruleId
+                    pattern: "EarsivRaporKontrol"
+                    scope: [EARCHIVE]
+            """);
+
+        ValidationProfileRegistry registry = createAndReload();
+        List<SchematronError> errors = List.of(
+                new SchematronError("EarsivRaporKontrol", null, "e-Arşiv rapor hatası")
+        );
+
+        SuppressionResult result = registry.applySchematronSuppressions(
+                errors, "legacy-profile", null, Set.of("EARCHIVE_REPORT"));
+
+        assertThat(result.suppressedErrors()).hasSize(1);
+        assertThat(result.activeErrors()).isEmpty();
+    }
 }

@@ -14,15 +14,16 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import jakarta.validation.Valid;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -62,6 +63,8 @@ public class TransformController {
 
     private static final Logger log = LoggerFactory.getLogger(TransformController.class);
     private static final MediaType TEXT_HTML_UTF8 = new MediaType("text", "html", StandardCharsets.UTF_8);
+    private static final String VALID_TRANSFORM_TYPES = String.join(", ",
+            Arrays.stream(TransformType.values()).map(Enum::name).toList());
 
     @Value("${xslt.limits.max-document-size-mb:${XSLT_MAX_DOCUMENT_SIZE_MB:100}}")
     private int maxDocumentSizeMb;
@@ -81,7 +84,8 @@ public class TransformController {
                     
                     **Başarılı yanıt:** `200 OK` + `text/html` body + `X-Xslt-*` metadata header'ları.
                     
-                    **Dönüşüm Tipleri:** INVOICE, ARCHIVE_INVOICE, DESPATCH_ADVICE, RECEIPT_ADVICE, EMM, ECHECK
+                    **Dönüşüm Tipleri:** INVOICE, ARCHIVE_INVOICE, DESPATCH_ADVICE, RECEIPT_ADVICE,
+                    EMM, ESMM, ECHECK, EDOVIZ_ALIM, EDOVIZ_SATIM, EDEKONT, EGIDER_PUSULASI
                     
                     **XSLT Seçim Önceliği:**
                     1. `transformer` dosyası yüklendiyse → onu kullan
@@ -131,7 +135,7 @@ public class TransformController {
         } catch (IllegalArgumentException | NullPointerException e) {
             throw new IllegalArgumentException(
                     "Geçersiz dönüşüm tipi: " + requestDto.getTransformType()
-                            + ". Geçerli değerler: INVOICE, ARCHIVE_INVOICE, DESPATCH_ADVICE, RECEIPT_ADVICE, EMM, ECHECK");
+                            + ". Geçerli değerler: " + VALID_TRANSFORM_TYPES);
         }
 
         boolean hasCustomXslt = requestDto.getTransformer() != null && !requestDto.getTransformer().isEmpty();

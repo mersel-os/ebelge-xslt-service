@@ -26,6 +26,9 @@ dependencies {
     // Jsoup - HTML sanitization (script exfiltration protection)
     implementation(libs.jsoup)
 
+    // Junrar - GIB'in RAR formatındaki resmi paketlerini çıkartma
+    implementation(libs.junrar)
+
     // Jackson - Asset versioning JSON metadata
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")

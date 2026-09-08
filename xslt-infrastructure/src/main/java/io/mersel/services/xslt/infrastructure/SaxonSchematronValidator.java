@@ -99,7 +99,19 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
      * Önceden derlenmiş Schematron XSL dosyaları. Doğrudan Saxon'a yüklenir.
      */
     private static final Map<SchematronValidationType, String> PRECOMPILED_XSL_MAP = Map.of(
-            SchematronValidationType.EARCHIVE_REPORT, "validator/earchive/schematron/earsiv_schematron.xsl"
+            SchematronValidationType.EARCHIVE_REPORT, "validator/earchive/schematron/earsiv_schematron.xsl",
+            SchematronValidationType.EARCHIVE_REPORT_EDOVIZ,
+            "validator/earchive-edoviz/schematron/earsiv_schematron.xsl"
+    );
+
+    /**
+     * Ayrı dağıtılan GİB ürün paketlerinden gelen Schematron tipleri.
+     * <p>
+     * Bu paketler opsiyoneldir; ilgili paket sync edilmemişse {@link #reload()}
+     * dosyanın yokluğunu hata saymaz, atlar.
+     */
+    private static final Set<SchematronValidationType> OPTIONAL_PRODUCT_TYPES = Set.of(
+            SchematronValidationType.EARCHIVE_REPORT_EDOVIZ
     );
 
     /**
@@ -270,6 +282,9 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
                         newCache.put(entry.getKey(), executable);
                         log.debug("  {} pre-compiled XSL yüklendi", entry.getKey());
                     }
+                } else if (OPTIONAL_PRODUCT_TYPES.contains(entry.getKey())) {
+                    log.info("  {} pre-compiled XSL mevcut değil: {} (GİB ürün paketi sync edilmemiş)",
+                            entry.getKey(), entry.getValue());
                 } else {
                     String error = entry.getKey() + " XSL dosyası bulunamadı: " + entry.getValue();
                     errors.add(error);

@@ -3,12 +3,19 @@ package io.mersel.services.xslt.infrastructure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXParseException;
+import org.xml.sax.helpers.DefaultHandler;
 
+import javax.xml.XMLConstants;
 import javax.xml.namespace.NamespaceContext;
+import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathFactory;
 import java.io.ByteArrayInputStream;
+import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Collections;
@@ -45,6 +52,7 @@ public class EmbeddedXsltExtractor {
 
     private static final String CAC_NS = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2";
     private static final String CBC_NS = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2";
+    private static final String XSLT_NS = "http://www.w3.org/1999/XSL/Transform";
 
     /**
      * XPath: filename attribute'u .xslt veya .xsl ile biten ilk EmbeddedDocumentBinaryObject.
@@ -67,15 +75,7 @@ public class EmbeddedXsltExtractor {
      */
     public byte[] extract(byte[] xmlDocument) {
         try {
-            var factory = DocumentBuilderFactory.newInstance();
-            factory.setNamespaceAware(true);
-
-            // XXE koruması
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-
-            var builder = factory.newDocumentBuilder();
+            var builder = newSecureDocumentBuilder();
             var document = builder.parse(new ByteArrayInputStream(xmlDocument));
 
             var xpath = XPathFactory.newInstance().newXPath();
@@ -100,16 +100,95 @@ public class EmbeddedXsltExtractor {
             // Windows-1254 → UTF-8 normalize
             var xsltString = new String(decoded, StandardCharsets.UTF_8);
             xsltString = xsltString.replace("Windows-1254", "UTF-8");
-
+            byte[] normalizedXslt = xsltString.getBytes(StandardCharsets.UTF_8);
             var filename = ((org.w3c.dom.Element) node).getAttribute("filename");
+
+            if (!isXsltDocument(normalizedXslt)) {
+                log.debug("Gömülü dosya geçerli bir XSLT değil, atlanıyor: {}", filename);
+                return null;
+            }
+
             log.info("Belgeden gömülü XSLT çıkarıldı — dosya: {}, boyut: {} byte", filename, decoded.length);
 
-            return xsltString.getBytes(StandardCharsets.UTF_8);
+            return normalizedXslt;
 
         } catch (Exception e) {
             log.warn("Gömülü XSLT çıkarma başarısız: {} — {}", e.getClass().getSimpleName(), e.getMessage());
             log.debug("Gömülü XSLT çıkarma hata detayı", e);
             return null;
+        }
+    }
+
+    private boolean isXsltDocument(byte[] content) {
+        try {
+            var document = newXsltInspectionDocumentBuilder().parse(new ByteArrayInputStream(content));
+            var doctype = document.getDoctype();
+            if (doctype != null && (doctype.getSystemId() != null || doctype.getPublicId() != null)) {
+                return false;
+            }
+            var root = document.getDocumentElement();
+            if (XSLT_NS.equals(root.getNamespaceURI())) {
+                return "stylesheet".equals(root.getLocalName()) || "transform".equals(root.getLocalName());
+            }
+            // Simplified stylesheets use a literal result element (e.g. html) as
+            // their root, with a namespace-qualified xsl:version attribute.
+            return !root.getAttributeNS(XSLT_NS, "version").isBlank();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private DocumentBuilder newSecureDocumentBuilder() throws Exception {
+        return newSecureDocumentBuilder(false);
+    }
+
+    /**
+     * GİB şablonlarında görülebilen dahili entity tanımları için DOCTYPE'a izin verir;
+     * harici DTD ve entity çözümlemesi yine kapalıdır. Yalnızca harici DTD içinde
+     * tanımlanan entity'lere bağımlı şablonlar güvenlik gereği geçersiz sayılır.
+     */
+    private DocumentBuilder newXsltInspectionDocumentBuilder() throws Exception {
+        return newSecureDocumentBuilder(true);
+    }
+
+    private DocumentBuilder newSecureDocumentBuilder(boolean allowDoctype) throws Exception {
+        var factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", !allowDoctype);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        setExternalAccessAttributeIfSupported(factory, XMLConstants.ACCESS_EXTERNAL_DTD);
+        setExternalAccessAttributeIfSupported(factory, XMLConstants.ACCESS_EXTERNAL_SCHEMA);
+
+        var builder = factory.newDocumentBuilder();
+        builder.setEntityResolver((publicId, systemId) -> new InputSource(new StringReader("")));
+        builder.setErrorHandler(new DefaultHandler() {
+            @Override
+            public void error(SAXParseException exception) throws SAXException {
+                throw exception;
+            }
+
+            @Override
+            public void fatalError(SAXParseException exception) throws SAXException {
+                throw exception;
+            }
+        });
+        return builder;
+    }
+
+    /**
+     * JAXP standart erişim kısıtlarını destekleyen parser'larda ek savunma katmanını etkinleştirir.
+     * Bu attribute'ları tanımayan parser'larda dış entity/DTD feature'ları kapalı kalmaya devam eder.
+     */
+    private void setExternalAccessAttributeIfSupported(DocumentBuilderFactory factory, String attributeName) {
+        try {
+            factory.setAttribute(attributeName, "");
+        } catch (IllegalArgumentException e) {
+            log.debug("XML parser erişim kısıtı attribute'unu desteklemiyor: {} ({})",
+                    attributeName, factory.getClass().getName());
         }
     }
 

@@ -46,6 +46,14 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
     private static final Logger log = LoggerFactory.getLogger(ValidationProfileRegistry.class);
     private static final String PROFILES_ASSET_PATH = "validation-profiles.yml";
 
+    /**
+     * Kullanıcının yazdığı profil dosyalarında hâlâ görülebilecek eski tip adları.
+     * {@link #migrateLegacyTypeName} tarafından güncel adlara çevrilir.
+     */
+    private static final Map<String, String> LEGACY_TYPE_NAMES = Map.of(
+            "EARCHIVE", SchemaValidationType.EARCHIVE_REPORT.name()
+    );
+
     private final AssetManager assetManager;
     private final ISchemaValidator schemaValidator;
     private final ISchematronValidator schematronValidator;
@@ -648,13 +656,14 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
                                 .map(Object::toString)
                                 .map(String::strip)
                                 .filter(s -> !s.isEmpty())
+                                .map(s -> migrateLegacyTypeName(s, name, "scope"))
                                 .toList();
                         if (scope.isEmpty()) {
                             scope = null;
                         }
                     } else if (scopeObj instanceof String scopeStr && !scopeStr.isBlank()) {
                         // Tek değer de kabul et: scope: INVOICE
-                        scope = List.of(scopeStr.strip());
+                        scope = List.of(migrateLegacyTypeName(scopeStr.strip(), name, "scope"));
                     }
 
                     rules.add(new SuppressionRule(
@@ -672,7 +681,8 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         Object xsdOverridesObj = map.get("xsd-overrides");
         if (xsdOverridesObj instanceof Map<?, ?> xsdOverridesMap) {
             for (var xsdEntry : xsdOverridesMap.entrySet()) {
-                String schemaType = String.valueOf(xsdEntry.getKey()).strip();
+                String schemaType = migrateLegacyTypeName(
+                        String.valueOf(xsdEntry.getKey()).strip(), name, "xsd-overrides");
                 if (xsdEntry.getValue() instanceof List<?> overrideList) {
                     var overrides = new ArrayList<XsdOverride>();
                     for (var overrideItem : overrideList) {
@@ -730,6 +740,25 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         }
 
         return new RawProfile(name, description, extendsProfile, rules, xsdOverrides, schematronRules);
+    }
+
+    /**
+     * Yeniden adlandırılmış doğrulama tipi adlarını eski profillerde de çalışır tutar.
+     * <p>
+     * {@code scope} ve {@code xsd-overrides} anahtarları istek anında düz string
+     * karşılaştırmasıyla eşleştiği için, eski bir ad sessizce hiç eşleşmez ve
+     * kullanıcının override'ı fark edilmeden devre dışı kalırdı. Burada çevrilip
+     * uyarı loglanır.
+     */
+    private String migrateLegacyTypeName(String typeName, String profileName, String field) {
+        String current = LEGACY_TYPE_NAMES.get(typeName);
+        if (current == null) {
+            return typeName;
+        }
+        log.warn("Profil '{}' içindeki {} değeri '{}' yeniden adlandırıldı; '{}' olarak okundu. "
+                        + "validation-profiles.yml dosyasını güncelleyin.",
+                profileName, field, typeName, current);
+        return current;
     }
 
     // ── Profile Resolution (Inheritance) ────────────────────────────
