@@ -4,6 +4,8 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-08
+
 ### Eklenen
 
 - `EDOVIZ_ALIM`, `EDOVIZ_SATIM`, `EDEKONT`, `EGIDER_PUSULASI` XSLT dönüşüm tipleri; ayrıca enum'da bulunup şablon eşlemesi olmayan `ECHECK` (e-Adisyon) tamamlandı ve web arayüzünde eksik olan `ESMM` eklendi. Java API, web arayüzü ve .NET istemci aynı listeyi kullanıyor
