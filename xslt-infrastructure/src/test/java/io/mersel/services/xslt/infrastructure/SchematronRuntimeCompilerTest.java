@@ -115,6 +115,58 @@ class SchematronRuntimeCompilerTest {
     }
 
     @Test
+    @DisplayName("postProcessVariablesToParams: lokal (template içi) variable'a dokunulmamalı")
+    void postProcess_local_variable_untouched() throws Exception {
+        // GİB e-Defter edefter_kebir.sch içindeki currencyCodeList benzeri durum:
+        // rule seviyesi lokal string-literal variable. Eski kod bunu kör regex ile
+        // xsl:param'a çeviriyor ve "xsl:param must not be preceded by other instructions"
+        // hatasına sebep oluyordu. Artık yalnızca top-level variable'lar dönüştürülüyor.
+        String xslt = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+                  <xsl:template match="/">
+                    <xsl:variable name="currencyCodeList" select="',AED,EUR,TRY,'"/>
+                    <xsl:value-of select="$currencyCodeList"/>
+                  </xsl:template>
+                </xsl:stylesheet>
+                """;
+
+        var method = SchematronRuntimeCompiler.class.getDeclaredMethod(
+                "postProcessVariablesToParams", byte[].class);
+        method.setAccessible(true);
+        byte[] input = xslt.getBytes(StandardCharsets.UTF_8);
+        byte[] output = (byte[]) method.invoke(compiler, input);
+
+        String result = new String(output, StandardCharsets.UTF_8);
+        assertThat(result).doesNotContain("<xsl:param name=\"currencyCodeList\"");
+        assertThat(result).contains("<xsl:variable name=\"currencyCodeList\"");
+    }
+
+    @Test
+    @DisplayName("postProcessVariablesToParams: top-level string-literal variable dönüştürülmeli")
+    void postProcess_top_level_string_literal() throws Exception {
+        String xslt = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="2.0">
+                  <xsl:variable name="ProfileIDType"
+                                select="',TICARIFATURA,TEMELFATURA,'"/>
+                  <xsl:template match="/"/>
+                </xsl:stylesheet>
+                """;
+
+        var method = SchematronRuntimeCompiler.class.getDeclaredMethod(
+                "postProcessVariablesToParams", byte[].class);
+        method.setAccessible(true);
+        byte[] input = xslt.getBytes(StandardCharsets.UTF_8);
+        byte[] output = (byte[]) method.invoke(compiler, input);
+
+        String result = new String(output, StandardCharsets.UTF_8);
+        // çok satırlı tag bile olsa top-level ise dönüştürülmeli
+        assertThat(result).doesNotContain("<xsl:variable name=\"ProfileIDType\"");
+        assertThat(result).contains("<xsl:param name=\"ProfileIDType\"");
+    }
+
+    @Test
     @DisplayName("Bozuk Schematron NPE yerine anlamlı hata fırlatmalı")
     void bozuk_schematron_graceful_failure() throws Exception {
         String invalidXml = "this is not valid xml at all <<<";

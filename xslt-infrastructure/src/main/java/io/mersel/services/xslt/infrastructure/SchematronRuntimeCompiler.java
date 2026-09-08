@@ -231,14 +231,20 @@ public class SchematronRuntimeCompiler {
     // ── Post-Processing ─────────────────────────────────────────────
 
     /**
-     * Dışarıdan set edilmesi gereken xsl:variable'ları xsl:param'a dönüştürür.
+     * Dışarıdan set edilmesi gereken <b>top-level</b> xsl:variable'ları xsl:param'a dönüştürür.
      * <p>
      * ISO Schematron pipeline, Schematron kaynağındaki global {@code <sch:let>} tanımlarını
      * {@code <xsl:variable>} olarak üretir. Ancak Saxon'da dışarıdan
      * {@code setStylesheetParameters()} ile değer verilebilmesi için
      * bunların {@code <xsl:param>} olması gerekir.
      * <p>
-     * Dönüştürme: iki aşamalı:
+     * <b>Önemli:</b> Dönüştürme yalnızca {@code <xsl:stylesheet>}'in doğrudan çocuğu olan
+     * (yani herhangi bir {@code <xsl:template>} içinde olmayan) top-level variable'lara
+     * uygulanır. Aksi halde GİB e-Defter {@code .sch} dosyalarındaki kural (rule) seviyesi
+     * lokal variable'lar (örn. {@code currencyCodeList}) yanlışlıkla {@code <xsl:param>}
+     * yapılır ve "xsl:param must not be preceded by other instructions" derleme hatası alınır.
+     * <p>
+     * Dönüştürme kriterleri (her ikisi de top-level olmalı):
      * <ol>
      *   <li>{@code type} — UBL-TR Main Schematron belge tipi (her zaman dönüştürülür)</li>
      *   <li>String literal default ({@code select="'...'"}) — custom rule parametreleri
@@ -251,41 +257,59 @@ public class SchematronRuntimeCompiler {
 
         var convertedParams = new java.util.ArrayList<String>();
 
-        // 1) Bilinen "type" parametresi — select değeri ne olursa olsun dönüştür
-        String before = xslt;
-        xslt = xslt.replaceAll(
-                "<xsl:variable(\\s+name\\s*=\\s*\"type\")",
-                "<xsl:param$1"
-        );
-        if (!xslt.equals(before)) {
-            convertedParams.add("type");
-        }
+        // xsl:template iç içe derinliğini izleyerek sadece top-level (derinlik 0)
+        // xsl:variable'ları dönüştür. [^>] newline'ları da eşlediği için çok satırlı
+        // açılış tag'leri (örn. select değeri satır atladığında) doğru yakalanır.
+        var token = java.util.regex.Pattern.compile(
+                "<xsl:template\\b[^>]*?(/?)>|</xsl:template>|<xsl:variable\\b[^>]*?(/?)>");
+        var matcher = token.matcher(xslt);
+        var sb = new StringBuilder(xslt.length());
+        int lastEnd = 0;
+        int depth = 0;
 
-        // 2) String literal default'lu tüm xsl:variable tanımlarını dönüştür.
-        //    Custom rule parametreleri <sch:let name="x" value="''"/> olarak enjekte edilir →
-        //    pipeline bunları <xsl:variable name="x" select="''"/> üretir.
-        //    "type" zaten 1. adımda dönüştürüldüyse tekrar eşleşmez.
-        before = xslt;
-        xslt = xslt.replaceAll(
-                "<xsl:variable(\\s+name\\s*=\\s*\"([^\"]+)\"\\s+select\\s*=\\s*\"'[^']*'\")",
-                "<xsl:param$1"
-        );
-        if (!xslt.equals(before)) {
-            var m = java.util.regex.Pattern
-                    .compile("<xsl:param\\s+name\\s*=\\s*\"([^\"]+)\"\\s+select\\s*=\\s*\"'[^']*'\"")
-                    .matcher(xslt);
-            while (m.find()) {
-                String name = m.group(1);
-                if (!convertedParams.contains(name)) convertedParams.add(name);
+        while (matcher.find()) {
+            sb.append(xslt, lastEnd, matcher.start());
+            String tok = matcher.group();
+            lastEnd = matcher.end();
+
+            if (tok.startsWith("<xsl:template") && !tok.endsWith("/>")) {
+                depth++;
+            } else if (tok.contentEquals("</xsl:template>")) {
+                if (depth > 0) {
+                    depth--;
+                }
+            } else if (tok.startsWith("<xsl:variable") && depth == 0 && tok.endsWith("/>")) {
+                String name = attrValue(tok, "name");
+                String select = attrValue(tok, "select");
+                boolean isType = "type".equals(name);
+                boolean isStringLiteral = select != null && select.length() >= 2
+                        && select.startsWith("'") && select.endsWith("'");
+                if (isType || isStringLiteral) {
+                    tok = "<xsl:param" + tok.substring("<xsl:variable".length());
+                    if (name != null && !convertedParams.contains(name)) {
+                        convertedParams.add(name);
+                    }
+                }
             }
+            sb.append(tok);
         }
+        sb.append(xslt, lastEnd, xslt.length());
 
         if (!convertedParams.isEmpty()) {
-            log.debug("Post-process: {} xsl:variable → xsl:param dönüştürüldü: {}",
+            log.debug("Post-process: {} top-level xsl:variable → xsl:param dönüştürüldü: {}",
                     convertedParams.size(), String.join(", ", convertedParams));
         }
 
-        return xslt.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        return sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Bir XSLT açılış tag'inden (çok satırlı olabilir) nitelik değerini çıkarır.
+     */
+    private static String attrValue(String tag, String attr) {
+        var mm = java.util.regex.Pattern.compile("\\b" + attr + "\\s*=\\s*\"([^\"]*)\"")
+                .matcher(tag);
+        return mm.find() ? mm.group(1) : null;
     }
 
     /**

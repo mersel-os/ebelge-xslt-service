@@ -25,6 +25,7 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ### Düzeltilen
 
+- Schematron runtime derleyicisi, `xsl:variable` → `xsl:param` dönüşümünü yalnızca top-level (stylesheet çocuğu) değişkenlere uyguluyor. GİB e-Defter `.sch` dosyalarındaki kural seviyesi lokal değişkenler (örn. `currencyCodeList`) yanlışlıkla `xsl:param` yapılıp "xsl:param must not be preceded by other instructions" hatasına yol açıyordu; çok satırlı açılış tag'leri de doğru işleniyor
 - XSD override'lı doğrulama yolunda lokal şema resolver'ı kurulmuyordu; e-Defter/XBRL şemalarının HTTP `xs:import` referansları artık bu yolda da lokal dosyalara yönleniyor
 - Göreceli `xs:import` / `xs:include` referansları önce bildiren şemanın kendi konumuna göre, sonra arama dizinlerinde göreceli yolun tamamına göre çözümleniyor; yalnızca dosya adı eşleştirilmediği için farklı alt dizinlerdeki aynı adlı şemalar birbirinin yerine yüklenemiyor
 - Dockerfile release JAR'ını `*.jar` joker'i yerine adıyla eşleştiriyor; build context'te kalmış eski JAR'lar image'a alınamıyor
