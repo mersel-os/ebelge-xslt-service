@@ -9,7 +9,7 @@ plugins {
 // Verilmezse aşağıdaki varsayılan kullanılır.
 // NOT: Aşağıdaki `val defaultAppVersion` satırı scripts/release.sh tarafından
 // otomatik bump'lanır; satır formatı korunmalıdır.
-val defaultAppVersion = "1.3.2"
+val defaultAppVersion = "1.4.0"
 val appVersion = (findProperty("appVersion") as String?)?.takeIf { it.isNotBlank() } ?: defaultAppVersion
 
 allprojects {
