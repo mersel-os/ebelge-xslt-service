@@ -578,8 +578,24 @@ custom-assets/
 | `validation-assets.gib.sync.enabled` | `VALIDATION_ASSETS_GIB_SYNC_ENABLED` | `true` | Sync özelliğini aç/kapa |
 | `validation-assets.gib.sync.auto-sync-on-startup` | `VALIDATION_ASSETS_GIB_AUTO_SYNC` | `true` | İlk kurulumda (asset dizini boşken) otomatik sync |
 | `validation-assets.gib.sync.target-path` | `VALIDATION_ASSETS_GIB_SYNC_PATH` | (boş) | İndirilen dosyaların hedef dizini |
+| `validation-assets.gib.sync.package-urls.<paket-id>` | `GIB_PACKAGE_URL_<PAKET-ID>` | (boş) | Paket bazlı kalıcı indirme URL override'ı |
 | `validation-assets.gib.sync.connect-timeout-ms` | — | `10000` | HTTP bağlantı zaman aşımı (ms) |
 | `validation-assets.gib.sync.read-timeout-ms` | — | `60000` | HTTP okuma zaman aşımı (ms) |
+
+> **GİB link değişiklikleri:** GİB bazen arşiv linklerini geçici olarak değiştirir (örn:
+> `e-FaturaPaketi.zip` yerine `e-FaturaPaketi%20(29).zip`). Bu durumda kod değiştirmeden:
+>
+> 1. **Kalıcı çözüm** — env variable ile paketin URL'sini override edin:
+>    ```bash
+>    -e GIB_PACKAGE_URL_EFATURA="https://ebelge.gib.gov.tr/dosyalar/kilavuzler/e-FaturaPaketi%20(29).zip"
+>    ```
+>    Geçerli paket ID'leri: `efatura`, `ubltr-xsd`, `earsiv`, `edoviz`, `edekont`, `egider-pusulasi`, `edefter`
+> 2. **Tek seferlik çözüm** — admin API'de `url` parametresi ile istek anında yeni linki geçirin:
+>    ```bash
+>    curl -u admin:parola -X POST "http://localhost:8080/v1/admin/packages/sync?package=efatura&url=https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/e-FaturaPaketi%20(29).zip"
+>    ```
+>    Aynı parametre `POST /v1/admin/packages/sync-preview` endpoint'inde de çalışır (staging'e indirip diff önizleme).
+>    İstek anındaki URL, yapılandırmadaki override'a göre önceliklidir.
 
 ### Production Profili
 

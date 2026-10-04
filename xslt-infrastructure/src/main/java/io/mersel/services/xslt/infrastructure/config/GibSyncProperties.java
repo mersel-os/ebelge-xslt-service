@@ -5,6 +5,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * GİB paket sync yapılandırma özellikleri.
  * <p>
@@ -13,6 +16,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *   <li>{@code enabled} — Sync özelliğini aç/kapa</li>
  *   <li>{@code auto-sync-on-startup} — İlk kurulumda (asset dizini boşken) otomatik sync (varsayılan: true)</li>
  *   <li>{@code target-path} — İndirilen dosyaların yazılacağı dizin (boşsa xslt.assets.external-path kullanılır)</li>
+ *   <li>{@code package-urls} — Paket bazlı kalıcı indirme URL override'ı.
+ *       GİB arşiv linkleri değiştiğinde kod değiştirmeden yeni link verilebilir
+ *       (örn: {@code validation-assets.gib.sync.package-urls.efatura=https://.../e-FaturaPaketi%20(29).zip})</li>
  *   <li>{@code connect-timeout-ms} — HTTP bağlantı zaman aşımı (pozitif olmalı)</li>
  *   <li>{@code read-timeout-ms} — HTTP okuma zaman aşımı (pozitif olmalı)</li>
  * </ul>
@@ -26,6 +32,7 @@ public class GibSyncProperties {
     private boolean autoSyncOnStartup = true;
     private String targetPath = "";
     private String baseUrlOverride = "";  // For testing: override host in download URLs (e.g. http://localhost:8089)
+    private Map<String, String> packageUrls = new HashMap<>();
     private int connectTimeoutMs = 10000;
     private int readTimeoutMs = 60000;
 
@@ -71,6 +78,14 @@ public class GibSyncProperties {
 
     public void setBaseUrlOverride(String baseUrlOverride) {
         this.baseUrlOverride = baseUrlOverride;
+    }
+
+    public Map<String, String> getPackageUrls() {
+        return packageUrls;
+    }
+
+    public void setPackageUrls(Map<String, String> packageUrls) {
+        this.packageUrls = packageUrls;
     }
 
     public int getConnectTimeoutMs() {

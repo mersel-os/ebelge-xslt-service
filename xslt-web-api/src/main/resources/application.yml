@@ -102,6 +102,10 @@ xslt:
 # auto-sync-on-startup: İlk kurulumda (asset dizini boşken) otomatik sync
 # target-path: İndirilen dosyaların yazılacağı dizin
 #   - Boş bırakılırsa xslt.assets.external-path kullanılır
+# package-urls: Paket bazlı kalıcı indirme URL override'ı. GİB arşiv linkleri
+#   değiştiğinde kod değiştirmeden yeni link verilebilir
+#   (örn: GIB_PACKAGE_URL_EFATURA=https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/e-FaturaPaketi%20(29).zip).
+#   Ayrıca admin API'de tek seferlik 'url' parametresi ile de URL geçilebilir.
 # connect-timeout-ms: HTTP bağlantı zaman aşımı (ms)
 # read-timeout-ms: HTTP okuma zaman aşımı (ms)
 validation-assets:
@@ -110,6 +114,14 @@ validation-assets:
       enabled: ${VALIDATION_ASSETS_GIB_SYNC_ENABLED:true}
       auto-sync-on-startup: ${VALIDATION_ASSETS_GIB_AUTO_SYNC:true}
       target-path: ${VALIDATION_ASSETS_GIB_SYNC_PATH:}
+      package-urls:
+        efatura: ${GIB_PACKAGE_URL_EFATURA:}
+        ubltr-xsd: ${GIB_PACKAGE_URL_UBLTR_XSD:}
+        earsiv: ${GIB_PACKAGE_URL_EARSIV:}
+        edoviz: ${GIB_PACKAGE_URL_EDOVIZ:}
+        edekont: ${GIB_PACKAGE_URL_EDEKONT:}
+        egider-pusulasi: ${GIB_PACKAGE_URL_EGIDER_PUSULASI:}
+        edefter: ${GIB_PACKAGE_URL_EDEFTER:}
       connect-timeout-ms: 10000
       read-timeout-ms: 60000
 

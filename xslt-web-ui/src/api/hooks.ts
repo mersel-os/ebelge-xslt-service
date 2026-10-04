@@ -148,13 +148,21 @@ export function useProfiles(options?: { enabled?: boolean }) {
 
 // ─── Admin: GIB Sync ────────────────────────────────────────────────
 
+export interface SyncPackagesParams {
+  packageId?: string;
+  url?: string;
+}
+
 export function useSyncPackages() {
   return useMutation({
-    mutationFn: (packageId?: string) =>
+    mutationFn: (params?: SyncPackagesParams) =>
       customInstance<SyncResponse>({
         url: "/v1/admin/packages/sync",
         method: "POST",
-        params: packageId ? { package: packageId } : undefined,
+        params: {
+          ...(params?.packageId ? { package: params.packageId } : {}),
+          ...(params?.url ? { url: params.url } : {}),
+        },
       }),
   });
 }
@@ -247,14 +255,22 @@ export function useSaveSchematronRules() {
 
 // ─── Admin: Sync Preview (Versioning) ────────────────────────────────
 
+export interface SyncPreviewParams {
+  packageId?: string;
+  url?: string;
+}
+
 export function useSyncPreview() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (packageId?: string) =>
+    mutationFn: (params?: SyncPreviewParams) =>
       customInstance<SyncPreviewResponse>({
         url: "/v1/admin/packages/sync-preview",
         method: "POST",
-        params: packageId ? { package: packageId } : undefined,
+        params: {
+          ...(params?.packageId ? { package: params.packageId } : {}),
+          ...(params?.url ? { url: params.url } : {}),
+        },
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pending-previews"] });

@@ -184,7 +184,39 @@ public class GibPackageSyncService implements IGibPackageSyncService {
 
     @Override
     public List<GibPackageDefinition> getAvailablePackages() {
-        return PACKAGE_DEFINITIONS;
+        return PACKAGE_DEFINITIONS.stream()
+                .map(this::applyConfiguredUrl)
+                .toList();
+    }
+
+    /**
+     * Yapılandırmada paket için kalıcı URL override'ı varsa uygular.
+     */
+    private GibPackageDefinition applyConfiguredUrl(GibPackageDefinition pkg) {
+        String override = properties.getPackageUrls() != null
+                ? properties.getPackageUrls().get(pkg.id()) : null;
+        if (override != null && !override.isBlank()) {
+            return pkg.withDownloadUrl(override);
+        }
+        return pkg;
+    }
+
+    /**
+     * Paket kimliğinden tanımı bulur; URL verilmişse indirme adresini onunla değiştirir.
+     */
+    private GibPackageDefinition resolvePackage(String packageId, String url) {
+        var pkg = PACKAGE_DEFINITIONS.stream()
+                .filter(p -> p.id().equals(packageId))
+                .findFirst()
+                .orElse(null);
+
+        if (pkg == null) {
+            return null;
+        }
+        if (url != null && !url.isBlank()) {
+            return pkg.withDownloadUrl(url);
+        }
+        return applyConfiguredUrl(pkg);
     }
 
     @Override
@@ -195,7 +227,7 @@ public class GibPackageSyncService implements IGibPackageSyncService {
         }
         log.info("Tüm GİB paketleri sync ediliyor...");
         var results = new ArrayList<PackageSyncResult>();
-        for (var pkg : PACKAGE_DEFINITIONS) {
+        for (var pkg : getAvailablePackages()) {
             results.add(doSyncPackage(pkg));
         }
 
@@ -212,14 +244,16 @@ public class GibPackageSyncService implements IGibPackageSyncService {
 
     @Override
     public PackageSyncResult syncPackage(String packageId) {
+        return syncPackage(packageId, null);
+    }
+
+    @Override
+    public PackageSyncResult syncPackage(String packageId, String url) {
         if (!isEnabled()) {
             return PackageSyncResult.failure(packageId, "Sync devre dışı", 0,
                     "GİB paket sync devre dışı (validation-assets.gib.sync.enabled=false)");
         }
-        var pkg = PACKAGE_DEFINITIONS.stream()
-                .filter(p -> p.id().equals(packageId))
-                .findFirst()
-                .orElse(null);
+        var pkg = resolvePackage(packageId, url);
 
         if (pkg == null) {
             return PackageSyncResult.failure(packageId, "Bilinmiyor", 0,
@@ -239,14 +273,16 @@ public class GibPackageSyncService implements IGibPackageSyncService {
 
     @Override
     public PackageSyncResult syncPackageToTarget(String packageId, java.nio.file.Path targetDir) {
+        return syncPackageToTarget(packageId, targetDir, null);
+    }
+
+    @Override
+    public PackageSyncResult syncPackageToTarget(String packageId, java.nio.file.Path targetDir, String url) {
         if (!isEnabled()) {
             return PackageSyncResult.failure(packageId, "Sync devre dışı", 0,
                     "GİB paket sync devre dışı (validation-assets.gib.sync.enabled=false)");
         }
-        var pkg = PACKAGE_DEFINITIONS.stream()
-                .filter(p -> p.id().equals(packageId))
-                .findFirst()
-                .orElse(null);
+        var pkg = resolvePackage(packageId, url);
 
         if (pkg == null) {
             return PackageSyncResult.failure(packageId, "Bilinmiyor", 0,

@@ -75,9 +75,15 @@ public class AssetVersioningService implements IAssetVersioningService {
 
     @Override
     public SyncPreview syncToStaging(String packageId) throws IOException {
+        return syncToStaging(packageId, null);
+    }
+
+    @Override
+    public SyncPreview syncToStaging(String packageId, String url) throws IOException {
         requireExternalPath();
 
-        log.info("Staging sync başlatılıyor: {}", packageId);
+        log.info("Staging sync başlatılıyor: {}{}", packageId,
+                url != null ? " (özel URL)" : "");
 
         // Staging dizinini hazırla (temizle + oluştur)
         Path stagingDir = getStagingDir(packageId);
@@ -86,7 +92,9 @@ public class AssetVersioningService implements IAssetVersioningService {
         Files.createDirectories(stagingDir);
 
         // GİB paketini doğrudan staging dizinine indir (live'a dokunmaz)
-        PackageSyncResult syncResult = gibSyncService.syncPackageToTarget(packageId, stagingDir);
+        PackageSyncResult syncResult = (url != null && !url.isBlank())
+                ? gibSyncService.syncPackageToTarget(packageId, stagingDir, url)
+                : gibSyncService.syncPackageToTarget(packageId, stagingDir);
         if (!syncResult.success()) {
             cleanDirectory(stagingDir);
             throw new IOException("GİB paket indirme başarısız: " + syncResult.error());

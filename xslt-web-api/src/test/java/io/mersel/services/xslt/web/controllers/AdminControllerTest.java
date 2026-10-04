@@ -1,9 +1,12 @@
 package io.mersel.services.xslt.web.controllers;
 
 import io.mersel.services.xslt.application.interfaces.IGibPackageSyncService;
+import io.mersel.services.xslt.application.interfaces.IAssetVersioningService;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
+import io.mersel.services.xslt.application.models.AssetVersion;
 import io.mersel.services.xslt.application.models.PackageSyncResult;
+import io.mersel.services.xslt.application.models.SyncPreview;
 import io.mersel.services.xslt.application.models.ValidationProfile;
 import io.mersel.services.xslt.infrastructure.AssetManager;
 import io.mersel.services.xslt.infrastructure.AssetRegistry;
@@ -24,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.hamcrest.Matchers.hasItems;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -56,6 +60,9 @@ class AdminControllerTest {
 
     @Mock
     private IGibPackageSyncService gibSyncService;
+
+    @Mock
+    private IAssetVersioningService versioningService;
 
     @Mock
     private AuthService authService;
@@ -198,6 +205,64 @@ class AdminControllerTest {
                 .andExpect(jsonPath("$.packages[0].success").value(true))
                 .andExpect(jsonPath("$.packages[0].filesExtracted").value(15))
                 .andExpect(jsonPath("$.syncedAt").exists());
+    }
+
+    @Test
+    @DisplayName("gib_sync_ozel_url — POST /v1/admin/packages/sync?url=... URL'i servise geçmeli")
+    void gib_sync_ozel_url() throws Exception {
+        when(gibSyncService.isEnabled()).thenReturn(true);
+        when(gibSyncService.getCurrentAssetSource()).thenReturn("synced");
+
+        String customUrl = "https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/e-FaturaPaketi%20(29).zip";
+        when(gibSyncService.syncPackage(eq("efatura"), eq(customUrl)))
+                .thenReturn(PackageSyncResult.success("efatura", "UBL-TR Şematron Paketi",
+                        15, List.of("schema1.xsd"), 500));
+
+        mockMvc.perform(post("/v1/admin/packages/sync")
+                        .param("package", "efatura")
+                        .param("url", customUrl))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount").value(1))
+                .andExpect(jsonPath("$.packages[0].packageId").value("efatura"))
+                .andExpect(jsonPath("$.packages[0].success").value(true));
+
+        verify(gibSyncService).syncPackage(eq("efatura"), eq(customUrl));
+    }
+
+    @Test
+    @DisplayName("gib_sync_ozel_url_paketsiz_reddedilir — url verilmişse package zorunlu")
+    void gib_sync_ozel_url_paketsiz_reddedilir() throws Exception {
+        when(gibSyncService.isEnabled()).thenReturn(true);
+
+        mockMvc.perform(post("/v1/admin/packages/sync")
+                        .param("url", "https://example.com/package.zip"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("url_requires_package"));
+    }
+
+    @Test
+    @DisplayName("sync_preview_ozel_url — POST /v1/admin/packages/sync-preview?url=... URL'i geçmeli")
+    void sync_preview_ozel_url() throws Exception {
+        when(gibSyncService.isEnabled()).thenReturn(true);
+
+        String customUrl = "https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/e-FaturaPaketi%20(29).zip";
+        var preview = new SyncPreview(
+                "efatura",
+                AssetVersion.pending("v1", "efatura", "UBL-TR Şematron Paketi",
+                        new AssetVersion.FilesSummary(1, 0, 0, 0), 100),
+                List.of(), List.of());
+        when(versioningService.syncToStaging(eq("efatura"), eq(customUrl)))
+                .thenReturn(preview);
+
+        mockMvc.perform(post("/v1/admin/packages/sync-preview")
+                        .param("package", "efatura")
+                        .param("url", customUrl))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.packageCount").value(1))
+                .andExpect(jsonPath("$.previews[0].packageId").value("efatura"));
+
+        verify(versioningService).syncToStaging(eq("efatura"), eq(customUrl));
     }
 
     @Test

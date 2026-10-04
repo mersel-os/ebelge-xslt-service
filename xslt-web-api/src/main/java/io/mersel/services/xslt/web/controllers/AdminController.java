@@ -690,6 +690,10 @@ public class AdminController {
      * Opsiyonel {@code package} parametresi ile belirli bir paket sync edilebilir.
      * Parametre verilmezse tüm paketler sync edilir.
      * <p>
+     * Opsiyonel {@code url} parametresi ile paket, tanımlı URL yerine verilen
+     * URL'den indirilir. GİB arşiv linkleri geçici olarak değiştiğinde kullanılır
+     * (örn: "e-FaturaPaketi.zip" yerine "e-FaturaPaketi%20(29).zip").
+     * <p>
      * Sync devre dışıysa ({@code validation-assets.gib.sync.enabled=false}),
      * durumu açıklayan bir 200 OK yanıtı döner.
      */
@@ -700,10 +704,12 @@ public class AdminController {
                     + "e-Dekont, e-Gider Pusulası ve e-Defter paketlerini indirir, ZIP/RAR "
                     + "arşivlerinden çıkartır ve asset dizinine yerleştirir. "
                     + "İsteğe bağlı 'package' parametresi ile tek paket sync edilebilir. "
-                    + "Sync sonrası asset'ler otomatik yeniden yüklenir."
+                    + "İsteğe bağlı 'url' parametresi ile paket tanımlı URL yerine verilen "
+                    + "URL'den indirilir. Sync sonrası asset'ler otomatik yeniden yüklenir."
     )
     public ResponseEntity<?> syncPackages(
-            @RequestParam(value = "package", required = false) String packageId) {
+            @RequestParam(value = "package", required = false) String packageId,
+            @RequestParam(value = "url", required = false) String url) {
 
         if (!gibSyncService.isEnabled()) {
             return ResponseEntity.ok(new SyncDisabledResponse(false,
@@ -711,11 +717,19 @@ public class AdminController {
                     gibSyncService.getCurrentAssetSource()));
         }
 
-        log.info("GİB paket sync isteği alındı — paket: {}", packageId != null ? packageId : "tümü");
+        if (url != null && !url.isBlank() && (packageId == null || packageId.isBlank())) {
+            return ResponseEntity.badRequest().body(
+                    new ErrorResponse("url_requires_package",
+                            "Özel URL kullanmak için 'package' parametresi zorunludur."));
+        }
+
+        log.info("GİB paket sync isteği alındı — paket: {}{}",
+                packageId != null ? packageId : "tümü",
+                url != null && !url.isBlank() ? " (özel URL)" : "");
 
         List<PackageSyncResult> results;
         if (packageId != null && !packageId.isBlank()) {
-            results = List.of(gibSyncService.syncPackage(packageId));
+            results = List.of(gibSyncService.syncPackage(packageId, url));
         } else {
             results = gibSyncService.syncAll();
         }
@@ -813,15 +827,21 @@ public class AdminController {
      * <p>
      * Live asset'lere dokunmaz. Kullanıcı değişiklikleri inceledikten sonra
      * {@code POST /asset-versions/pending/{packageId}/approve} ile onaylayabilir.
+     * <p>
+     * Opsiyonel {@code url} parametresi ile paket, tanımlı URL yerine verilen
+     * URL'den indirilir. GİB arşiv linkleri geçici olarak değiştiğinde kullanılır.
      */
     @PostMapping("/packages/sync-preview")
     @Operation(
             summary = "GİB paketini staging'e indir (önizleme)",
             description = "GİB paketini staging alanına indirir, live ile karşılaştırır ve "
-                    + "diff önizlemesi döndürür. Live asset'ler değişmez. Onay gerektirir."
+                    + "diff önizlemesi döndürür. Live asset'ler değişmez. Onay gerektirir. "
+                    + "İsteğe bağlı 'url' parametresi ile paket tanımlı URL yerine verilen "
+                    + "URL'den indirilir."
     )
     public ResponseEntity<?> syncPreview(
-            @RequestParam(value = "package", required = false) String packageId) {
+            @RequestParam(value = "package", required = false) String packageId,
+            @RequestParam(value = "url", required = false) String url) {
 
         if (!gibSyncService.isEnabled()) {
             return ResponseEntity.ok(new SyncDisabledResponse(false,
@@ -829,10 +849,16 @@ public class AdminController {
                     gibSyncService.getCurrentAssetSource()));
         }
 
+        if (url != null && !url.isBlank() && (packageId == null || packageId.isBlank())) {
+            return ResponseEntity.badRequest().body(
+                    new ErrorResponse("url_requires_package",
+                            "Özel URL kullanmak için 'package' parametresi zorunludur."));
+        }
+
         try {
             List<SyncPreview> previews;
             if (packageId != null && !packageId.isBlank()) {
-                previews = List.of(versioningService.syncToStaging(packageId));
+                previews = List.of(versioningService.syncToStaging(packageId, url));
             } else {
                 previews = versioningService.syncAllToStaging();
             }

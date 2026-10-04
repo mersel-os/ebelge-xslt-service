@@ -1,43 +1,77 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Download,
   Loader2,
   CheckCircle2,
   Info,
   Eye,
+  Link2,
 } from "lucide-react";
-import { useSyncPreview, usePendingPreviews } from "@/api/hooks";
+import { useSyncPreview, usePendingPreviews, usePackages } from "@/api/hooks";
 import { toast } from "sonner";
 import { SyncPreviewCard } from "./sync-preview-card";
 
 export function SyncCard() {
   const syncPreviewMutation = useSyncPreview();
   const { data: pendingData, refetch: refetchPending } = usePendingPreviews();
+  const { data: packagesData } = usePackages();
 
-  const handleSyncPreview = (packageId?: string) => {
-    syncPreviewMutation.mutate(packageId, {
-      onSuccess: (data) => {
-        if (!data.enabled) {
-          toast.info("GİB sync devre dışı");
-        } else {
-          toast.success("GİB paketleri staging'e indirildi", {
-            description: `${data.packageCount} paket incelemeye hazır`,
+  const [selectedPackage, setSelectedPackage] = useState<string>("all");
+  const [customUrl, setCustomUrl] = useState("");
+
+  const handleSyncPreview = () => {
+    const trimmedUrl = customUrl.trim();
+    if (trimmedUrl && selectedPackage === "all") {
+      toast.error("Özel URL için paket seçin", {
+        description:
+          "GİB link değişikliğinde hangi paketin indirileceğini seçin",
+      });
+      return;
+    }
+
+    syncPreviewMutation.mutate(
+      {
+        packageId: selectedPackage === "all" ? undefined : selectedPackage,
+        url: trimmedUrl || undefined,
+      },
+      {
+        onSuccess: (data) => {
+          if (!data.enabled) {
+            toast.info("GİB sync devre dışı");
+          } else {
+            toast.success("GİB paketleri staging'e indirildi", {
+              description: `${data.packageCount} paket incelemeye hazır`,
+            });
+            refetchPending();
+          }
+        },
+        onError: (error) => {
+          toast.error("Sync başarısız", {
+            description:
+              error instanceof Error ? error.message : "Bilinmeyen hata",
           });
-          refetchPending();
-        }
+        },
       },
-      onError: (error) => {
-        toast.error("Sync başarısız", {
-          description:
-            error instanceof Error ? error.message : "Bilinmeyen hata",
-        });
-      },
-    });
+    );
   };
 
   const pendingPreviews = pendingData?.previews ?? [];
   const hasPending = pendingPreviews.length > 0;
+  const packages = packagesData?.packages ?? [];
+  const urlPlaceholder =
+    selectedPackage === "all"
+      ? "Özel indirme URL'i için önce paket seçin"
+      : "Boş bırakılırsa tanımlı URL kullanılır";
 
   return (
     <div className="space-y-4">
@@ -67,7 +101,7 @@ export function SyncCard() {
                 </Badge>
               )}
               <Button
-                onClick={() => handleSyncPreview()}
+                onClick={handleSyncPreview}
                 disabled={syncPreviewMutation.isPending}
                 size="sm"
                 className="h-8 rounded-lg"
@@ -81,6 +115,38 @@ export function SyncCard() {
               </Button>
             </div>
           </div>
+
+          {/* Package + custom URL */}
+          <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(180px,240px)_1fr]">
+            <Select value={selectedPackage} onValueChange={setSelectedPackage}>
+              <SelectTrigger size="sm" className="text-xs">
+                <SelectValue placeholder="Paket seçin" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tüm paketler</SelectItem>
+                {packages.map((pkg) => (
+                  <SelectItem key={pkg.id} value={pkg.id}>
+                    {pkg.displayName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="relative">
+              <Link2 className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={customUrl}
+                onChange={(e) => setCustomUrl(e.target.value)}
+                placeholder={urlPlaceholder}
+                className="h-8 pl-9 text-xs font-mono"
+                disabled={selectedPackage === "all"}
+              />
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] text-muted-foreground leading-relaxed">
+            GİB arşiv linki geçici olarak değiştiyse paketi seçip yeni URL'yi
+            girin (örn: <span className="font-mono">e-FaturaPaketi%20(29).zip</span>).
+            URL boş bırakılırsa tanımlı adres kullanılır.
+          </p>
         </div>
 
         {/* Result: disabled */}

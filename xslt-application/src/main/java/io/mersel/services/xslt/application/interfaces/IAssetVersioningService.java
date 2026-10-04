@@ -36,6 +36,19 @@ public interface IAssetVersioningService {
     SyncPreview syncToStaging(String packageId) throws IOException;
 
     /**
+     * Belirli bir GİB paketini, tanımlı URL yerine verilen URL'den
+     * staging alanına indirir ve diff hesaplar.
+     * <p>
+     * GİB arşiv linkleri geçici olarak değiştiğinde kullanılır.
+     *
+     * @param packageId Paket kimliği
+     * @param url       Arşiv dosyasının indirileceği URL
+     * @return Staging önizlemesi (diff, uyarılar, versiyon bilgisi)
+     * @throws IOException İndirme veya dosya işlemi hatası
+     */
+    SyncPreview syncToStaging(String packageId, String url) throws IOException;
+
+    /**
      * Tüm GİB paketlerini staging alanına indirir ve diff hesaplar.
      *
      * @return Her paket için staging önizlemesi

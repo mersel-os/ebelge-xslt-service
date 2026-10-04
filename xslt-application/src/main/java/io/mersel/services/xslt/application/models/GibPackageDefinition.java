@@ -31,6 +31,19 @@ public record GibPackageDefinition(
      * @param extractionMode Eşleşen dosyanın doğrudan kopyalanacağını veya içindeki gömülü XSLT'nin
      *                       çıkarılacağını belirtir
      */
+    /**
+     * İndirme URL'i değiştirilmiş yeni bir tanım oluşturur.
+     * <p>
+     * GİB arşiv linklerini geçici olarak değiştirmek için kullanılır
+     * (örn: "e-FaturaPaketi.zip" yerine "e-FaturaPaketi%20(29).zip").
+     *
+     * @param url Yeni indirme URL'i
+     * @return downloadUrl alanı değiştirilmiş yeni kayıt
+     */
+    public GibPackageDefinition withDownloadUrl(String url) {
+        return new GibPackageDefinition(id, displayName, url, fileMapping, description);
+    }
+
     public record FileExtraction(
             String zipPathPattern,
             String targetDir,

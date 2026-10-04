@@ -4,6 +4,10 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Eklenen
+
+- GİB arşiv indirme URL'leri artık kod değiştirmeden geçilebilir. GİB bazen paket linklerini geçici olarak değiştirdiği için (örn: `e-FaturaPaketi.zip` yerine `e-FaturaPaketi%20(29).zip`) iki yöntem eklendi: `validation-assets.gib.sync.package-urls.<paket-id>` yapılandırması (env: `GIB_PACKAGE_URL_<PAKET-ID>`) ile kalıcı override ve admin API'de `POST /v1/admin/packages/sync` ile `POST /v1/admin/packages/sync-preview` endpoint'lerinin `url` parametresi ile tek seferlik override. İstek anındaki URL, yapılandırmadaki değere göre önceliklidir; `url` verilmişse `package` parametresi zorunludur. Web arayüzündeki GİB Paket Sync kartında paket seçimi ve özel URL girişi eklendi
+
 ## [1.3.2] - 2026-09-08
 
 ### Eklenen

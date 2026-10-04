@@ -108,4 +108,37 @@ class AssetVersioningServiceTest {
         assertThat(service.getPendingPreview("test-package")).isNull();
         assertThat(tempDir.resolve("history/staging/test-package")).doesNotExist();
     }
+
+    @Test
+    @DisplayName("ozel_url_staging'e_gecirilir — syncToStaging(packageId, url) URL'i sync servisine verir")
+    void ozel_url_staginge_gecirilir() throws Exception {
+        IGibPackageSyncService syncService = mock(IGibPackageSyncService.class);
+        GibPackageDefinition pkg = new GibPackageDefinition(
+                "efatura", "e-Fatura", "https://example.test/efatura.zip",
+                List.of(new FileExtraction("*.xml", "validator/ubl-tr-package/schematron/")),
+                "test");
+        when(syncService.getAvailablePackages()).thenReturn(List.of(pkg));
+        when(syncService.syncPackageToTarget(eq("efatura"), any(Path.class), eq("https://example.test/efatura%20(29).zip")))
+                .thenAnswer(invocation -> {
+                    Path stagingBase = invocation.getArgument(1);
+                    Path schematron = Files.createDirectories(
+                            stagingBase.resolve("validator/ubl-tr-package/schematron"));
+                    Files.writeString(schematron.resolve("valid.xml"), "content");
+                    return PackageSyncResult.success(
+                            "efatura", "e-Fatura", 1,
+                            List.of("validator/ubl-tr-package/schematron/valid.xml"), 10);
+                });
+
+        var service = new AssetVersioningService(
+                syncService, new AssetDiffService(), mock(AssetManager.class),
+                mock(AssetRegistry.class), mock(SuppressionImpactAnalyzer.class));
+        ReflectionTestUtils.setField(service, "externalPath", tempDir.toString());
+
+        var preview = service.syncToStaging("efatura",
+                "https://example.test/efatura%20(29).zip");
+
+        assertThat(preview.packageId()).isEqualTo("efatura");
+        verify(syncService).syncPackageToTarget(
+                eq("efatura"), any(Path.class), eq("https://example.test/efatura%20(29).zip"));
+    }
 }

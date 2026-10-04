@@ -29,6 +29,18 @@ public interface IGibPackageSyncService {
     PackageSyncResult syncPackage(String packageId);
 
     /**
+     * Belirli bir GİB paketini, tanımlı URL yerine verilen URL'den sync eder.
+     * <p>
+     * GİB arşiv linkleri geçici olarak değiştiğinde kullanılır
+     * (örn: "e-FaturaPaketi.zip" yerine "e-FaturaPaketi%20(29).zip").
+     *
+     * @param packageId Paket kimliği
+     * @param url       Arşiv dosyasının indirileceği URL
+     * @return Sync sonucu
+     */
+    PackageSyncResult syncPackage(String packageId, String url);
+
+    /**
      * Mevcut GİB paket tanımlarını döndürür.
      *
      * @return Tanımlı paket listesi
@@ -65,4 +77,17 @@ public interface IGibPackageSyncService {
      * @return Sync sonucu
      */
     PackageSyncResult syncPackageToTarget(String packageId, java.nio.file.Path targetDir);
+
+    /**
+     * Belirli bir GİB paketini verilen URL'den hedef dizine sync eder.
+     * <p>
+     * Asset versiyonlama sistemi için staging alanına, tanımlı URL yerine
+     * özel bir URL'den indirme yapmak amacıyla kullanılır.
+     *
+     * @param packageId Paket kimliği
+     * @param targetDir İndirilen dosyaların yazılacağı dizin
+     * @param url       Arşiv dosyasının indirileceği URL
+     * @return Sync sonucu
+     */
+    PackageSyncResult syncPackageToTarget(String packageId, java.nio.file.Path targetDir, String url);
 }

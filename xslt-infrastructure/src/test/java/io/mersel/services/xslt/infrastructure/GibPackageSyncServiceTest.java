@@ -468,4 +468,111 @@ class GibPackageSyncServiceTest {
         assertThat(Files.exists(nonExistentTarget)).isTrue();
         assertThat(Files.isDirectory(nonExistentTarget)).isTrue();
     }
+
+    @Test
+    @DisplayName("ozel_url_ile_sync — syncPackage(packageId, url) verilen URL'den indirmeli")
+    void ozel_url_ile_sync() throws Exception {
+        byte[] zipBytes = createValidZipWithEntries("pack/schematron/valid.xml");
+
+        String customPath = "/dosyalar/kilavuzlar/e-FaturaPaketi%20(29).zip";
+        wireMock.stubFor(get(urlPathEqualTo(customPath))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/zip")
+                        .withBody(zipBytes)));
+
+        GibPackageSyncService service = createService();
+        PackageSyncResult result = service.syncPackage("efatura",
+                "https://ebelge.gib.gov.tr" + customPath);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.extractedFiles()).anyMatch(f -> f.endsWith("valid.xml"));
+        verify(assetRegistry).reload();
+    }
+
+    @Test
+    @DisplayName("yapilandirma_url_override — package-urls map'i tanımlı URL'yi değiştirmeli")
+    void yapilandirma_url_override() throws Exception {
+        byte[] zipBytes = createValidZipWithEntries("pack/schematron/valid.xml");
+
+        String customPath = "/dosyalar/kilavuzlar/e-FaturaPaketi%20(29).zip";
+        wireMock.stubFor(get(urlPathEqualTo(customPath))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/zip")
+                        .withBody(zipBytes)));
+
+        properties.setPackageUrls(java.util.Map.of("efatura",
+                "https://ebelge.gib.gov.tr" + customPath));
+
+        GibPackageSyncService service = createService();
+
+        assertThat(service.getAvailablePackages())
+                .filteredOn(pkg -> pkg.id().equals("efatura"))
+                .first()
+                .extracting(GibPackageDefinition::downloadUrl)
+                .isEqualTo("https://ebelge.gib.gov.tr" + customPath);
+
+        PackageSyncResult result = service.syncPackage("efatura");
+        assertThat(result.success()).isTrue();
+        assertThat(result.extractedFiles()).anyMatch(f -> f.endsWith("valid.xml"));
+    }
+
+    @Test
+    @DisplayName("ozel_url_yapilandirmaya_ustun_gelir — istek anındaki URL öncelikli")
+    void ozel_url_yapilandirmaya_ustun_gelir() throws Exception {
+        byte[] zipBytes = createValidZipWithEntries("pack/schematron/valid.xml");
+
+        String requestPath = "/dosyalar/kilavuzlar/e-FaturaPaketi%20(31).zip";
+        wireMock.stubFor(get(urlPathEqualTo(requestPath))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/zip")
+                        .withBody(zipBytes)));
+
+        properties.setPackageUrls(java.util.Map.of("efatura",
+                "https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/e-FaturaPaketi%20(29).zip"));
+
+        GibPackageSyncService service = createService();
+        PackageSyncResult result = service.syncPackage("efatura",
+                "https://ebelge.gib.gov.tr" + requestPath);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.extractedFiles()).anyMatch(f -> f.endsWith("valid.xml"));
+    }
+
+    @Test
+    @DisplayName("ozel_url_staging_sync — syncPackageToTarget(packageId, target, url) özel URL kullanmalı")
+    void ozel_url_staging_sync() throws Exception {
+        byte[] zipBytes = createValidZipWithEntries("pack/schematron/valid.xml");
+
+        String customPath = "/dosyalar/kilavuzlar/e-FaturaPaketi%20(29).zip";
+        wireMock.stubFor(get(urlPathEqualTo(customPath))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/zip")
+                        .withBody(zipBytes)));
+
+        Path stagingDir = tempDir.resolve("staging");
+
+        GibPackageSyncService service = createService();
+        PackageSyncResult result = service.syncPackageToTarget("efatura", stagingDir,
+                "https://ebelge.gib.gov.tr" + customPath);
+
+        assertThat(result.success()).isTrue();
+        assertThat(Files.exists(stagingDir.resolve(
+                "validator/ubl-tr-package/schematron/valid.xml"))).isTrue();
+        verify(assetRegistry, never()).reload();
+    }
+
+    @Test
+    @DisplayName("gecersiz_paket_adi_ozel_url — bilinmeyen paket kimliği hata vermeli")
+    void gecersiz_paket_adi_ozel_url() {
+        GibPackageSyncService service = createService();
+        PackageSyncResult result = service.syncPackage("bilinmeyen-paket",
+                "https://example.com/package.zip");
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.error()).contains("Geçersiz paket kimliği");
+    }
 }
