@@ -1,5 +1,27 @@
 # Ekran Görüntüleri
 
+## Yayınlanmamış
+
+### Özel Belge Türü — Geçerli Belge
+
+`custom-document-types.yml` ile tanımlanan `SAMPLE_VOUCHER` türü (`urn:example:sample:voucher-1` namespace'li `Voucher` kökü). Servisin yerleşik olarak tanımadığı kök, tanımla eşleşti; tanımdaki XSD (`Sample-Voucher-1.0.xsd`, ortak şemayı göreceli yolla içe aktarır) ve Schematron (`UBLTR_MAIN`) uygulandı.
+
+![Özel Belge Türü — Geçerli](docs/screenshots/ozel-belge-turu-gecerli.png)
+
+### Özel Belge Türü — XSD Hatası
+
+Zorunlu `cmn:Party` elementi çıkarılmış belge. Hata, tanımdaki XSD'den satır ve sütun bilgisiyle döner.
+
+![Özel Belge Türü — XSD Hatası](docs/screenshots/ozel-belge-turu-xsd-hatasi.png)
+
+### Özel Belge Türü — Schematron Hatası
+
+`currencyID="XYZ"` içeren belge. XSD geçerli; tanımdaki `UBLTR_MAIN` Schematron'unun genel `//@currencyID` kuralı özel türde de çalışır.
+
+![Özel Belge Türü — Schematron Hatası](docs/screenshots/ozel-belge-turu-schematron-hatasi.png)
+
+---
+
 ## v1.1.0
 
 ### Özel Schematron Kuralları
