@@ -4,6 +4,10 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Düzeltilen
+
+- `POST /v1/transform` yanıtında `X-Xslt-Custom-Error` ve `X-Xslt-Security-Violations` header'ları, değer ISO-8859-1 dışı bir karakter (ı, ş, ğ, İ, uzun tire gibi) içerdiğinde Tomcat tarafından yanıttan tamamen çıkarılıyordu. "Gömülü XSLT ile dönüşüm başarısız: …" önekiyle başlayan gömülü XSLT hataları ve "Harici script kaynağı engellendi: …" ihlalleri bu yüzden istemciye hiç ulaşmıyordu. Değerler artık ISO-8859-1'e indiriliyor: ü/ç/ö korunuyor, ı/ş/ğ/İ `i`/`s`/`g`/`I`'ya, uzun/kısa tire `-`'ye, tipografik tırnaklar düz tırnağa çevriliyor, karşılığı olmayan karakterler `?` oluyor, kontrol karakterleri boşluk oluyor. Değer yüzde-kodlanmadığı için .NET istemcisi ve web arayüzü değişmeden çalışıyor; yalnız ASCII ve ü/ç/ö içeren mesajlar eskisiyle bayt bayt aynı
+
 ### Güvenlik
 
 - Schematron doğrulaması kullanıcı belgesini harici DTD yüklemeyen ve harici entity çözmeyen bir ayrıştırıcıyla okuyor. Önceden Saxon'un varsayılan ayrıştırıcısı DOCTYPE'taki `SYSTEM` entity'lerini (`file:`, `http:` ve dosya adına göre göreli yollar) çözüyordu; değer `<sch:value-of>` ya da profil kurallarındaki `{{xpath}}` yer tutucularıyla hata mesajına taşınabiliyordu. `/v1/validate` belge türü tespiti DOCTYPE içeren belgeleri zaten `400` ile reddettiği için bu yol HTTP üzerinden açık değildi; doğrulayıcı artık o kontrole bağlı değil. Doğrulayıcı düzeyinde iç DTD alt kümesindeki entity'ler çalışmaya devam ediyor ve yüklenen dosyanın adı belgenin `base-uri()` değeri olarak kalıyor

@@ -36,6 +36,7 @@ public final class XsltHeaders {
     /**
      * Kullanıcının sağladığı XSLT başarısız olduğunda hata mesajı.
      * Sadece varsayılana geri dönüldüğünde ({@code X-Xslt-Default-Used: true}) set edilir.
+     * Değer {@link HeaderValueSanitizer} ile ISO-8859-1'e indirilir ("ı" → "i", "—" → "-").
      */
     public static final String CUSTOM_ERROR = "X-Xslt-Custom-Error";
 
@@ -57,6 +58,7 @@ public final class XsltHeaders {
      * Boşsa veya header yoksa ihlal tespit edilmemiş demektir.
      * Tüketici uygulama bu header'ı inceleyerek XSLT şablonundaki
      * potansiyel saldırı vektörlerini değerlendirebilir.
+     * Değer {@link HeaderValueSanitizer} ile ISO-8859-1'e indirilir.
      * <p>
      * Örnek: {@code cookie access, fetch API network call, redirect/exfiltration via location}
      */
