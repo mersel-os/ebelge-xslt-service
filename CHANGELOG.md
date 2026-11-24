@@ -13,6 +13,12 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 - GİB otomatik ilk sync'i artık asset dizininin tamamı değil, GİB paketlerinin yazıldığı `validator/` dizini boşken çalışır. Önceden açılışta konan herhangi bir dosya (örn. `default_transformers/` altına bir şablon ya da `validation-profiles.yml`) ilk sync'i tamamen engelliyor ve servis XSD/Schematron olmadan açılıyordu
 
+### Düzeltilen
+
+- Bir asset reload sürerken gelen reload isteği atlanıyordu ("Reload zaten devam ediyor, atlanıyor"). Boş asset dizininde GİB ilk sync'i sırasında dosya izleyicinin başlattığı reload sürerken son paket (`edefter`) yazılıp `syncAll()` reload istediğinde bu istek düşüyor; sync 7/7 başarılı bitse de e-Defter XSD ve Schematron'ları bir sonraki dosya değişikliğine ya da yeniden başlatmaya kadar yüklenmiyordu. Artık eşzamanlı çağrı süren reload'u bekler; kendi isteğinden sonra başlamış bir reload tamamlandıysa onun sonucunu alır, yoksa yeni bir reload çalışır. Aynı anda bekleyen çağrılar tek reload'da birleşir. `POST /v1/admin/assets/reload` ve diğer admin uçları bu durumda "Reload already in progress" yerine gerçek reload sonucunu döner
+- Dosya izleyici yalnızca açılışta var olan dizinleri izliyordu: sonradan oluşan dizinler (GİB sync'in oluşturduğu paket dizinleri, sonradan eklenen asset dizinleri) içindeki değişiklikler algılanmıyordu. Yeni dizinler oluştukları anda izlemeye alınıyor
+- İzlenen bir alt dizin silinince (GİB sync hedef dizinlerini silip yeniden yazar) dosya izleyici tamamen duruyordu. Artık yalnızca o dizinin kaydı düşüyor; izleme ancak asset dizininin kendisi kaybolursa durur. Olay kuyruğu taştığında (`OVERFLOW`) değişiklik yok sayılmak yerine reload planlanıyor
+
 ## [1.4.0] - 2026-10-04
 
 ### Eklenen

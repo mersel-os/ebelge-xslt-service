@@ -12,8 +12,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -95,38 +93,130 @@ class AssetRegistryTest {
     }
 
     @Test
-    @DisplayName("concurrent_reload_atlanir — only one reload runs at a time")
-    void concurrent_reload_atlanir() throws Exception {
-        var reloadCount = new AtomicInteger(0);
+    @DisplayName("reload_surerken_gelen_istek_kaybolmaz — süren reload bitince yeni reload çalışır")
+    void reload_surerken_gelen_istek_kaybolmaz() throws Exception {
+        // Senaryo: dosya izleyicinin başlattığı reload sürerken GİB sync son paketini yazıp
+        // reload ister. Bu istek atlanırsa son paket bir sonraki değişikliğe kadar yüklenmez.
+        var blocking = new BlockingReloadable();
+        var registry = new AssetRegistry(List.of(blocking), xsltMetrics);
 
-        // Yavaş reloadable — 200ms sürer
-        var slowReloadable = new Reloadable() {
+        var first = new ReloadCall(registry);
+        first.start();
+        assertThat(blocking.firstEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        var second = new ReloadCall(registry);
+        second.start();
+        awaitParked(second);
+
+        blocking.releaseFirst.countDown();
+        first.join(5000);
+        second.join(5000);
+
+        assertThat(blocking.invocations.get()).as("ikinci istek ayrı bir reload çalıştırmalı").isEqualTo(2);
+        assertThat(first.results).singleElement().extracting(ReloadResult::loadedCount).isEqualTo(1);
+        assertThat(second.results).as("ikinci çağrı kendi isteğinden sonra başlayan reload'un sonucunu almalı")
+                .singleElement().extracting(ReloadResult::loadedCount).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("bekleyen_istekler_tek_reloadda_birlesir — aynı anda bekleyen çağrılar için tek ek reload")
+    void bekleyen_istekler_tek_reloadda_birlesir() throws Exception {
+        var blocking = new BlockingReloadable();
+        var registry = new AssetRegistry(List.of(blocking), xsltMetrics);
+
+        var first = new ReloadCall(registry);
+        first.start();
+        assertThat(blocking.firstEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        var second = new ReloadCall(registry);
+        var third = new ReloadCall(registry);
+        second.start();
+        third.start();
+        awaitParked(second);
+        awaitParked(third);
+
+        blocking.releaseFirst.countDown();
+        for (ReloadCall call : List.of(first, second, third)) {
+            call.join(5000);
+        }
+
+        assertThat(blocking.invocations.get()).isEqualTo(2);
+        assertThat(second.results).isEqualTo(third.results);
+        assertThat(second.results).singleElement().extracting(ReloadResult::loadedCount).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("ardisik_reloadlar_her_seferinde_calisir")
+    void ardisik_reloadlar_her_seferinde_calisir() {
+        var counter = new AtomicInteger();
+        Reloadable counting = new Reloadable() {
             @Override
             public ReloadResult reload() {
-                reloadCount.incrementAndGet();
-                try { Thread.sleep(200); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                return ReloadResult.success("Slow", 1, 200);
+                return ReloadResult.success("Counting", counter.incrementAndGet(), 0);
             }
+
             @Override
-            public String getName() { return "Slow"; }
+            public String getName() {
+                return "Counting";
+            }
         };
+        var registry = new AssetRegistry(List.of(counting), xsltMetrics);
 
-        var registry = new AssetRegistry(List.of(slowReloadable), xsltMetrics);
+        registry.reload();
+        List<ReloadResult> second = registry.reload();
 
-        // İlk reload tamamlanmış, lock serbest
-        // Paralel reload dene
-        var latch = new CountDownLatch(2);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
+        assertThat(counter.get()).isEqualTo(2);
+        assertThat(second).singleElement().extracting(ReloadResult::loadedCount).isEqualTo(2);
+    }
 
-        executor.submit(() -> { registry.reload(); latch.countDown(); });
-        Thread.sleep(50); // İlk reload'un lock almasını bekle
-        executor.submit(() -> { registry.reload(); latch.countDown(); });
+    /** İlk çağrıda serbest bırakılana kadar bekleyen; loadedCount = çağrı sırası. */
+    private static final class BlockingReloadable implements Reloadable {
+        final AtomicInteger invocations = new AtomicInteger();
+        final CountDownLatch firstEntered = new CountDownLatch(1);
+        final CountDownLatch releaseFirst = new CountDownLatch(1);
 
-        latch.await(5, TimeUnit.SECONDS);
-        executor.shutdown();
+        @Override
+        public ReloadResult reload() {
+            int call = invocations.incrementAndGet();
+            if (call == 1) {
+                firstEntered.countDown();
+                try {
+                    releaseFirst.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return ReloadResult.success("Blocking", call, 0);
+        }
 
-        // En az 1 tam reload çalışmalı; ikinci tryLock başarısız olursa atlanır
-        assertThat(reloadCount.get()).isGreaterThanOrEqualTo(1);
+        @Override
+        public String getName() {
+            return "Blocking";
+        }
+    }
+
+    private static final class ReloadCall extends Thread {
+        private final AssetRegistry registry;
+        volatile List<ReloadResult> results;
+
+        ReloadCall(AssetRegistry registry) {
+            this.registry = registry;
+            setDaemon(true);
+        }
+
+        @Override
+        public void run() {
+            results = registry.reload();
+        }
+    }
+
+    /** Çağrının reload kilidinde beklemeye geçtiğini (park) doğrular. */
+    private static void awaitParked(Thread thread) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (thread.getState() != Thread.State.WAITING && System.currentTimeMillis() < deadline) {
+            Thread.sleep(5);
+        }
+        assertThat(thread.getState()).as("reload çağrısı kilitte beklemeli").isEqualTo(Thread.State.WAITING);
     }
 
     @Test

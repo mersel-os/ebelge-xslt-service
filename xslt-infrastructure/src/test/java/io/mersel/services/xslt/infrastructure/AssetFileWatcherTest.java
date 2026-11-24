@@ -84,4 +84,59 @@ class AssetFileWatcherTest {
             watcher.shutdown();
         }
     }
+
+    @Test
+    @DisplayName("sonradan_olusan_dizin_izlenir — açılıştan sonra oluşan dizindeki değişiklik reload tetikler")
+    void sonradan_olusan_dizin_izlenir() throws Exception {
+        // GİB ilk sync'i validator/ ve paket dizinlerini watcher başladıktan sonra oluşturur.
+        Path watchDir = tempDir.resolve("watch");
+        Files.createDirectories(watchDir);
+
+        AssetFileWatcher watcher = new AssetFileWatcher(assetRegistry, 100, watchDir.toString());
+        watcher.init();
+
+        try {
+            await().pollDelay(Duration.ofMillis(150)).until(() -> true);
+            Path packageDir = Files.createDirectories(watchDir.resolve("validator").resolve("eledger"));
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    verify(assetRegistry, atLeastOnce()).reload());
+            await().pollDelay(Duration.ofMillis(300)).until(() -> true);
+            clearInvocations(assetRegistry);
+
+            Files.writeString(packageDir.resolve("edefter.xsd"), "<xsd/>");
+
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    verify(assetRegistry, atLeastOnce()).reload());
+        } finally {
+            watcher.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("silinen_alt_dizin_izlemeyi_durdurmaz — sync bir dizini silip yazsa da izleme sürer")
+    void silinen_alt_dizin_izlemeyi_durdurmaz() throws Exception {
+        Path watchDir = tempDir.resolve("watch");
+        Path packageDir = Files.createDirectories(watchDir.resolve("validator").resolve("eledger"));
+        Files.writeString(packageDir.resolve("edefter.xsd"), "<xsd/>");
+
+        AssetFileWatcher watcher = new AssetFileWatcher(assetRegistry, 100, watchDir.toString());
+        watcher.init();
+
+        try {
+            await().pollDelay(Duration.ofMillis(150)).until(() -> true);
+            Files.delete(packageDir.resolve("edefter.xsd"));
+            Files.delete(packageDir);
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    verify(assetRegistry, atLeastOnce()).reload());
+            await().pollDelay(Duration.ofMillis(300)).until(() -> true);
+            clearInvocations(assetRegistry);
+
+            Files.writeString(watchDir.resolve("custom-document-types.yml"), "document-types: []");
+
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    verify(assetRegistry, atLeastOnce()).reload());
+        } finally {
+            watcher.shutdown();
+        }
+    }
 }
