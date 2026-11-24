@@ -4,6 +4,10 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Güvenlik
+
+- XSLT dönüşümleri sandbox'landı. Kullanıcının yüklediği XSLT, belgeye gömülü XSLT ve varsayılan şablonlar artık ortam değişkenlerini (`environment-variable()` her zaman boş döner), JVM özelliklerini (`system-property()`), dosya sistemini ve ağı (`unparsed-text`, `unparsed-text-lines`, `unparsed-text-available`, `json-doc`, `collection`, `uri-collection`, `doc`/`document`, `xsl:include`/`xsl:import`; izinli protokol listesi boş) okuyamıyor; `href` içeren `xsl:result-document` derlenmiyor. Girdi XML'i ve XSLT harici DTD ve harici entity çözülmeden okunuyor (XXE); aynı kısıt `parse-xml()` için de geçerli. İç DTD alt kümesindeki entity'ler çalışmaya devam ediyor. Özel ya da gömülü XSLT bu kısıtlara takılırsa önceki davranışla aynı şekilde varsayılan XSLT'ye dönülüyor ve neden `X-Xslt-Custom-Error` header'ında bildiriliyor; varsayılan şablonun kendisi takılırsa `422` dönüyor. Önceden varsayılan şablon yolunda URI çözümleme kısıtı yoktu
+
 ## [1.4.0] - 2026-10-04
 
 ### Eklenen

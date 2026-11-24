@@ -207,6 +207,8 @@ Başarılı dönüşümde **ham HTML** döner (`text/html`). Metadata, response 
 
 > **DOCTYPE sınırı:** Gömülü XSLT içinde tanımlanan dahili entity subset'leri desteklenir. Harici DTD/entity çözümlemesi güvenlik nedeniyle kapalıdır; yalnızca harici DTD'de tanımlanan entity'lere bağımlı şablonlar kullanılmaz ve varsayılan XSLT'ye dönülür.
 
+> **XSLT sandbox:** Yüklenen XSLT, gömülü XSLT ve varsayılan şablonlar aynı kısıtlı Saxon yapılandırmasıyla çalışır. `environment-variable()` her zaman boş döner, `system-property()` JVM özelliklerini döndürmez. `doc()`/`document()`, `unparsed-text*()`, `json-doc()`, `collection()`, `uri-collection()` ve `xsl:include`/`xsl:import` hiçbir protokolle dosyaya ya da ağa erişemez. `href` içeren `xsl:result-document` derlenmez. Girdi XML'i ve XSLT harici DTD/entity çözülmeden okunur (iç DTD alt kümesi desteklenir). Özel veya gömülü XSLT bu kısıtlara takılırsa varsayılan XSLT'ye dönülür ve neden `X-Xslt-Custom-Error` header'ında bildirilir; varsayılan şablon takılırsa `422` döner.
+
 ```bash
 # Varsayılan XSLT ile
 curl -v -X POST http://localhost:8080/v1/transform \
