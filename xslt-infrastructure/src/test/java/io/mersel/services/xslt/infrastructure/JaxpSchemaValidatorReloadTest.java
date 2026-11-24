@@ -47,7 +47,8 @@ class JaxpSchemaValidatorReloadTest {
     }
 
     private JaxpSchemaValidator createValidator() {
-        JaxpSchemaValidator validator = new JaxpSchemaValidator(assetManager, mock(XsltMetrics.class));
+        JaxpSchemaValidator validator = new JaxpSchemaValidator(assetManager, mock(XsltMetrics.class),
+                mock(io.mersel.services.xslt.application.interfaces.ICustomDocumentTypeRegistry.class));
         try {
             var maxSizeField = JaxpSchemaValidator.class.getDeclaredField("xsdOverrideCacheMaxSize");
             maxSizeField.setAccessible(true);

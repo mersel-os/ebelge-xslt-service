@@ -2,6 +2,7 @@ package io.mersel.services.xslt.web.integration;
 
 import io.mersel.services.xslt.application.enums.SchemaValidationType;
 import io.mersel.services.xslt.application.enums.SchematronValidationType;
+import io.mersel.services.xslt.application.interfaces.ICustomDocumentTypeRegistry;
 import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
 import io.mersel.services.xslt.application.interfaces.ISchematronValidator;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
@@ -63,6 +64,9 @@ class ValidationIntegrationTest {
     private IValidationProfileService profileService;
 
     @Mock
+    private ICustomDocumentTypeRegistry customDocumentTypes;
+
+    @Mock
     private XsltMetrics xsltMetrics;
 
     @BeforeEach
@@ -72,6 +76,7 @@ class ValidationIntegrationTest {
                 schemaValidator,
                 schematronValidator,
                 profileService,
+                customDocumentTypes,
                 xsltMetrics,
                 new ObjectMapper()
         );
@@ -255,6 +260,75 @@ class ValidationIntegrationTest {
         mockMvc.perform(multipart("/v1/validate").file(xmlFile))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorMessage").exists());
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Senaryo 5b: custom-document-types.yml ile tanımlanmış kök
+    // ────────────────────────────────────────────────────────────────────
+
+    private static final String SAMPLE_VOUCHER_XML = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <v:Voucher xmlns:v="urn:example:sample:voucher-1">
+                <v:ID>SMP-0001</v:ID>
+            </v:Voucher>
+            """;
+
+    @Test
+    @DisplayName("Özel belge türü — tanımdaki XSD ve Schematron ile doğrulanmalı")
+    void shouldValidateCustomDocumentTypeWithConfiguredSchematron() throws Exception {
+        when(customDocumentTypes.findByRoot("urn:example:sample:voucher-1", "Voucher"))
+                .thenReturn(java.util.Optional.of(new io.mersel.services.xslt.application.models.CustomDocumentType(
+                        "SAMPLE_VOUCHER", null, "urn:example:sample:voucher-1", "Voucher",
+                        "custom/sample/maindoc/Sample-Voucher-1.0.xsd", SchematronValidationType.UBLTR_MAIN)));
+        when(profileService.resolveXsdOverrides(any(), eq("SAMPLE_VOUCHER"))).thenReturn(List.of());
+        when(profileService.resolveSchematronRules(any(), eq("UBLTR_MAIN"))).thenReturn(List.of());
+        when(schemaValidator.validateCustom(any(), eq("SAMPLE_VOUCHER"), anyList(), any())).thenReturn(List.of());
+        when(schematronValidator.validate(any(), eq(SchematronValidationType.UBLTR_MAIN), any(), anyList(), any(), any()))
+                .thenReturn(List.of());
+        when(profileService.applyXsdSuppressions(anyList(), any(), anyList(),
+                eq(new java.util.LinkedHashSet<>(List.of("SAMPLE_VOUCHER", "UBLTR_MAIN")))))
+                .thenReturn(List.of());
+        when(profileService.applySchematronSuppressions(anyList(), any(), anyList(), anySet()))
+                .thenReturn(new SuppressionResult(List.of(), List.of(), null, 0));
+
+        var xmlFile = new MockMultipartFile("source", "sample.xml", "text/xml", SAMPLE_VOUCHER_XML.getBytes());
+
+        mockMvc.perform(multipart("/v1/validate").file(xmlFile))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.detectedDocumentType").value("SAMPLE_VOUCHER"))
+                .andExpect(jsonPath("$.result.appliedXsd").value("Sample-Voucher-1.0.xsd"))
+                .andExpect(jsonPath("$.result.appliedXsdPath").value("custom/sample/maindoc/Sample-Voucher-1.0.xsd"))
+                .andExpect(jsonPath("$.result.appliedSchematron").value("UBLTR_MAIN"))
+                .andExpect(jsonPath("$.result.validSchema").value(true))
+                .andExpect(jsonPath("$.result.validSchematron").value(true));
+
+        verify(schemaValidator).validateCustom(any(), eq("SAMPLE_VOUCHER"), anyList(), any());
+        verify(schemaValidator, org.mockito.Mockito.never()).validate(any(), any(), anyList(), any());
+    }
+
+    @Test
+    @DisplayName("Özel belge türü Schematron'suz — yalnız XSD sonucu belirleyici")
+    void shouldSkipSchematronForCustomDocumentTypeWithoutSchematron() throws Exception {
+        when(customDocumentTypes.findByRoot("urn:example:sample:voucher-1", "Voucher"))
+                .thenReturn(java.util.Optional.of(new io.mersel.services.xslt.application.models.CustomDocumentType(
+                        "SAMPLE_VOUCHER", null, "urn:example:sample:voucher-1", "Voucher",
+                        "custom/sample/maindoc/Sample-Voucher-1.0.xsd", null)));
+        when(profileService.resolveXsdOverrides(any(), eq("SAMPLE_VOUCHER"))).thenReturn(List.of());
+        List<String> xsdErrors = List.of("Satır 3, Sütun 5: \"Voucher\" elementinin içeriği eksik.");
+        when(schemaValidator.validateCustom(any(), eq("SAMPLE_VOUCHER"), anyList(), any())).thenReturn(xsdErrors);
+        when(profileService.applyXsdSuppressions(eq(xsdErrors), any(), anyList(), anySet())).thenReturn(xsdErrors);
+
+        var xmlFile = new MockMultipartFile("source", "sample.xml", "text/xml", SAMPLE_VOUCHER_XML.getBytes());
+
+        mockMvc.perform(multipart("/v1/validate").file(xmlFile))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.detectedDocumentType").value("SAMPLE_VOUCHER"))
+                .andExpect(jsonPath("$.result.appliedSchematron").doesNotExist())
+                .andExpect(jsonPath("$.result.validSchema").value(false))
+                .andExpect(jsonPath("$.result.schemaValidationErrors[0]").value(xsdErrors.get(0)))
+                .andExpect(jsonPath("$.result.validSchematron").value(true));
+
+        org.mockito.Mockito.verifyNoInteractions(schematronValidator);
     }
 
     // ────────────────────────────────────────────────────────────────────

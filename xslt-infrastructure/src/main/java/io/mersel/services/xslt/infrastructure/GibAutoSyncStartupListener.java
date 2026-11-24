@@ -15,7 +15,7 @@ import java.util.List;
  * İlk kurulumda GİB paketlerini otomatik indirir.
  * <p>
  * Uygulama tamamen hazır olduktan sonra asset dizinini kontrol eder.
- * Dizin boşsa (ilk kurulum) ve sync aktifse, tüm GİB paketlerini
+ * GİB paket dizini ({@code validator/}) boşsa (ilk kurulum) ve sync aktifse, tüm GİB paketlerini
  * arka planda (virtual thread) indirir — HTTP isteklerini bloklamaz.
  * <p>
  * {@code validation-assets.gib.sync.auto-sync-on-startup=false} ile devre dışı bırakılabilir.
@@ -24,6 +24,9 @@ import java.util.List;
 public class GibAutoSyncStartupListener {
 
     private static final Logger log = LoggerFactory.getLogger(GibAutoSyncStartupListener.class);
+
+    /** Tüm GİB paketlerinin şema/Schematron dosyalarını yazdığı kök dizin. */
+    static final String GIB_PACKAGE_ROOT = "validator";
 
     private volatile boolean initialSyncInProgress;
 
@@ -49,12 +52,15 @@ public class GibAutoSyncStartupListener {
             return;
         }
 
-        if (!assetManager.isEmpty()) {
-            log.debug("Asset dizini dolu — otomatik GİB sync atlanıyor");
+        // Yalnızca GİB paketlerinin yazıldığı dizine bakılır: açılışta konan özel asset'ler
+        // (custom-document-types.yml, custom/, default_transformers/, profiller) ilk sync'i engellemez.
+        if (!assetManager.isEmpty(GIB_PACKAGE_ROOT)) {
+            log.debug("GİB paket dizini ({}/) dolu — otomatik GİB sync atlanıyor", GIB_PACKAGE_ROOT);
             return;
         }
 
-        log.info("Asset dizini boş — ilk kurulum algılandı. GİB paketleri arka planda indiriliyor...");
+        log.info("GİB paket dizini ({}/) boş — ilk kurulum algılandı. GİB paketleri arka planda indiriliyor...",
+                GIB_PACKAGE_ROOT);
         initialSyncInProgress = true;
 
         Thread.ofVirtual()

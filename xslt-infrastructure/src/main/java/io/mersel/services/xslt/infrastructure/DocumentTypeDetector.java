@@ -108,7 +108,8 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
                         "Belge türü tespit edilemedi. Tanınmayan namespace veya root element: "
                                 + "namespace=" + handler.getRootNamespace()
                                 + ", prefix=" + handler.getRootPrefix()
-                                + ", localName=" + handler.getRootLocalName());
+                                + ", localName=" + handler.getRootLocalName(),
+                        handler.getRootNamespace(), handler.getRootLocalName());
             }
 
             log.debug("Belge türü tespit edildi: {} (namespace={}, root={})",

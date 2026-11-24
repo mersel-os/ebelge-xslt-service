@@ -42,6 +42,9 @@ public class AssetManager {
     @Value("${xslt.assets.external-path:}")
     private String externalPath;
 
+    @Value("${xslt.assets.seed-path:}")
+    private String seedPath;
+
     private Path externalDir;
 
     @PostConstruct
@@ -50,7 +53,6 @@ public class AssetManager {
             externalDir = Path.of(externalPath);
             if (Files.isDirectory(externalDir)) {
                 log.info("AssetManager başlatıldı. Asset dizini: {}", externalDir);
-                logContents();
             } else {
                 // Dizin henüz yoksa oluşturmayı dene (GIB sync sonrası dolacak)
                 try {
@@ -61,11 +63,69 @@ public class AssetManager {
                     externalDir = null;
                 }
             }
+            if (externalDir != null && seedPath != null && !seedPath.isBlank()) {
+                seedFrom(Path.of(seedPath));
+            }
+            if (externalDir != null) {
+                logContents();
+            }
         } else {
             externalDir = null;
             log.warn("AssetManager: xslt.assets.external-path yapılandırılmamış! " +
                     "Asset'ler kullanılamaz. GIB sync veya external-path ayarlayın.");
         }
+    }
+
+    /**
+     * Seed dizinindeki dosyaları aynı göreli yollarla asset dizinine kopyalar (üzerine yazar).
+     * <p>
+     * Kendi imajına gömdüğü ya da salt-okunur bağladığı (ConfigMap, Secret, read-only volume)
+     * asset'leri — özel belge türleri, varsayılan XSLT şablonları, doğrulama profilleri — her
+     * açılışta yazılabilir asset dizinine taşımak isteyen dağıtımlar içindir. Seed'de olmayan
+     * dosyalara (GİB sync çıktıları, admin API ile yazılanlar) dokunulmaz. Nokta ile başlayan
+     * yollar (Kubernetes ConfigMap'in {@code ..data} bağlantıları) ve {@code auto-generated/} atlanır.
+     *
+     * @return kopyalanan dosya sayısı
+     */
+    int seedFrom(Path seedDir) {
+        if (!Files.isDirectory(seedDir)) {
+            log.error("Seed dizini bulunamadı: {} (xslt.assets.seed-path) — seed atlandı", seedDir);
+            return 0;
+        }
+        int copied = 0;
+        // Bağlantılar izlenir: ConfigMap/Secret'ta alt dizinler ..data üzerinden symlink olarak gelir.
+        try (var stream = Files.walk(seedDir, java.nio.file.FileVisitOption.FOLLOW_LINKS)) {
+            for (Path source : stream.filter(Files::isRegularFile).toList()) {
+                Path relative = seedDir.relativize(source);
+                if (isHiddenOrGenerated(relative)) {
+                    continue;
+                }
+                Path target = externalDir.resolve(relative.toString()).normalize();
+                if (!target.startsWith(externalDir)) {
+                    log.warn("Seed dosyası asset dizininin dışına çıkıyor, atlandı: {}", relative);
+                    continue;
+                }
+                Files.createDirectories(target.getParent());
+                Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                copied++;
+            }
+            log.info("Seed dizininden {} dosya asset dizinine kopyalandı: {} → {}", copied, seedDir, externalDir);
+        } catch (IOException e) {
+            log.error("Seed kopyalama başarısız ({} dosya kopyalandı): {} — {}", copied, seedDir, e.getMessage());
+        }
+        return copied;
+    }
+
+    private static boolean isHiddenOrGenerated(Path relative) {
+        if (relative.getNameCount() > 0 && relative.getName(0).toString().equals("auto-generated")) {
+            return true;
+        }
+        for (Path part : relative) {
+            if (part.toString().startsWith(".")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -435,6 +495,27 @@ public class AssetManager {
             return true;
         }
         try (var stream = Files.walk(externalDir)) {
+            return stream.noneMatch(Files::isRegularFile);
+        } catch (IOException e) {
+            return true;
+        }
+    }
+
+    /**
+     * Asset dizinindeki alt dizinin dosya içerip içermediğini döndürür.
+     *
+     * @param relativeDir asset dizinine göreli alt dizin (örn. {@code validator})
+     * @return alt dizin yoksa, dosya içermiyorsa veya asset dizini yapılandırılmamışsa {@code true}
+     */
+    public boolean isEmpty(String relativeDir) {
+        if (externalDir == null) {
+            return true;
+        }
+        Path dir = externalDir.resolve(relativeDir).normalize();
+        if (!dir.startsWith(externalDir) || !Files.isDirectory(dir)) {
+            return true;
+        }
+        try (var stream = Files.walk(dir)) {
             return stream.noneMatch(Files::isRegularFile);
         } catch (IOException e) {
             return true;

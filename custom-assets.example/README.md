@@ -29,6 +29,8 @@ Bu dizin, XSLT Service'in asset dosyalarını dışarıdan override etmek için 
 ```
 custom-assets/
 ├── validation-profiles.yml            # Doğrulama profilleri (bastırma kuralları)
+├── custom-document-types.yml          # Özel belge türleri (kök → XSD + opsiyonel Schematron)
+├── custom/                            # Özel belge türlerinin XSD'leri (GİB sync dokunmaz)
 ├── default_transformers/              # Varsayılan HTML dönüşüm XSLT'leri
 │   ├── eInvoice_Base.xslt
 │   ├── eArchive_Base.xslt
@@ -86,6 +88,16 @@ curl -F "source=@fatura.xml" -F "profile=my-company" \
      -F "schemaValidationType=INVOICE" \
      -F "schematronValidationType=UBLTR_MAIN" \
      localhost:8080/v1/validate
+```
+
+### Özel Belge Türü Ekleme
+Servisin yerleşik olarak tanımadığı bir kök elementi doğrulatmak için XSD setini `custom/`
+altına koyun ve `custom-document-types.yml` içinde tanımlayın (alanlar örnek dosyada açıklanmıştır):
+```bash
+mkdir -p custom-assets/custom/sample
+cp -r /yol/sema-seti/* custom-assets/custom/sample/
+cp custom-assets.example/custom-document-types.yml custom-assets/custom-document-types.yml
+# document-types listesine tanımı ekleyin
 ```
 
 ## Önemli Notlar

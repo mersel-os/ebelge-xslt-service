@@ -50,9 +50,13 @@ springdoc:
 #
 # watch-enabled: External dizindeki dosya değişikliklerini otomatik algıla
 # watch-debounce-ms: Toplu değişikliklerde tek reload için bekleme süresi
+# seed-path: Açılışta içeriği asset dizinine kopyalanan (üzerine yazılan) dizin.
+#            İmaja gömülü veya salt-okunur bağlanan özel asset'ler için (özel belge
+#            türleri, varsayılan XSLT şablonları, profiller). Env: XSLT_ASSETS_SEED_PATH
 xslt:
   assets:
     external-path: ${XSLT_ASSETS_EXTERNAL_PATH:}
+    seed-path: ${XSLT_ASSETS_SEED_PATH:}
     watch-enabled: ${XSLT_ASSETS_WATCH_ENABLED:true}
     watch-debounce-ms: ${XSLT_ASSETS_WATCH_DEBOUNCE_MS:500}
   cache:

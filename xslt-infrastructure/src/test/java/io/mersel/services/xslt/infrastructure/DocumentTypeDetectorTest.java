@@ -442,6 +442,34 @@ class DocumentTypeDetectorTest {
         }
 
         @Test
+        @DisplayName("Tanınmayan kök → istisna, özel tür eşleşmesi için namespace ve yerel adı taşır")
+        void detect_unknownRoot_carriesRootForCustomTypes() {
+            byte[] xml = xml("""
+                    <s:Voucher xmlns:s="urn:example:sample:voucher-1">
+                        <s:ID>1</s:ID>
+                    </s:Voucher>
+                    """);
+
+            assertThatThrownBy(() -> detector.detect(xml))
+                    .isInstanceOfSatisfying(DocumentTypeDetectionException.class, e -> {
+                        assertThat(e.getRootNamespace()).isEqualTo("urn:example:sample:voucher-1");
+                        assertThat(e.getRootLocalName()).isEqualTo("Voucher");
+                    });
+        }
+
+        @Test
+        @DisplayName("Geçersiz XML → istisnada kök bilgisi yok")
+        void detect_invalidXml_hasNoRootInfo() {
+            byte[] invalidXml = "bu xml değil".getBytes(StandardCharsets.UTF_8);
+
+            assertThatThrownBy(() -> detector.detect(invalidXml))
+                    .isInstanceOfSatisfying(DocumentTypeDetectionException.class, e -> {
+                        assertThat(e.getRootNamespace()).isNull();
+                        assertThat(e.getRootLocalName()).isNull();
+                    });
+        }
+
+        @Test
         @DisplayName("edefter:defter + bilinmeyen context → DocumentTypeDetectionException")
         void detect_unknownContextId_throwsException() {
             byte[] xml = xml("""

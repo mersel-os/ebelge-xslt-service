@@ -1,9 +1,11 @@
 package io.mersel.services.xslt.infrastructure;
 
 import io.mersel.services.xslt.application.enums.SchemaValidationType;
+import io.mersel.services.xslt.application.interfaces.ICustomDocumentTypeRegistry;
 import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
 import io.mersel.services.xslt.application.interfaces.Reloadable;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
+import io.mersel.services.xslt.application.models.CustomDocumentType;
 import io.mersel.services.xslt.application.models.XsdOverride;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -56,6 +58,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
 
     private final AssetManager assetManager;
     private final XsltMetrics metrics;
+    private final ICustomDocumentTypeRegistry customDocumentTypes;
 
     /**
      * UBL-TR belge türleri — ortak XSD dosyaları gerektiren tipler.
@@ -90,6 +93,9 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * Ürün paketlerinin ortak imza şemalarını (XAdES, xmldsig) paylaştığı dizin.
      */
     private static final String EARCHIVE_SHARED_SCHEMA_DIR = "validator/earchive/schema";
+
+    private static final String ASSET_HINT_CUSTOM =
+            "custom-document-types.yml tanımını ve XSD dosyasının asset dizininde olduğunu kontrol edin.";
 
     /**
      * Her UBL şema tipi için gerekli olan ortak XSD dosya yolları.
@@ -128,8 +134,10 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
 
     /**
      * Derlenmiş XSD cache — volatile ile atomic swap.
+     * Anahtar: yerleşik tiplerde {@link SchemaValidationType#name()}, özel belge türlerinde
+     * tanımın adı (yerleşik adlarla çakışması {@link CustomDocumentTypeRegistry} tarafından engellenir).
      */
-    private volatile Map<SchemaValidationType, Schema> compiledSchemas = Map.of();
+    private volatile Map<String, Schema> compiledSchemas = Map.of();
 
     /**
      * Override'lı XSD cache — lazy compile, TTL ve max-size ile.
@@ -144,9 +152,11 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
     @Value("${xslt.cache.xsd-override-ttl-hours:1}")
     private int xsdOverrideCacheTtlHours;
 
-    public JaxpSchemaValidator(AssetManager assetManager, XsltMetrics metrics) {
+    public JaxpSchemaValidator(AssetManager assetManager, XsltMetrics metrics,
+                               ICustomDocumentTypeRegistry customDocumentTypes) {
         this.assetManager = assetManager;
         this.metrics = metrics;
+        this.customDocumentTypes = customDocumentTypes;
     }
 
     @PostConstruct
@@ -175,7 +185,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
     @Override
     public ReloadResult reload() {
         long startTime = System.currentTimeMillis();
-        var newCache = new HashMap<SchemaValidationType, Schema>();
+        var newCache = new HashMap<String, Schema>();
         var errors = new ArrayList<String>();
 
         // Override cache'i temizle — base şemalar değiştiğinde override'lar da geçersiz
@@ -188,11 +198,24 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
                             type, MAIN_XSD_MAP.get(type));
                     continue;
                 }
-                var schema = compileSchema(type);
-                newCache.put(type, schema);
+                var schema = compileSchema(builtInSpec(type));
+                newCache.put(type.name(), schema);
                 log.debug("  {} XSD şeması yüklendi", type);
             } catch (Exception e) {
                 String error = type + " XSD şeması yüklenemedi: " + e.getMessage();
+                errors.add(error);
+                log.warn("  {}", error);
+            }
+        }
+
+        // Özel belge türleri: tanımlar CustomDocumentTypeRegistry tarafından bu bileşenden önce yüklenir.
+        for (CustomDocumentType definition : customDocumentTypes.getAll()) {
+            try {
+                newCache.put(definition.id(), compileSchema(customSpec(definition)));
+                log.info("  {} özel belge türü XSD şeması yüklendi: {}", definition.id(), definition.xsdPath());
+            } catch (Exception e) {
+                String error = definition.id() + " özel belge türü XSD şeması yüklenemedi ("
+                        + definition.xsdPath() + "): " + e.getMessage();
                 errors.add(error);
                 log.warn("  {}", error);
             }
@@ -238,24 +261,42 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
 
     @Override
     public List<String> validate(byte[] source, SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) {
+        return validate(source, builtInSpec(schemaType), overrides, profileName);
+    }
+
+    @Override
+    public List<String> validateCustom(byte[] source, String customTypeId, List<XsdOverride> overrides, String profileName) {
+        CustomDocumentType definition = customDocumentTypes.findById(customTypeId).orElse(null);
+        if (definition == null) {
+            metrics.recordValidation("schema", customTypeId, "error", 0);
+            return List.of(customTypeId + " adlı özel belge türü tanımlı değil.");
+        }
+        return validate(source, customSpec(definition), overrides, profileName);
+    }
+
+    private List<String> validate(byte[] source, SchemaSpec spec, List<XsdOverride> overrides, String profileName) {
         long startTime = System.currentTimeMillis();
         List<String> errors = new ArrayList<>();
+        String key = spec.key();
 
         try {
             Schema schema;
 
             if (overrides == null || overrides.isEmpty()) {
                 // Override yok — base şemayı kullan
-                schema = compiledSchemas.get(schemaType);
+                schema = compiledSchemas.get(key);
             } else {
                 // Override var — cache'den al veya derle
-                schema = getOrCompileOverriddenSchema(schemaType, overrides, profileName);
+                schema = getOrCompileOverriddenSchema(spec, overrides, profileName);
             }
 
             if (schema == null) {
-                errors.add(schemaType + " için XSD şema dosyaları yüklenemedi. " +
-                        "GIB paket sync çalıştırın veya XSD dosyalarını external-path dizinine kopyalayın.");
-                metrics.recordValidation("schema", schemaType.name(), "error", System.currentTimeMillis() - startTime);
+                errors.add(spec.builtInType() != null
+                        ? key + " için XSD şema dosyaları yüklenemedi. "
+                                + "GIB paket sync çalıştırın veya XSD dosyalarını external-path dizinine kopyalayın."
+                        : key + " özel belge türü için XSD şeması yüklenemedi (" + spec.mainXsd() + "). "
+                                + ASSET_HINT_CUSTOM);
+                metrics.recordValidation("schema", key, "error", System.currentTimeMillis() - startTime);
                 return errors;
             }
 
@@ -286,17 +327,17 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
             validator.validate(new StreamSource(new ByteArrayInputStream(source)));
 
             String result = errors.isEmpty() ? "valid" : "invalid";
-            metrics.recordValidation("schema", schemaType.name(), result, System.currentTimeMillis() - startTime);
+            metrics.recordValidation("schema", key, result, System.currentTimeMillis() - startTime);
 
         } catch (SchemaOverrideCompilationException e) {
             errors.add("Override'lı XSD derleme hatası: " + e.getMessage());
-            metrics.recordValidation("schema", schemaType.name(), "error", System.currentTimeMillis() - startTime);
-            log.warn("Override XSD derleme başarısız: {} (profil: {}) — {}", schemaType,
+            metrics.recordValidation("schema", key, "error", System.currentTimeMillis() - startTime);
+            log.warn("Override XSD derleme başarısız: {} (profil: {}) — {}", key,
                     profileName != null ? profileName : "-", e.getMessage());
         } catch (SAXException | IOException e) {
             errors.add("Şema doğrulama hatası: " + e.getMessage());
-            metrics.recordValidation("schema", schemaType.name(), "error", System.currentTimeMillis() - startTime);
-            log.warn("XSD doğrulama başarısız: {} - {}", schemaType, e.getMessage());
+            metrics.recordValidation("schema", key, "error", System.currentTimeMillis() - startTime);
+            log.warn("XSD doğrulama başarısız: {} - {}", key, e.getMessage());
         }
 
         return errors;
@@ -324,7 +365,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         }
 
         try {
-            getOrCompileOverriddenSchema(schemaType, overrides, profileName);
+            getOrCompileOverriddenSchema(builtInSpec(schemaType), overrides, profileName);
             log.info("Override pre-derleme tamamlandı: {} ({} override, profil: {})",
                     schemaType, overrides.size(), profileName != null ? profileName : "-");
         } catch (SchemaOverrideCompilationException e) {
@@ -345,8 +386,8 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      *
      * @throws SchemaOverrideCompilationException derleme başarısız olursa
      */
-    private Schema getOrCompileOverriddenSchema(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) {
-        String cacheKey = buildOverrideCacheKey(schemaType, overrides, profileName);
+    private Schema getOrCompileOverriddenSchema(SchemaSpec spec, List<XsdOverride> overrides, String profileName) {
+        String cacheKey = buildOverrideCacheKey(spec.key(), overrides, profileName);
 
         Schema cached = overrideCache.getIfPresent(cacheKey);
         if (cached != null) {
@@ -355,14 +396,14 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
 
         // Cache miss — derle ve cache'e yaz
         try {
-            Schema schema = compileOverriddenSchema(schemaType, overrides, profileName);
+            Schema schema = compileOverriddenSchema(spec, overrides, profileName);
             overrideCache.put(cacheKey, schema);
             return schema;
         } catch (Exception e) {
             log.error("Override'lı XSD derleme hatası: {} (profil: {}) — {}",
-                    schemaType, profileName != null ? profileName : "-", e.getMessage());
+                    spec.key(), profileName != null ? profileName : "-", e.getMessage());
             throw new SchemaOverrideCompilationException(
-                    "Override'lı XSD derlenemedi: " + schemaType + " — " + e.getMessage(), e);
+                    "Override'lı XSD derlenemedi: " + spec.key() + " — " + e.getMessage(), e);
         }
     }
 
@@ -370,34 +411,16 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * Override'ları uygulayarak şemayı derler.
      * Değiştirilmiş XSD'yi auto-generated dizinine de yazar.
      */
-    private Schema compileOverriddenSchema(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) throws Exception {
-        String mainXsd = MAIN_XSD_MAP.get(schemaType);
-        if (mainXsd == null) {
-            throw new IllegalArgumentException("Desteklenmeyen şema tipi: " + schemaType);
-        }
-
-        SchemaFactory factory = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
-        try {
-            factory.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            factory.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "file");
-        } catch (org.xml.sax.SAXNotRecognizedException | org.xml.sax.SAXNotSupportedException e) {
-            log.warn("SchemaFactory XXE koruma özellikleri desteklenmiyor");
-        }
+    private Schema compileOverriddenSchema(SchemaSpec spec, List<XsdOverride> overrides, String profileName) throws Exception {
+        String schemaType = spec.key();
+        SchemaFactory factory = newSchemaFactory();
 
         // Common UBL XSD'leri yükle (değiştirilmemiş, sadece UBL türleri için)
-        List<StreamSource> sources = new ArrayList<>();
-        if (UBL_TYPES.contains(schemaType)) {
-            for (String commonXsd : COMMON_XSD_FILES) {
-                if (assetManager.assetExists(commonXsd)) {
-                    var file = assetManager.resolveAssetOnDisk(commonXsd);
-                    sources.add(new StreamSource(file.toFile()));
-                }
-            }
-        }
+        List<StreamSource> sources = preloadSources(spec);
 
         // Ana XSD'yi DOM olarak parse et ve override'ları uygula
-        Path mainFile = assetManager.resolveAssetOnDisk(mainXsd);
-        configureLocalSchemaResolver(factory, schemaType, mainFile);
+        Path mainFile = assetManager.resolveAssetOnDisk(spec.mainXsd());
+        configureLocalSchemaResolver(factory, spec, mainFile);
         Document mainDoc = parseXsdDocument(mainFile);
         OverrideApplyResult applyResult = applyOverrides(mainDoc, overrides);
 
@@ -441,11 +464,11 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * <p>
      * Dosya adı profil adını içerir ve XSD başına metadata yorumu eklenir.
      */
-    private void writeOverriddenXsd(SchemaValidationType schemaType, List<XsdOverride> overrides,
+    private void writeOverriddenXsd(String schemaType, List<XsdOverride> overrides,
                                      byte[] xsdBytes, String profileName, OverrideApplyResult applyResult) {
         try {
             String safeName = profileName != null && !profileName.isBlank() ? profileName : "adhoc";
-            String fileName = schemaType.name() + "_" + safeName + "_override.xsd";
+            String fileName = schemaType + "_" + safeName + "_override.xsd";
 
             byte[] withMetadata = prependXsdMetadataComment(xsdBytes, schemaType, profileName, overrides, applyResult);
             assetManager.writeAutoGenerated("schema-overrides", fileName, withMetadata);
@@ -458,7 +481,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
     /**
      * XSD byte dizisinin başına profil ve override bilgisi içeren XML yorumu ekler.
      */
-    private byte[] prependXsdMetadataComment(byte[] xsdBytes, SchemaValidationType schemaType,
+    private byte[] prependXsdMetadataComment(byte[] xsdBytes, String schemaType,
                                               String profileName, List<XsdOverride> overrides,
                                               OverrideApplyResult applyResult) {
         var comment = new StringBuilder();
@@ -466,7 +489,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         comment.append("     XSD Override Metadata\n");
         comment.append("     ══════════════════════════════════════════════════════\n");
         comment.append("     Profile    : ").append(profileName != null ? profileName : "(ad-hoc)").append("\n");
-        comment.append("     SchemaType : ").append(schemaType.name()).append("\n");
+        comment.append("     SchemaType : ").append(schemaType).append("\n");
         comment.append("     GeneratedAt: ").append(Instant.now()).append("\n");
         comment.append("     Matched    : ").append(applyResult.matchedCount()).append("/").append(overrides.size()).append("\n");
 
@@ -605,8 +628,8 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * <p>
      * Profil adı cache key'e dahil edilir — her profil bağımsız olarak derlenir ve cache'lenir.
      */
-    private String buildOverrideCacheKey(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) {
-        var sb = new StringBuilder(schemaType.name());
+    private String buildOverrideCacheKey(String schemaType, List<XsdOverride> overrides, String profileName) {
+        var sb = new StringBuilder(schemaType);
 
         // Profil adını key'e dahil et
         if (profileName != null && !profileName.isBlank()) {
@@ -648,7 +671,36 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
 
     // ── Base Schema Compilation ─────────────────────────────────────
 
-    private Schema compileSchema(SchemaValidationType type) throws SAXException, IOException {
+    /**
+     * Derlenecek bir şema: önbellek/metrik anahtarı, asset dizinine göreli ana XSD ve
+     * ana XSD'den önce kaynak olarak eklenecek dosyalar.
+     *
+     * @param builtInType yerleşik tiplerde tip; özel belge türlerinde {@code null}
+     */
+    private record SchemaSpec(String key, String mainXsd, List<String> preloadXsds,
+                              SchemaValidationType builtInType) {
+    }
+
+    private static SchemaSpec builtInSpec(SchemaValidationType type) {
+        String mainXsd = MAIN_XSD_MAP.get(type);
+        if (mainXsd == null) {
+            throw new IllegalArgumentException("Desteklenmeyen şema tipi: " + type);
+        }
+        // Ortak UBL XSD'leri sadece UBL belge türleri için eklenir.
+        // EARCHIVE ve EDEFTER gibi bağımsız XSD'ler kendi import'larını kendi dizinlerinden çözer.
+        List<String> preload = UBL_TYPES.contains(type) ? List.of(COMMON_XSD_FILES) : List.of();
+        return new SchemaSpec(type.name(), mainXsd, preload, type);
+    }
+
+    /**
+     * Özel belge türünün şeması. Göreceli import/include'lar ana XSD'nin konumuna göre çözülür;
+     * ortak dosyalar ayrıca kaynak olarak eklenmez.
+     */
+    private static SchemaSpec customSpec(CustomDocumentType definition) {
+        return new SchemaSpec(definition.id(), definition.xsdPath(), List.of(), null);
+    }
+
+    private static SchemaFactory newSchemaFactory() {
         SchemaFactory factory = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
         try {
             factory.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
@@ -656,46 +708,50 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         } catch (org.xml.sax.SAXNotRecognizedException | org.xml.sax.SAXNotSupportedException e) {
             log.warn("SchemaFactory XXE koruma özellikleri desteklenmiyor");
         }
+        return factory;
+    }
 
-        String mainXsd = MAIN_XSD_MAP.get(type);
-        if (mainXsd == null) {
-            throw new IllegalArgumentException("Desteklenmeyen şema tipi: " + type);
-        }
-
-        // StreamSource(File) kullanmak kritik — JAXP'nin xs:import/xs:include
-        // referanslarını çözümleyebilmesi için systemId gerekli.
-        // StreamSource(InputStream) ile systemId set edilmez → cross-reference hatası.
+    /**
+     * Ana XSD'den önce derlenecek dosyalar; asset dizininde olmayanlar atlanır.
+     * <p>
+     * StreamSource(File) kullanmak kritik — JAXP'nin xs:import/xs:include
+     * referanslarını çözümleyebilmesi için systemId gerekli.
+     * StreamSource(InputStream) ile systemId set edilmez → cross-reference hatası.
+     */
+    private List<StreamSource> preloadSources(SchemaSpec spec) throws IOException {
         List<StreamSource> sources = new ArrayList<>();
-
-        // Ortak UBL XSD'leri sadece UBL belge türleri için eklenir.
-        // EARCHIVE ve EDEFTER gibi bağımsız XSD'ler kendi import'larını kendi dizinlerinden çözer.
-        if (UBL_TYPES.contains(type)) {
-            for (String commonXsd : COMMON_XSD_FILES) {
-                if (assetManager.assetExists(commonXsd)) {
-                    var file = assetManager.resolveAssetOnDisk(commonXsd);
-                    sources.add(new StreamSource(file.toFile()));
-                }
+        for (String preloadXsd : spec.preloadXsds()) {
+            if (assetManager.assetExists(preloadXsd)) {
+                var file = assetManager.resolveAssetOnDisk(preloadXsd);
+                sources.add(new StreamSource(file.toFile()));
             }
         }
+        return sources;
+    }
 
-        var mainFile = assetManager.resolveAssetOnDisk(mainXsd);
+    private Schema compileSchema(SchemaSpec spec) throws SAXException, IOException {
+        SchemaFactory factory = newSchemaFactory();
+        List<StreamSource> sources = preloadSources(spec);
+
+        var mainFile = assetManager.resolveAssetOnDisk(spec.mainXsd());
         sources.add(new StreamSource(mainFile.toFile()));
 
         // e-Defter / XBRL XSD dosyaları HTTP URL ile xs:import yapar
         // (örn: http://www.xbrl.org/2003/xbrl-instance-2003-12-31.xsd).
         // LocalSchemaResourceResolver bu HTTP URL'leri lokal dosyalara yönlendirir
         // ve internet erişimi gerektirmez.
-        configureLocalSchemaResolver(factory, type, mainFile);
+        configureLocalSchemaResolver(factory, spec, mainFile);
 
         return factory.newSchema(sources.toArray(new StreamSource[0]));
     }
 
-    private void configureLocalSchemaResolver(SchemaFactory factory, SchemaValidationType type, Path mainFile) {
-        if (UBL_TYPES.contains(type)) {
+    private void configureLocalSchemaResolver(SchemaFactory factory, SchemaSpec spec, Path mainFile) {
+        SchemaValidationType type = spec.builtInType();
+        if (type != null && UBL_TYPES.contains(type)) {
             return;
         }
 
-        if (EARCHIVE_PRODUCT_TYPES.contains(type)) {
+        if (type != null && EARCHIVE_PRODUCT_TYPES.contains(type)) {
             Path sharedDir = resolveSharedEarchiveSchemaDir();
             if (sharedDir != null) {
                 factory.setResourceResolver(

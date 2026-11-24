@@ -4,10 +4,12 @@ import io.mersel.services.xslt.application.enums.DocumentType;
 import io.mersel.services.xslt.application.enums.SchemaValidationType;
 import io.mersel.services.xslt.application.enums.SchematronValidationType;
 import io.mersel.services.xslt.application.interfaces.DocumentTypeDetectionException;
+import io.mersel.services.xslt.application.interfaces.ICustomDocumentTypeRegistry;
 import io.mersel.services.xslt.application.interfaces.IDocumentTypeDetector;
 import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
 import io.mersel.services.xslt.application.interfaces.ISchematronValidator;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
+import io.mersel.services.xslt.application.models.CustomDocumentType;
 import io.mersel.services.xslt.application.models.DocumentTypeMapping;
 import io.mersel.services.xslt.application.models.SchematronCustomAssertion;
 import io.mersel.services.xslt.application.models.SchematronError;
@@ -56,6 +58,7 @@ public class ValidationController {
     private final ISchemaValidator schemaValidator;
     private final ISchematronValidator schematronValidator;
     private final IValidationProfileService profileService;
+    private final ICustomDocumentTypeRegistry customDocumentTypes;
     private final XsltMetrics xsltMetrics;
     private final ObjectMapper objectMapper;
 
@@ -63,12 +66,14 @@ public class ValidationController {
                                 ISchemaValidator schemaValidator,
                                 ISchematronValidator schematronValidator,
                                 IValidationProfileService profileService,
+                                ICustomDocumentTypeRegistry customDocumentTypes,
                                 XsltMetrics xsltMetrics,
                                 ObjectMapper objectMapper) {
         this.documentTypeDetector = documentTypeDetector;
         this.schemaValidator = schemaValidator;
         this.schematronValidator = schematronValidator;
         this.profileService = profileService;
+        this.customDocumentTypes = customDocumentTypes;
         this.xsltMetrics = xsltMetrics;
         this.objectMapper = objectMapper;
     }
@@ -85,7 +90,9 @@ public class ValidationController {
                     - e-Envanter: Defter, Berat
                     
                     **Otomatik Tespit:** Belge türü XML namespace, root element ve e-Defter belgelerinde xbrli:context id bilgisinden tespit edilir.
-                    
+
+                    **Özel Belge Türleri:** Kök elementi tanınmayan belgeler, asset dizinindeki `custom-document-types.yml` tanımlarıyla (namespace + root element) eşleşirse tanımdaki XSD ve opsiyonel Schematron ile doğrulanır; `detectedDocumentType` tanımın `id` değeridir.
+
                     **Profil Desteği:** `profile` parametresi ile önceden tanımlı bastırma profili uygulanabilir.
                     """
     )
@@ -107,39 +114,57 @@ public class ValidationController {
         var response = new ValidationResponse();
 
         // ── Belge türü tespiti ──
-        DocumentType documentType;
+        // Yerleşik kurallar önceliklidir; tanınmayan kök, asset dizinindeki özel tanımlarla eşleştirilir.
+        String detectedType;
+        String schemaKey;
+        String xsdPath;
+        SchematronValidationType schematronType;
+        SchemaValidationType schemaType = null;
+        CustomDocumentType customType = null;
         try {
-            documentType = documentTypeDetector.detect(source);
+            DocumentType documentType = documentTypeDetector.detect(source);
+
+            // Eşleştirme tablosundan XSD ve Schematron tiplerini çöz
+            schemaType = DocumentTypeMapping.SCHEMA_MAP.get(documentType);
+            if (schemaType == null) {
+                return ResponseEntity.badRequest().body(XsltServiceResponse.error(
+                        "Tespit edilen belge türü için doğrulama eşleştirmesi bulunamadı: " + documentType));
+            }
+            schematronType = DocumentTypeMapping.SCHEMATRON_MAP.get(documentType);
+            detectedType = documentType.name();
+            schemaKey = schemaType.name();
+            xsdPath = DocumentTypeMapping.XSD_PATH_MAP.get(documentType);
         } catch (DocumentTypeDetectionException e) {
-            log.warn("Belge türü tespit edilemedi: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(XsltServiceResponse.error(
-                    "Belge türü tespit edilemedi: " + e.getMessage()));
-        }
-
-        // Eşleştirme tablosundan XSD ve Schematron tiplerini çöz
-        SchemaValidationType schemaType = DocumentTypeMapping.SCHEMA_MAP.get(documentType);
-        SchematronValidationType schematronType = DocumentTypeMapping.SCHEMATRON_MAP.get(documentType);
-
-        if (schemaType == null) {
-            return ResponseEntity.badRequest().body(XsltServiceResponse.error(
-                    "Tespit edilen belge türü için doğrulama eşleştirmesi bulunamadı: " + documentType));
+            customType = e.getRootLocalName() != null
+                    ? customDocumentTypes.findByRoot(e.getRootNamespace(), e.getRootLocalName()).orElse(null)
+                    : null;
+            if (customType == null) {
+                log.warn("Belge türü tespit edilemedi: {}", e.getMessage());
+                return ResponseEntity.badRequest().body(XsltServiceResponse.error(
+                        "Belge türü tespit edilemedi: " + e.getMessage()));
+            }
+            detectedType = customType.id();
+            schemaKey = customType.id();
+            xsdPath = customType.xsdPath();
+            schematronType = customType.schematronType();
         }
 
         // ── Tespit bilgilerini response'a yaz ──
-        response.setDetectedDocumentType(documentType.name());
-        response.setAppliedXsd(DocumentTypeMapping.getXsdFileName(documentType));
-        response.setAppliedXsdPath(DocumentTypeMapping.XSD_PATH_MAP.get(documentType));
+        response.setDetectedDocumentType(detectedType);
+        response.setAppliedXsd(fileName(xsdPath));
+        response.setAppliedXsdPath(xsdPath);
         if (schematronType != null) {
             response.setAppliedSchematron(schematronType.name());
             response.setAppliedSchematronPath(DocumentTypeMapping.SCHEMATRON_PATH_MAP.get(schematronType));
         }
 
-        log.info("Doğrulama isteği — Tespit: {}, XSD: {}, SCH: {}, Profil: {}, Parametre: {}",
-                documentType, schemaType, schematronType, requestDto.getProfile(),
+        log.info("Doğrulama isteği — Tespit: {}{}, XSD: {}, SCH: {}, Profil: {}, Parametre: {}",
+                detectedType, customType != null ? " (özel)" : "", schemaKey, schematronType,
+                requestDto.getProfile(),
                 requestDto.getParameters() != null ? requestDto.getParameters() : "yok");
 
         // Metrics
-        xsltMetrics.recordValidation(schemaType.name(), schematronType != null ? schematronType.name() : "SKIPPED");
+        xsltMetrics.recordValidation(schemaKey, schematronType != null ? schematronType.name() : "SKIPPED");
 
         // Ad-hoc bastırma kurallarını parse et
         List<String> additionalSuppressions = parseSuppressions(requestDto.getSuppressions());
@@ -147,16 +172,17 @@ public class ValidationController {
 
         // Aktif doğrulama tiplerini topla (scope filtresi için)
         Set<String> activeTypes = new LinkedHashSet<>();
-        activeTypes.add(schemaType.name());
+        activeTypes.add(schemaKey);
         if (schematronType != null) activeTypes.add(schematronType.name());
 
         // ── Schema (XSD) doğrulama ──
         try {
             // Profil bazlı XSD override'larını çözümle
-            List<XsdOverride> xsdOverrides = profileService.resolveXsdOverrides(
-                    profileName, schemaType.name());
+            List<XsdOverride> xsdOverrides = profileService.resolveXsdOverrides(profileName, schemaKey);
 
-            List<String> schemaErrors = schemaValidator.validate(source, schemaType, xsdOverrides, profileName);
+            List<String> schemaErrors = customType != null
+                    ? schemaValidator.validateCustom(source, customType.id(), xsdOverrides, profileName)
+                    : schemaValidator.validate(source, schemaType, xsdOverrides, profileName);
 
             // XSD bastırma uygula (scope-aware)
             List<String> activeSchemaErrors = profileService.applyXsdSuppressions(
@@ -210,7 +236,7 @@ public class ValidationController {
         }
 
         log.info("Doğrulama tamamlandı — Tür: {}, Schema: {}, Schematron: {}{}",
-                documentType,
+                detectedType,
                 response.isValidSchema() ? "Geçerli" : "Geçersiz",
                 response.isValidSchematron() ? "Geçerli" : "Geçersiz",
                 profileName != null ? " (profil: " + profileName + ")" : "");
@@ -221,7 +247,7 @@ public class ValidationController {
 
         // Belge tipi bazlı doğrulama dağılımı
         boolean overallValid = response.isValidSchema() && response.isValidSchematron();
-        xsltMetrics.recordDocumentTypeValidation(documentType.name(), overallValid);
+        xsltMetrics.recordDocumentTypeValidation(detectedType, overallValid);
 
         // Profil kullanım metrikleri
         if (profileName != null && !profileName.isBlank()) {
@@ -232,6 +258,12 @@ public class ValidationController {
         }
 
         return ResponseEntity.ok(XsltServiceResponse.success(response));
+    }
+
+    private static String fileName(String path) {
+        if (path == null) return null;
+        int idx = path.lastIndexOf('/');
+        return idx >= 0 ? path.substring(idx + 1) : path;
     }
 
     /**

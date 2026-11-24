@@ -20,6 +20,7 @@ E-Fatura, E-İrsaliye, E-Arşiv ve diğer e-dönüşüm belgeleri için XML doğ
 - **Schematron Parametreleri** — Doğrulama sırasında dinamik değişken geçirme (`$sessionVkn` vb.), otomatik parametre tanıma
 - **Mesaj Placeholder'ları** — Hata mesajlarında `{{xpath}}` ile XML değerlerini gösterme (`<sch:value-of>`)
 - **Doğrulama Profilleri** — İmzasız belge doğrulama, kural bastırma, XSD override (YAML yapılandırmalı)
+- **Özel Belge Türleri** — Servisin tanımadığı kök elementler için kod değiştirmeden XSD + opsiyonel Schematron tanımı (`custom-document-types.yml`)
 - **Hot-Reload** — Dosya değişikliğinde veya API ile yeniden yükleme, restart gerekmez
 - **External Asset Override** — XSD, XSLT, Schematron dosyalarını Docker volume mount ile dışarıdan besle
 - **GİB Paket Otomatik Sync** — GİB resmi paketlerini API ile indir ve güncelle
@@ -503,6 +504,7 @@ Servisin kullandığı XSD, XSLT ve Schematron dosyaları dışarıdan beslenebi
 | `xslt.assets.external-path` | `XSLT_ASSETS_EXTERNAL_PATH` | (boş) | External asset dizini |
 | `xslt.assets.watch-enabled` | `XSLT_ASSETS_WATCH_ENABLED` | `true` | Dosya değişikliği izleme |
 | `xslt.assets.watch-debounce-ms` | `XSLT_ASSETS_WATCH_DEBOUNCE_MS` | `500` | Debounce süresi (ms) |
+| `xslt.assets.seed-path` | `XSLT_ASSETS_SEED_PATH` | (boş) | Açılışta içeriği asset dizinine kopyalanan (üzerine yazılan) dizin |
 
 ### Override Edilebilir Dosya Yapısı
 
@@ -526,10 +528,57 @@ custom-assets/
 │   │   └── schema/                    # UBL-TR XSD dosyaları
 │   ├── earchive/                      # e-Arşiv dosyaları
 │   └── eledger/                       # e-Defter dosyaları
+├── custom/                            # Özel belge türlerinin XSD'leri (GİB sync dokunmaz)
+├── custom-document-types.yml          # Özel belge türü tanımları
 └── validation-profiles.yml            # Özel doğrulama profilleri
 ```
 
 Örnek yapı için `custom-assets.example/` dizinine bakın.
+
+### Özel Belge Türleri
+
+Servisin yerleşik olarak tanımadığı bir kök elementi doğrulatmak için kod değişikliği gerekmez.
+XSD setini asset dizininde `custom/` altına koyup `custom-document-types.yml` içinde tanımlayın:
+
+```yaml
+document-types:
+  - id: SAMPLE_VOUCHER                         # ^[A-Z][A-Z0-9_]{0,63}$, yerleşik adlarla çakışamaz
+    description: "Örnek belge"                # opsiyonel
+    root-namespace: "urn:example:sample:voucher-1"
+    root-element: Voucher                      # önek (prefix) olmadan
+    xsd: custom/sample/maindoc/Sample-Voucher-1.0.xsd
+    schematron: UBLTR_MAIN                     # opsiyonel, yerleşik Schematron tipi
+```
+
+- Kök elementi yerleşik kurallarla tanınmayan belge, namespace + yerel adı bir tanımla eşleşirse
+  o tanımla doğrulanır; yerleşik türler her zaman önceliklidir. Eşleşme yoksa yanıt yine `400`'dür.
+- Yanıtta `detectedDocumentType` tanımın `id` değeridir. Aynı değer profillerdeki `scope` ve
+  `xsd-overrides` anahtarlarında kullanılabilir.
+- Ana XSD'nin göreceli `xs:import` / `xs:include` referansları kendi konumuna göre çözülür; kendi
+  ortak XSD'lerini getiren setler GİB'in ortak XSD'leriyle karışmaz.
+- `schematron` verilmezse Schematron adımı atlanır ve `validSchematron=true` döner.
+- Tanımlar ve XSD'ler hot-reload ile yüklenir. Hatalı tanımlar reload sonucunda
+  (`Custom Document Types` bileşeni) raporlanır ve atlanır; dosya okunamazsa önceki tanımlar korunur.
+
+### Özel Asset'leri Dağıtma
+
+Özel belge türleri, kendi varsayılan XSLT şablonlarınız (`default_transformers/`) ve profiller
+servis imajının parçası değildir; servisi çalıştıran taraf sağlar. Bu dosyalar asset dizinine
+şu yollarla gelebilir:
+
+| Ne zaman | Yöntem | Not |
+|---|---|---|
+| Açılışta | Volume / bind mount (asset dizininin kendisi) | En basit yol; dizin GİB sync için yazılabilir olmalı |
+| Açılışta | `XSLT_ASSETS_SEED_PATH` + salt-okunur kaynak (Kubernetes ConfigMap/Secret, read-only volume) | Seed içeriği her açılışta asset dizinine kopyalanır (üzerine yazar); seed'de olmayan dosyalara dokunulmaz. ConfigMap'in `..data` bağlantıları desteklenir |
+| Açılışta | Kendi imajınız: `FROM` bu imaj + `COPY ozel-assetler /opt/xslt-seed` + `ENV XSLT_ASSETS_SEED_PATH=/opt/xslt-seed` | Özel dosyalar kendi (özel) registry'nizde kalır; asset volume'u kalıcı olsa da imaj güncellemesi dosyaları yeniler |
+| Açılışta | Init container / sidecar (özel depodan çekip asset dizinine yazar) | Orkestratöre bağlı; seed yoluyla da birleştirilebilir |
+| Sonradan | Dosyayı asset dizinine bırakmak | Dosya izleyici değişikliği algılar ve yeniden yükler (`xslt.assets.watch-enabled`) |
+| Sonradan | `POST /v1/admin/assets/reload` | İzleyici kapalıysa veya dosyalar başka yoldan güncellendiyse |
+| Sonradan | `PUT /v1/admin/default-xslt/{transformType}` | Yalnız varsayılan XSLT şablonları için |
+
+GİB otomatik ilk sync'i yalnızca GİB paketlerinin yazıldığı `validator/` dizini boşken çalışır; açılışta
+konan özel dosyalar ilk sync'i engellemez. Özel XSD'leri `validator/` altına koymayın: hem ilk sync
+kararını etkiler hem de ilgili paketin sync'i o dizini silip yeniden yazar.
 
 ## Konfigürasyon
 
@@ -576,7 +625,7 @@ custom-assets/
 | Parametre | Env Variable | Varsayılan | Açıklama |
 |-----------|-------------|------------|----------|
 | `validation-assets.gib.sync.enabled` | `VALIDATION_ASSETS_GIB_SYNC_ENABLED` | `true` | Sync özelliğini aç/kapa |
-| `validation-assets.gib.sync.auto-sync-on-startup` | `VALIDATION_ASSETS_GIB_AUTO_SYNC` | `true` | İlk kurulumda (asset dizini boşken) otomatik sync |
+| `validation-assets.gib.sync.auto-sync-on-startup` | `VALIDATION_ASSETS_GIB_AUTO_SYNC` | `true` | İlk kurulumda (`validator/` dizini boşken) otomatik sync |
 | `validation-assets.gib.sync.target-path` | `VALIDATION_ASSETS_GIB_SYNC_PATH` | (boş) | İndirilen dosyaların hedef dizini |
 | `validation-assets.gib.sync.package-urls.<paket-id>` | `GIB_PACKAGE_URL_<PAKET-ID>` | (boş) | Paket bazlı kalıcı indirme URL override'ı |
 | `validation-assets.gib.sync.connect-timeout-ms` | — | `10000` | HTTP bağlantı zaman aşımı (ms) |

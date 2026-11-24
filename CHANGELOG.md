@@ -4,6 +4,15 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Eklenen
+
+- Özel belge türleri: servisin yerleşik olarak tanımadığı kök elementler kod değiştirmeden doğrulanabilir. Asset dizinindeki `custom-document-types.yml` her tanım için kök namespace + yerel ad, asset dizinine göreli ana XSD ve opsiyonel olarak yerleşik bir Schematron tipi alır. Yerleşik tespit önceliklidir; tanınmayan kök bir tanımla eşleşirse `/v1/validate` tanımın XSD'si ve Schematron'u ile doğrular, `detectedDocumentType` tanımın `id` değeridir. Ana XSD'nin göreceli `xs:import`/`xs:include`'ları kendi konumuna göre çözülür; profillerdeki `scope` ve `xsd-overrides` anahtarları tanım adıyla çalışır. Tanımlar `Custom Document Types` adıyla hot-reload'a katılır ve XSD derlemesinden önce yüklenir; hatalı tanımlar (geçersiz ad, yerleşik adla çakışma, aynı kök, asset dizini dışına çıkan yol, bilinmeyen alan veya Schematron tipi) raporlanıp atlanır, dosya okunamazsa önceki tanımlar korunur
+- `xslt.assets.seed-path` (env: `XSLT_ASSETS_SEED_PATH`): açılışta içeriği asset dizinine aynı göreli yollarla kopyalanan (üzerine yazan) dizin. Kendi imajına gömülen veya salt-okunur bağlanan (ConfigMap, Secret) özel asset'leri — özel belge türleri, varsayılan XSLT şablonları, profiller — yazılabilir asset dizinine taşımak içindir. Seed'de olmayan dosyalara dokunulmaz; nokta ile başlayan yollar (ConfigMap `..data`) ve `auto-generated/` atlanır
+
+### Değişen
+
+- GİB otomatik ilk sync'i artık asset dizininin tamamı değil, GİB paketlerinin yazıldığı `validator/` dizini boşken çalışır. Önceden açılışta konan herhangi bir dosya (örn. `default_transformers/` altına bir şablon ya da `validation-profiles.yml`) ilk sync'i tamamen engelliyor ve servis XSD/Schematron olmadan açılıyordu
+
 ## [1.4.0] - 2026-10-04
 
 ### Eklenen
