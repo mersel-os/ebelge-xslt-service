@@ -237,6 +237,8 @@ curl -v -X POST http://localhost:8080/v1/transform \
 | `X-Xslt-Duration-Ms` | integer | İşlem süresi (milisaniye) |
 | `X-Xslt-Watermark-Applied` | boolean | Filigran uygulandı mı |
 | `X-Xslt-Output-Size` | integer | Çıktı boyutu (byte) |
+| `X-Xslt-Scripts-Removed` | integer | Güvenlik nedeniyle kaldırılan script sayısı |
+| `X-Xslt-Security-Violations` | string | Tespit edilen güvenlik ihlalleri (virgülle ayrılmış). Header yoksa ihlal yok. En fazla 1000 karakter, `X-Xslt-Custom-Error` ile aynı ISO-8859-1 kuralları geçerli |
 
 **Hata Yanıtı (422 — RFC 7807):**
 ```json
