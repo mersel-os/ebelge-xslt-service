@@ -94,6 +94,15 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      */
     private static final String EARCHIVE_SHARED_SCHEMA_DIR = "validator/earchive/schema";
 
+    /**
+     * Ana XSD'si yoksa hata sayılmayan tipler: ayrı dağıtılan ürün paketleri ve genel e-Arşiv
+     * paketine sonradan eklenmiş {@code eArsivVeri.xsd} (eski sync'lerde bulunmayabilir).
+     */
+    private static final Set<SchemaValidationType> OPTIONAL_TYPES = java.util.stream.Stream.concat(
+                    EARCHIVE_PRODUCT_TYPES.stream(),
+                    java.util.stream.Stream.of(SchemaValidationType.EARCHIVE_DATA))
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+
     private static final String ASSET_HINT_CUSTOM =
             "custom-document-types.yml tanımını ve XSD dosyasının asset dizininde olduğunu kontrol edin.";
 
@@ -129,6 +138,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
             Map.entry(SchemaValidationType.EARCHIVE_REPORT_EDEKONT, "validator/earchive-edekont/schema/eArsiv.xsd"),
             Map.entry(SchemaValidationType.EARCHIVE_REPORT_EGIDER_PUSULASI,
                     "validator/earchive-egider-pusulasi/schema/eArsiv.xsd"),
+            Map.entry(SchemaValidationType.EARCHIVE_DATA, "validator/earchive/schema/eArsivVeri.xsd"),
             Map.entry(SchemaValidationType.EDEFTER, "validator/eledger/schema/edefter.xsd")
     );
 
@@ -194,7 +204,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         for (SchemaValidationType type : SchemaValidationType.values()) {
             try {
                 if (isUnsyncedProductSchema(type)) {
-                    log.info("  {} XSD şeması mevcut değil: {} (GİB ürün paketi sync edilmemiş)",
+                    log.info("  {} XSD şeması mevcut değil: {} (ilgili GİB paketi sync edilmemiş)",
                             type, MAIN_XSD_MAP.get(type));
                     continue;
                 }
@@ -240,7 +250,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * Bu şemaların yokluğu hata değildir; yalnızca ilgili paket kurulmamış demektir.
      */
     private boolean isUnsyncedProductSchema(SchemaValidationType type) {
-        if (!EARCHIVE_PRODUCT_TYPES.contains(type)) {
+        if (!OPTIONAL_TYPES.contains(type)) {
             return false;
         }
         String mainXsd = MAIN_XSD_MAP.get(type);

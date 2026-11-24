@@ -32,6 +32,7 @@ public final class DocumentTypeMapping {
             Map.entry(DocumentType.EARCHIVE_REPORT_EDOVIZ, SchemaValidationType.EARCHIVE_REPORT_EDOVIZ),
             Map.entry(DocumentType.EARCHIVE_REPORT_EDEKONT, SchemaValidationType.EARCHIVE_REPORT_EDEKONT),
             Map.entry(DocumentType.EARCHIVE_REPORT_EGIDER_PUSULASI, SchemaValidationType.EARCHIVE_REPORT_EGIDER_PUSULASI),
+            Map.entry(DocumentType.EARCHIVE_DATA, SchemaValidationType.EARCHIVE_DATA),
             Map.entry(DocumentType.EDEFTER_YEVMIYE, SchemaValidationType.EDEFTER),
             Map.entry(DocumentType.EDEFTER_KEBIR, SchemaValidationType.EDEFTER),
             Map.entry(DocumentType.EDEFTER_BERAT, SchemaValidationType.EDEFTER),
@@ -52,6 +53,8 @@ public final class DocumentTypeMapping {
             Map.entry(DocumentType.EARCHIVE_REPORT, SchematronValidationType.EARCHIVE_REPORT),
             // e-Adisyon, e-Dekont ve e-Gider Pusulası için uyumlu rapor Schematron
             // bulunmadığından bu türler burada yer almaz; yalnızca XSD uygulanır.
+            // eArsivVeri (EARCHIVE_DATA) da yok: GİB paketindeki earsiv_schematron.xsl yalnız
+            // eArsivRaporu kökü için kural içerir.
             Map.entry(DocumentType.EARCHIVE_REPORT_EDOVIZ, SchematronValidationType.EARCHIVE_REPORT_EDOVIZ),
             Map.entry(DocumentType.EDEFTER_YEVMIYE, SchematronValidationType.EDEFTER_YEVMIYE),
             Map.entry(DocumentType.EDEFTER_KEBIR, SchematronValidationType.EDEFTER_KEBIR),
@@ -77,6 +80,7 @@ public final class DocumentTypeMapping {
             Map.entry(DocumentType.EARCHIVE_REPORT_EDEKONT, "validator/earchive-edekont/schema/eArsiv.xsd"),
             Map.entry(DocumentType.EARCHIVE_REPORT_EGIDER_PUSULASI,
                     "validator/earchive-egider-pusulasi/schema/eArsiv.xsd"),
+            Map.entry(DocumentType.EARCHIVE_DATA, "validator/earchive/schema/eArsivVeri.xsd"),
             Map.entry(DocumentType.EDEFTER_YEVMIYE, "validator/eledger/schema/edefter.xsd"),
             Map.entry(DocumentType.EDEFTER_KEBIR, "validator/eledger/schema/edefter.xsd"),
             Map.entry(DocumentType.EDEFTER_BERAT, "validator/eledger/schema/edefter.xsd"),

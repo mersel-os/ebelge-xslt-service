@@ -25,8 +25,9 @@ import java.util.Map;
  * Tespit kuralları:
  * <ul>
  *   <li>UBL-TR namespace ({@code urn:oasis:...:*-2}) → root element adına göre belge türü</li>
- *   <li>e-Arşiv namespace ({@code http://earsiv.efatura.gov.tr}) → {@code baslik}'tan sonraki
- *       içerik elementine göre rapor ailesi; tanınmayan içerikte EARCHIVE_REPORT</li>
+ *   <li>e-Arşiv namespace ({@code http://earsiv.efatura.gov.tr}) → {@code eArsivVeri} kökü
+ *       EARCHIVE_DATA; diğer köklerde {@code baslik}'tan sonraki içerik elementine göre rapor
+ *       ailesi, tanınmayan içerikte EARCHIVE_REPORT</li>
  *   <li>e-Defter namespace ({@code http://www.edefter.gov.tr}) + prefix "edefter" → root element ve context id'ye göre</li>
  *   <li>e-Envanter namespace ({@code http://www.edefter.gov.tr}) + prefix "envanter" → root element'e göre</li>
  * </ul>
@@ -39,6 +40,8 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
     // ── Namespace sabitleri ──
     private static final String NS_EDEFTER = "http://www.edefter.gov.tr";
     private static final String NS_EARCHIVE = "http://earsiv.efatura.gov.tr";
+    /** Genel e-Arşiv paketindeki {@code eArsivVeri.xsd} kökü (serbest meslek makbuzu verisi). */
+    private static final String EARCHIVE_DATA_ROOT = "eArsivVeri";
     private static final String NS_UBL_PREFIX = "urn:oasis:names:specification:ubl:schema:xsd:";
 
     // ── UBL-TR root element → DocumentType eşlemesi ──
@@ -265,9 +268,11 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
                 return UBL_ROOT_MAP.get(localName);
             }
 
-            // e-Arşiv namespace
+            // e-Arşiv namespace: eArsivVeri ayrı bir kök ve şemadır; diğer kökler rapor ailesidir.
             if (NS_EARCHIVE.equals(namespace)) {
-                return DocumentType.EARCHIVE_REPORT;
+                return EARCHIVE_DATA_ROOT.equals(localName)
+                        ? DocumentType.EARCHIVE_DATA
+                        : DocumentType.EARCHIVE_REPORT;
             }
 
             // e-Defter / e-Envanter namespace

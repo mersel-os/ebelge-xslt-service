@@ -78,7 +78,9 @@ class JaxpSchemaValidatorReloadTest {
                 .as("ayrı dağıtılan ürün paketleri hata üretmemeli")
                 .doesNotContain(SchemaValidationType.EARCHIVE_REPORT_EDOVIZ.name())
                 .doesNotContain(SchemaValidationType.EARCHIVE_REPORT_EDEKONT.name())
-                .doesNotContain(SchemaValidationType.EARCHIVE_REPORT_EGIDER_PUSULASI.name());
+                .doesNotContain(SchemaValidationType.EARCHIVE_REPORT_EGIDER_PUSULASI.name())
+                .as("eski sync'lerde bulunmayabilen eArsivVeri.xsd hata üretmemeli")
+                .doesNotContain(SchemaValidationType.EARCHIVE_DATA.name());
     }
 
     @Test

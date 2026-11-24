@@ -311,6 +311,7 @@ curl http://localhost:8080/v1/admin/packages
 | `EARCHIVE_REPORT_EDOVIZ` | e-Döviz ve Kıymetli Maden Raporu (`belge`) |
 | `EARCHIVE_REPORT_EDEKONT` | e-Dekont Raporu (`bankReceipt`) |
 | `EARCHIVE_REPORT_EGIDER_PUSULASI` | e-Gider Pusulası Raporu (`eGiderPusulasi`) |
+| `EARCHIVE_DATA` | e-Arşiv Veri (`eArsivVeri` kökü, serbest meslek makbuzu verisi; genel e-Arşiv paketindeki `eArsivVeri.xsd`, Schematron yok) |
 | `EDEFTER` | e-Defter |
 
 > **Doğrulama kapsamı:** e-Döviz, e-Dekont ve e-Gider Pusulası **belgeleri** UBL
@@ -360,6 +361,11 @@ Kaynak paketler: [e-Arşiv 1.1.8](https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/
 [e-Dekont](https://ebelge.gib.gov.tr/dosyalar/eDekont_Paketi.rar),
 [e-Gider Pusulası](https://ebelge.gib.gov.tr/dosyalar/kilavuzlar/e-Gider_Pusulasi_Paketi.rar).
 Paket inceleme tarihi: 05.09.2026.
+
+Genel e-Arşiv paketi aynı namespace'te ayrı bir kök için `eArsivVeri.xsd` de içerir
+(`eArsivVeri`: `baslik` + `serbestMeslekMakbuz`). Bu kök rapor ailesi değildir;
+`EARCHIVE_DATA` olarak tespit edilip bu şemayla doğrulanır. Paketteki `earsiv_schematron.xsl`
+yalnız `eArsivRaporu` için kural içerdiğinden Schematron adımı atlanır.
 
 ### Schematron
 

@@ -150,6 +150,32 @@ class DocumentTypeDetectorTest {
         }
 
         @Test
+        @DisplayName("eArsivVeri kökü → EARCHIVE_DATA (rapor ailesi değil)")
+        void detect_earchiveData() throws Exception {
+            byte[] xml = xml("""
+                    <eArsivVeri xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <serbestMeslekMakbuz/>
+                    </eArsivVeri>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_DATA);
+        }
+
+        @Test
+        @DisplayName("eArsivRaporu içinde serbestMeslekMakbuz → genel EARCHIVE_REPORT")
+        void detect_freelanceReceiptReportStaysGenericReport() throws Exception {
+            byte[] xml = xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <serbestMeslekMakbuz/>
+                    </eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT);
+        }
+
+        @Test
         @DisplayName("İptal içerikleri de kendi rapor ailesine yönlenir")
         void detect_cancellationContentRoutesToSameFamily() throws Exception {
             assertThat(detector.detect(xml("""
