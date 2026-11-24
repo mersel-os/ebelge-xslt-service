@@ -513,6 +513,47 @@ class DocumentTypeDetectorTest {
         }
     }
 
+    // ── DOCTYPE ─────────────────────────────────────────────────────
+
+    /**
+     * {@code /v1/validate} belgeyi XSD ve Schematron'a vermeden önce bu sınıftan geçirir;
+     * DOCTYPE'lı belgelerin burada reddedilmesi o uçtaki ilk XXE engelidir.
+     */
+    @Nested
+    @DisplayName("DOCTYPE")
+    class Doctype {
+
+        @Test
+        @DisplayName("Harici varlık tanımlayan DOCTYPE → DocumentTypeDetectionException, kaynak okunmaz")
+        void detect_externalEntity_rejected() {
+            byte[] xml = xml("""
+                    <!DOCTYPE Invoice [<!ENTITY xxe SYSTEM "file:///definitely-not-present/secret.txt">]>
+                    <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2">
+                        <ID>&xxe;</ID>
+                    </Invoice>
+                    """);
+
+            assertThatThrownBy(() -> detector.detect(xml))
+                    .isInstanceOf(DocumentTypeDetectionException.class)
+                    .hasMessageContaining("DOCTYPE");
+        }
+
+        @Test
+        @DisplayName("Yalnız iç varlık tanımlayan DOCTYPE de reddedilir")
+        void detect_internalEntity_rejected() {
+            byte[] xml = xml("""
+                    <!DOCTYPE Invoice [<!ENTITY id "INV-001">]>
+                    <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2">
+                        <ID>&id;</ID>
+                    </Invoice>
+                    """);
+
+            assertThatThrownBy(() -> detector.detect(xml))
+                    .isInstanceOf(DocumentTypeDetectionException.class)
+                    .hasMessageContaining("DOCTYPE");
+        }
+    }
+
     // ── Helper ──────────────────────────────────────────────────────
 
     private static byte[] xml(String content) {
