@@ -65,6 +65,23 @@ public sealed class InvoiceService(IXsltServiceClient xsltClient)
 }
 ```
 
+## Watermark
+
+`WatermarkText` verilirse servis HTML'e belgenin tamamını kaplayan, yazdırmada ve PDF'te her sayfaya basılan bir filigran ekler. Metin en çok 200 karakter olabilir.
+
+```csharp
+var result = await xsltClient.TransformAsync(new TransformRequest
+{
+    Document = xml,
+    TransformType = TransformType.INVOICE,
+    WatermarkText = "TASLAK"
+}, ct);
+
+// result.WatermarkApplied == true
+```
+
+Filigranın görünümü istemciden değil, servisi çalıştıran tarafın asset dizinindeki `watermark.css` ile değiştirilir. Ayrıntılar: [Filigran Kullanım Kılavuzu](https://github.com/mersel-os/ebelge-xslt-service/blob/main/docs/filigran.md).
+
 ## Security Violation Detection
 
 Transform yanıtlarında sunucu tarafında otomatik HTML sanitization uygulanır. Exfiltration riski taşıyan scriptler kaldırılır ve detayları response header'larından okunur.
