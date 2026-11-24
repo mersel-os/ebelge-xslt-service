@@ -235,10 +235,12 @@ Filigranın görünümü ve ayarları için [Filigran](#filigran) bölümüne ba
 |--------|-----|----------|
 | `X-Xslt-Default-Used` | boolean | Varsayılan XSLT şablonu kullanıldı mı |
 | `X-Xslt-Embedded-Used` | boolean | Belgeden çıkarılan gömülü XSLT kullanıldı mı |
-| `X-Xslt-Custom-Error` | string | Özel/gömülü XSLT hata mesajı (sadece fallback durumunda) |
+| `X-Xslt-Custom-Error` | string | Özel/gömülü XSLT hata mesajı (sadece fallback durumunda). En fazla 500 karakter, ISO-8859-1: ü/ç/ö korunur; ı, ş, ğ, İ `i`, `s`, `g`, `I`; uzun tire `-` olur, karşılığı olmayan karakter `?` olur |
 | `X-Xslt-Duration-Ms` | integer | İşlem süresi (milisaniye) |
 | `X-Xslt-Watermark-Applied` | boolean | Filigran uygulandı mı |
 | `X-Xslt-Output-Size` | integer | Çıktı boyutu (byte) |
+| `X-Xslt-Scripts-Removed` | integer | Güvenlik nedeniyle kaldırılan script sayısı |
+| `X-Xslt-Security-Violations` | string | Tespit edilen güvenlik ihlalleri (virgülle ayrılmış). Header yoksa ihlal yok. En fazla 1000 karakter, `X-Xslt-Custom-Error` ile aynı ISO-8859-1 kuralları geçerli |
 
 **Hata Yanıtı (422 — RFC 7807):**
 ```json

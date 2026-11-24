@@ -358,15 +358,15 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
                 transformer.setStylesheetParameters(xsltParams);
             }
 
-            var streamSource = new StreamSource(new ByteArrayInputStream(source));
-
-            if (sourceFileName != null && !sourceFileName.isBlank()) {
-                streamSource.setSystemId(sourceFileName);
-            }
+            // Kullanıcı belgesi harici DTD/varlık çözmeyen ayrıştırıcıyla okunur (XXE).
+            // Schematron mesajlarındaki <sch:value-of> ve {{xpath}} belge içeriğini yanıta taşıdığı için
+            // çözülen bir harici varlık doğrudan sızar. Dosya adı base-uri() olarak kalır
+            // (e-Defter Schematron'ları dosya adını kontrol eder).
+            var documentSource = SecureXmlParser.source(source, sourceFileName);
 
             var resultWriter = new StringWriter();
             var serializer = processor.newSerializer(resultWriter);
-            transformer.transform(streamSource, serializer);
+            transformer.transform(documentSource, serializer);
 
             String result = resultWriter.toString();
             if (result != null && !result.isBlank()) {

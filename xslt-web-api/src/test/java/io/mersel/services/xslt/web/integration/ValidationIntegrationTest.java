@@ -27,6 +27,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -502,6 +503,33 @@ class ValidationIntegrationTest {
                 .andExpect(jsonPath("$.result.suppressionInfo.suppressedCount").value(1))
                 .andExpect(jsonPath("$.result.suppressionInfo.suppressedErrors[0].ruleId")
                         .value("InvoiceIDCheck"));
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Senaryo: DOCTYPE'lı belge (XXE) → tespit aşamasında BadRequest
+    // ────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Harici varlık içeren DOCTYPE — 400 dönmeli, XSD ve Schematron'a hiç ulaşmamalı")
+    void shouldRejectDoctypeBeforeSchemaAndSchematron() throws Exception {
+        String xxeInvoice = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE Invoice [<!ENTITY xxe SYSTEM "file:///etc/hostname">]>
+                <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+                         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                    <cbc:ID>&xxe;</cbc:ID>
+                </Invoice>
+                """;
+
+        var xmlFile = new MockMultipartFile("source", "fatura.xml", "text/xml",
+                xxeInvoice.getBytes());
+
+        mockMvc.perform(multipart("/v1/validate").file(xmlFile))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorMessage").value(
+                        org.hamcrest.Matchers.containsString("DOCTYPE")));
+
+        verifyNoInteractions(schemaValidator, schematronValidator);
     }
 
     // ────────────────────────────────────────────────────────────────────

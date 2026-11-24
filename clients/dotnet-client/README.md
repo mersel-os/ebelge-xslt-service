@@ -111,6 +111,8 @@ if (result.HasSecurityViolations)
 
 Olası violation mesajları: `cookie access`, `domain manipulation`, `localStorage access`, `sessionStorage access`, `redirect/exfiltration via location`, `window.open exfiltration`, `XHR network call`, `fetch API network call`, `sendBeacon exfiltration`, `WebSocket connection`, `cross-origin messaging`, `dynamic code execution (eval)`, `dynamic code execution (Function constructor)`, `dynamic module import`, `UI blocking dialog (alert)`, `UI blocking dialog (confirm)`, `UI blocking dialog (prompt)`.
 
+`CustomXsltError` ve `SecurityViolations` HTTP header'larından okunduğu için sunucu bu metinleri ISO-8859-1'e indirir: ü/ç/ö korunur, ı/ş/ğ/İ `i`/`s`/`g`/`I`, uzun tire `-` olarak gelir (örn. `Gömülü XSLT ile dönüsüm basarisiz: ...`).
+
 ## Targets
 
 - `net6.0`
