@@ -13,8 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import javax.xml.transform.stream.StreamSource;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -26,6 +24,10 @@ import java.util.*;
  * Varsayılan şablonlar uygulama başlangıcında ön-derlenir.
  * <p>
  * {@link Reloadable} arayüzü ile hot-reload destekler.
+ * <p>
+ * Güvenlik: Kullanıcı XSLT'si, gömülü XSLT ve varsayılan şablon yollarının hepsi
+ * {@link XsltSandbox} ile sandbox'lanmış bir {@link Processor} üzerinde çalışır; XML ve XSLT
+ * harici DTD/varlık çözmeyen bir ayrıştırıcıyla okunur.
  */
 @Service
 public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
@@ -66,7 +68,7 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
         this.htmlSanitizer = htmlSanitizer;
         this.embeddedXsltExtractor = embeddedXsltExtractor;
         this.metrics = metrics;
-        this.processor = new Processor(false);
+        this.processor = XsltSandbox.newProcessor();
     }
 
     // ── Reloadable ──────────────────────────────────────────────────
@@ -81,14 +83,14 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
         long startTime = System.currentTimeMillis();
         var newCache = new HashMap<TransformType, XsltExecutable>();
         var errors = new ArrayList<String>();
-        var compiler = processor.newXsltCompiler();
+        var compiler = XsltSandbox.newCompiler(processor);
         int missingCount = 0;
 
         for (var entry : TRANSFORM_XSL_MAP.entrySet()) {
             try {
                 if (assetManager.assetExists(entry.getValue())) {
                     try (var is = assetManager.getAssetStream(entry.getValue())) {
-                        var executable = compiler.compile(new StreamSource(is));
+                        var executable = compiler.compile(XsltSandbox.secureSource(is));
                         newCache.put(entry.getKey(), executable);
                         log.debug("  {} XSLT şablonu derlendi", entry.getKey());
                     }
@@ -217,44 +219,36 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
         }
 
         try {
-            var transformer = executable.load30();
+            var transformer = XsltSandbox.load(executable);
             var outputStream = new ByteArrayOutputStream();
             var serializer = processor.newSerializer(outputStream);
-            transformer.transform(new StreamSource(new ByteArrayInputStream(document)), serializer);
+            transformer.transform(XsltSandbox.secureSource(document), serializer);
             return outputStream.toByteArray();
-        } catch (SaxonApiException e) {
+        } catch (SaxonApiException | SaxonApiUncheckedException e) {
             metrics.recordError("transform");
             throw new TransformException("XSLT dönüşüm hatası: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Kullanıcı tarafından sağlanan XSLT ile dönüşüm.
+     * Kullanıcının yüklediği ya da belgeye gömülü XSLT ile dönüşüm.
      * <p>
-     * Güvenlik: URIResolver kısıtlanmıştır — xsl:import, xsl:include ve document()
-     * fonksiyonu ile harici kaynaklara (HTTP, file:// vb.) erişim engellenir (SSRF koruması).
+     * Güvenlik: {@link XsltSandbox} — xsl:import/xsl:include, doc()/document(), unparsed-text,
+     * collection, environment-variable, system-property ve xsl:result-document ile dosya sistemine,
+     * ağa ve ortama erişim engellenir; XML ve XSLT harici DTD/varlık çözülmeden okunur.
      */
     private byte[] transformWithCustomXslt(byte[] document, byte[] xsltContent) throws SaxonApiException {
         String xsltString = new String(xsltContent, StandardCharsets.UTF_8);
         xsltString = xsltString.replace("Windows-1254", "UTF-8");
 
-        var compiler = processor.newXsltCompiler();
-        // SSRF koruması — harici URI çözümlemesini engelle
-        compiler.setURIResolver((href, base) -> {
-            throw new javax.xml.transform.TransformerException(
-                    "Güvenlik: Harici URI çözümlemesi devre dışı — " + href);
-        });
-        var executable = compiler.compile(new StreamSource(
-                new ByteArrayInputStream(xsltString.getBytes(StandardCharsets.UTF_8))));
-        var transformer = executable.load30();
-        transformer.setURIResolver((href, base) -> {
-            throw new javax.xml.transform.TransformerException(
-                    "Güvenlik: Harici URI çözümlemesi devre dışı — " + href);
-        });
+        var compiler = XsltSandbox.newCompiler(processor);
+        var executable = compiler.compile(
+                XsltSandbox.secureSource(xsltString.getBytes(StandardCharsets.UTF_8)));
+        var transformer = XsltSandbox.load(executable);
 
         var outputStream = new ByteArrayOutputStream();
         var serializer = processor.newSerializer(outputStream);
-        transformer.transform(new StreamSource(new ByteArrayInputStream(document)), serializer);
+        transformer.transform(XsltSandbox.secureSource(document), serializer);
 
         return outputStream.toByteArray();
     }
