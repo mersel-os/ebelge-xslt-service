@@ -4,6 +4,10 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Güvenlik
+
+- Schematron doğrulaması kullanıcı belgesini harici DTD yüklemeyen ve harici entity çözmeyen bir ayrıştırıcıyla okuyor. Önceden Saxon'un varsayılan ayrıştırıcısı DOCTYPE'taki `SYSTEM` entity'lerini (`file:`, `http:` ve dosya adına göre göreli yollar) çözüyordu; değer `<sch:value-of>` ya da profil kurallarındaki `{{xpath}}` yer tutucularıyla hata mesajına taşınabiliyordu. `/v1/validate` belge türü tespiti DOCTYPE içeren belgeleri zaten `400` ile reddettiği için bu yol HTTP üzerinden açık değildi; doğrulayıcı artık o kontrole bağlı değil. Doğrulayıcı düzeyinde iç DTD alt kümesindeki entity'ler çalışmaya devam ediyor ve yüklenen dosyanın adı belgenin `base-uri()` değeri olarak kalıyor
+
 ## [1.4.0] - 2026-10-04
 
 ### Eklenen
