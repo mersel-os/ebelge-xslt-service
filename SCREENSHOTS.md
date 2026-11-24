@@ -20,6 +20,25 @@ Zorunlu `cmn:Party` elementi çıkarılmış belge. Hata, tanımdaki XSD'den sat
 
 ![Özel Belge Türü — Schematron Hatası](docs/screenshots/ozel-belge-turu-schematron-hatasi.png)
 
+### Özel Belge Türü — Profil Bastırma Kapsamı
+
+Profil düzenleyicide bastırma kuralının **Kapsam** listesi. Asset dizininde tanımlı özel türler
+`GET /v1/admin/custom-document-types` ile alınır ve "Özel belge türleri" grubunda listelenir.
+Görüntüdeki `ornek-ozel-tur` profili `GeneralCurrencyIDCheck` kuralını yalnız `SAMPLE_VOUCHER`
+belgelerinde bastırıyor: `currencyID="XYZ"` içeren örnek bu profille `validSchematron=true` döner,
+bastırılan hata `suppressionInfo` içinde görünür. Uzun tip adları alt çizgilerden kırılır.
+
+![Özel Belge Türü — Kapsam](docs/screenshots/ozel-belge-turu-kapsam.png)
+
+### Özel Belge Türü — XSD Override Tipi
+
+XSD override **Schema Tipi** seçicisinde aynı türler. Aynı profilde `SAMPLE_VOUCHER` için
+`cmn:Party` `minOccurs=0` yapıldı; profil kaydedilince override şeması hemen derlenir
+(`auto-generated/schema-overrides/SAMPLE_VOUCHER_ornek-ozel-tur_override.xsd`) ve `Party`'si
+olmayan örnek bu profille XSD'den geçer.
+
+![Özel Belge Türü — XSD Override Tipi](docs/screenshots/ozel-belge-turu-xsd-override-tipi.png)
+
 ---
 
 ## v1.1.0

@@ -170,6 +170,21 @@ export interface ProfilesResponse {
   profiles: Record<string, ProfileInfo>;
 }
 
+/** custom-document-types.yml ile asset dizininden yüklenen özel belge türü */
+export interface CustomDocumentTypeInfo {
+  id: string;
+  description?: string | null;
+  rootNamespace: string;
+  rootElement: string;
+  xsd: string;
+  /** Uygulanan yerleşik Schematron tipi; yoksa Schematron atlanır */
+  schematron?: string | null;
+}
+
+export interface CustomDocumentTypesResponse {
+  types: CustomDocumentTypeInfo[];
+}
+
 export interface FileMapping {
   zipPathPattern: string;
   targetDir: string;

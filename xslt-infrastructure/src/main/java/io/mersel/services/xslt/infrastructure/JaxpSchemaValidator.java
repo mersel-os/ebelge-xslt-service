@@ -368,19 +368,34 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
 
     @Override
     public void precompileOverrides(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName) {
+        precompile(builtInSpec(schemaType), overrides, profileName);
+    }
+
+    @Override
+    public void precompileCustomOverrides(String customTypeId, List<XsdOverride> overrides, String profileName) {
+        CustomDocumentType definition = customDocumentTypes.findById(customTypeId).orElse(null);
+        if (definition == null) {
+            log.warn("Özel belge türü tanımlı değil, override pre-derleme atlanıyor: {} (profil: {})",
+                    customTypeId, profileName != null ? profileName : "-");
+            return;
+        }
+        precompile(customSpec(definition), overrides, profileName);
+    }
+
+    private void precompile(SchemaSpec spec, List<XsdOverride> overrides, String profileName) {
         if (overrides == null || overrides.isEmpty()) {
-            log.debug("Override yok, pre-derleme atlanıyor: {} (profil: {})", schemaType,
+            log.debug("Override yok, pre-derleme atlanıyor: {} (profil: {})", spec.key(),
                     profileName != null ? profileName : "-");
             return;
         }
 
         try {
-            getOrCompileOverriddenSchema(builtInSpec(schemaType), overrides, profileName);
+            getOrCompileOverriddenSchema(spec, overrides, profileName);
             log.info("Override pre-derleme tamamlandı: {} ({} override, profil: {})",
-                    schemaType, overrides.size(), profileName != null ? profileName : "-");
+                    spec.key(), overrides.size(), profileName != null ? profileName : "-");
         } catch (SchemaOverrideCompilationException e) {
             log.error("Override pre-derleme başarısız: {} (profil: {}) — {}",
-                    schemaType, profileName != null ? profileName : "-", e.getMessage());
+                    spec.key(), profileName != null ? profileName : "-", e.getMessage());
         }
     }
 

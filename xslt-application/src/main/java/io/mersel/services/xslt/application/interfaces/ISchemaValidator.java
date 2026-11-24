@@ -71,6 +71,18 @@ public interface ISchemaValidator {
     void precompileOverrides(SchemaValidationType schemaType, List<XsdOverride> overrides, String profileName);
 
     /**
+     * Özel bir belge türünün override'lı XSD şemasını önceden derler.
+     * <p>
+     * {@link #precompileOverrides} ile aynı işi {@code custom-document-types.yml} içinde
+     * tanımlı türler için yapar. Tür tanımlı değilse yalnızca uyarı loglanır.
+     *
+     * @param customTypeId Özel belge türünün adı
+     * @param overrides    Uygulanacak XSD override listesi
+     * @param profileName  Profil adı (cache key ve dosya adı için)
+     */
+    void precompileCustomOverrides(String customTypeId, List<XsdOverride> overrides, String profileName);
+
+    /**
      * XML belgesini asset dizininde tanımlanmış özel bir belge türünün XSD'sine göre doğrular.
      *
      * @param source       Doğrulanacak XML içeriği

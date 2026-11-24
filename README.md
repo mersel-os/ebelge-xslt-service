@@ -559,7 +559,10 @@ document-types:
 - Kök elementi yerleşik kurallarla tanınmayan belge, namespace + yerel adı bir tanımla eşleşirse
   o tanımla doğrulanır; yerleşik türler her zaman önceliklidir. Eşleşme yoksa yanıt yine `400`'dür.
 - Yanıtta `detectedDocumentType` tanımın `id` değeridir. Aynı değer profillerdeki `scope` ve
-  `xsd-overrides` anahtarlarında kullanılabilir.
+  `xsd-overrides` anahtarlarında kullanılabilir. Yönetim arayüzünün profil düzenleyicisi yüklü
+  türleri `GET /v1/admin/custom-document-types` ile alır; bastırma kuralı **Kapsam** listesinde
+  ve XSD override **Schema Tipi** seçicisinde "Özel belge türleri" grubu altında gösterir.
+  Profil kaydedilince özel türlerin XSD override'ları da yerleşik türlerinki gibi hemen derlenir.
 - Ana XSD'nin göreceli `xs:import` / `xs:include` referansları kendi konumuna göre çözülür; kendi
   ortak XSD'lerini getiren setler GİB'in ortak XSD'leriyle karışmaz.
 - `schematron` verilmezse Schematron adımı atlanır ve `validSchematron=true` döner.

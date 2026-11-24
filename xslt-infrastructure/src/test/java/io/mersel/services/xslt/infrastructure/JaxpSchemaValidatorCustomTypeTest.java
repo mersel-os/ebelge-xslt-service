@@ -151,6 +151,28 @@ class JaxpSchemaValidatorCustomTypeTest {
                 .exists();
     }
 
+    @Test
+    @DisplayName("profil_kaydinda_ozel_tur_override_on_derlenir")
+    void profil_kaydinda_ozel_tur_override_on_derlenir() {
+        reloadAll();
+        var overrides = List.of(new XsdOverride("cmn:Party", "0", null));
+
+        validator.precompileCustomOverrides(TYPE_ID, overrides, "kayitli-profil");
+
+        assertThat(assetDir.resolve("auto-generated/schema-overrides/" + TYPE_ID + "_kayitli-profil_override.xsd"))
+                .exists();
+    }
+
+    @Test
+    @DisplayName("tanimsiz_ozel_tur_icin_on_derleme_sessizce_atlanir")
+    void tanimsiz_ozel_tur_icin_on_derleme_sessizce_atlanir() {
+        reloadAll();
+
+        validator.precompileCustomOverrides("TANIMSIZ_TUR", List.of(new XsdOverride("cmn:Party", "0", null)), "p");
+
+        assertThat(assetDir.resolve("auto-generated/schema-overrides/TANIMSIZ_TUR_p_override.xsd")).doesNotExist();
+    }
+
     /** AssetRegistry sırası: özel tanımlar XSD derlemesinden önce yüklenir. */
     private ReloadResult reloadAll() {
         registry.reload();
