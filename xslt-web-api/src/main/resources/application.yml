@@ -66,6 +66,19 @@ xslt:
   # script hash'leri, connect-src 'none', form-action 'none' ile.
   security:
     csp: ${XSLT_SECURITY_CSP:}
+  # ── XSLT Sandbox İstisnaları ─────────────────────────────────────
+  # Varsayılan: boş. Sandbox'lı XSLT ve Schematron hiçbir dosyayı okuyamaz.
+  # İstisna yalnızca varsayılan XSLT şablonlarına ve Schematron'a (özel kurallar
+  # dahil) uygulanır; /v1/transform ile gelen ve belgeye gömülü XSLT her zaman tam
+  # kısıtlı çalışır. Yalnızca başlangıçta okunur; yönetici API'si değiştiremez.
+  # resource-dirs: Mutlak dizinler (virgülle ayrılmış). İçindeki var olan dosyalar
+  #   doc(), document(), unparsed-text*(), json-doc(), xsl:include/xsl:import ile
+  #   mutlak file: URI'siyle okunabilir (göreli URI çalışmaz). Dizin dışı, ağ, listeleme ve yazma kapalı kalır.
+  #   Dizine sonradan eklenen dosyalar yeniden başlatmadan okunur. Dizine yalnızca
+  #   gizli olmayan dosyalar koyun. Ortam değişkenleri için istisna yoktur.
+  # Env: XSLT_SANDBOX_RESOURCE_DIRS
+  sandbox:
+    resource-dirs: ${XSLT_SANDBOX_RESOURCE_DIRS:}
   # ── Filigran (Watermark) ─────────────────────────────────────────
   watermark:
     count: ${XSLT_WATERMARK_COUNT:3}

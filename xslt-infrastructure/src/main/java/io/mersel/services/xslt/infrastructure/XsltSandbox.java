@@ -10,6 +10,7 @@ import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.ResourceRequest;
 import net.sf.saxon.lib.ResourceResolver;
 import net.sf.saxon.om.NamespaceUri;
+import net.sf.saxon.lib.StandardUnparsedTextResolver;
 import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.SaxonApiUncheckedException;
@@ -26,8 +27,12 @@ import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParserFactory;
 import javax.xml.transform.Source;
 import javax.xml.transform.sax.SAXSource;
+import javax.xml.transform.stream.StreamSource;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,11 +46,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code xsl:result-document} ile diske yazabilir. Varsayılan XML ayrıştırıcısı da DOCTYPE içindeki
  * harici varlıkları çözer (XXE). Bu sınıf, kullanıcının yüklediği XSLT, belgeye gömülü XSLT,
  * varsayılan şablon yollarında ve Schematron doğrulamasında (yönetici API'siyle eklenen özel kurallar
- * dahil, derlenmiş Schematron XSLT'leri) bu kapıları kapatır:
+ * dahil, derlenmiş Schematron XSLT'leri) bu kapıları kapatır (istisnasız politikada):
  * <ul>
  *   <li>İzinli protokol listesi boştur ({@link Feature#ALLOWED_PROTOCOLS}); {@code doc()},
  *       {@code xsl:include}, {@code xsl:source-document}, {@code fn:transform} gibi okumalar hiçbir
- *       şemayla dışarı çıkamaz. Derleyici ve transformer düzeyindeki resource resolver da her isteği reddeder.</li>
+ *       şemayla dışarı çıkamaz. Yapılandırma, derleyici ve transformer düzeyindeki resource resolver da her isteği reddeder.</li>
  *   <li>{@code environment-variable()} her zaman boş döner; {@code available-environment-variables()} boştur.</li>
  *   <li>Harici fonksiyonlar kapalıdır ({@link Feature#ALLOW_EXTERNAL_FUNCTIONS}): {@code system-property()}
  *       JVM özelliklerini döndürmez, {@code href} içeren {@code xsl:result-document} derlenmez.
@@ -63,6 +68,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * Bu ayarların kapsamı yalnızca {@link #newProcessor()} ile oluşturulan {@link Processor}'dür;
  * diğer Saxon kullanıcılarını etkilemez. Schematron pipeline adımları ({@code sch:include} için dosya
  * okuyan) bu yüzden ayrı, kısıtsız bir işlemcide çalışır; bkz. {@link SchematronRuntimeCompiler}.
+ * <p>
+ * Operatör, {@link #newProcessor(XsltSandboxPolicy)} ile belirli dizinlerdeki dosyaları açabilir
+ * ({@code xslt.sandbox.resource-dirs}); ortam değişkenleri ve JVM özellikleri her zaman kapalıdır.
+ * Bu durumda da izinli protokol listesi boştur: her okuma yapılandırma, derleyici ve transformer
+ * düzeyindeki aynı kapıdan geçer ve izinli dosyayı kapı, kontrol ettiği gerçek yoldan kendisi açar.
+ * Dizin dışındaki dosyalar, ağ, dizin listeleme ve yazma yine kapalıdır. Politika yalnızca operatörün yönettiği içeriği (varsayılan şablonlar, Schematron)
+ * derleyen işlemcilere verilir.
  */
 final class XsltSandbox {
 
@@ -113,17 +125,37 @@ final class XsltSandbox {
     }
 
     /**
-     * Sandbox ayarları uygulanmış yeni bir Saxon HE {@link Processor} oluşturur.
+     * İstisnasız ({@link XsltSandboxPolicy#STRICT}) sandbox ayarlarıyla yeni bir Saxon HE
+     * {@link Processor} oluşturur.
      */
     static Processor newProcessor() {
+        return newProcessor(XsltSandboxPolicy.STRICT);
+    }
+
+    /**
+     * Sandbox ayarları ve verilen politikanın istisnalarıyla yeni bir Saxon HE {@link Processor} oluşturur.
+     */
+    static Processor newProcessor(XsltSandboxPolicy policy) {
+        var gate = new ResourceGate(policy);
+
         var processor = new Processor(new SandboxConfiguration());
+        // İzinli dosyaları kapı kendisi açar; Saxon'un standart çözümlemesi hiçbir protokolü kullanamaz.
         processor.setConfigurationProperty(Feature.ALLOWED_PROTOCOLS, "");
+        // Kapalı kalmalı: açılırsa system-property() JVM özelliklerini döndürür ve href'li
+        // xsl:result-document derlenir. Bu yüzden ortam değişkenleri için istisna yoktur.
         processor.setConfigurationProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS, false);
         processor.setConfigurationProperty(Feature.ENVIRONMENT_VARIABLE_RESOLVER, NO_ENVIRONMENT);
 
         var config = processor.getUnderlyingConfiguration();
+        config.setResourceResolver(gate);
         config.setUnparsedTextURIResolver((uri, encoding, configuration) -> {
-            throw blocked(String.valueOf(uri));
+            String target = String.valueOf(uri);
+            Path real = policy.allowedRealPath(target);
+            if (real == null) {
+                throw blocked(target);
+            }
+            return StandardUnparsedTextResolver.getReaderFromStreamSource(
+                    new StreamSource(open(real, target), target), encoding, configuration, false);
         });
         config.setCollectionFinder((context, collectionUri) -> {
             throw blocked(String.valueOf(collectionUri));
@@ -139,21 +171,23 @@ final class XsltSandbox {
     }
 
     /**
-     * {@code xsl:import}/{@code xsl:include} çözümlemesi kapalı bir derleyici döner.
+     * {@code xsl:import}/{@code xsl:include} çözümlemesi işlemcinin politikasına bağlı (istisnasız
+     * işlemcide tamamen kapalı) bir derleyici döner.
      */
     static XsltCompiler newCompiler(Processor processor) {
         var compiler = processor.newXsltCompiler();
-        compiler.setResourceResolver(DENY_RESOURCE);
+        compiler.setResourceResolver(gateOf(processor.getUnderlyingConfiguration()));
         return compiler;
     }
 
     /**
-     * {@code doc()}/{@code document()} çözümlemesi ve {@code xsl:result-document} çıktısı kapalı
-     * bir transformer döner.
+     * {@code doc()}/{@code document()} çözümlemesi derleyen işlemcinin politikasına bağlı ve
+     * {@code xsl:result-document} çıktısı kapalı bir transformer döner. Sandbox dışında derlenmiş bir
+     * executable için çözümleme tamamen kapalıdır.
      */
     static Xslt30Transformer load(XsltExecutable executable) {
         var transformer = executable.load30();
-        transformer.setResourceResolver(DENY_RESOURCE);
+        transformer.setResourceResolver(gateOf(executable.getProcessor().getUnderlyingConfiguration()));
         transformer.setResultDocumentHandler(uri -> {
             throw new SaxonApiUncheckedException(new SaxonApiException(blocked(String.valueOf(uri))));
         });
@@ -195,6 +229,40 @@ final class XsltSandbox {
 
     private static Source denyResource(ResourceRequest request) throws XPathException {
         throw blocked(request.uri != null ? request.uri : request.relativeUri);
+    }
+
+    private static ResourceResolver gateOf(Configuration config) {
+        return config.getResourceResolver() instanceof ResourceGate gate ? gate : DENY_RESOURCE;
+    }
+
+    /**
+     * Politikanın izin verdiği dosyayı kontrol edilen gerçek yoldan kendisi açar; XML olarak okunacak
+     * kaynaklar harici DTD/varlık çözmeyen ayrıştırıcıyla okunur. Diğer her isteği reddeder.
+     */
+    private record ResourceGate(XsltSandboxPolicy policy) implements ResourceResolver {
+        @Override
+        public Source resolve(ResourceRequest request) throws XPathException {
+            Path real = policy.allowedRealPath(request.uri);
+            if (real == null) {
+                return denyResource(request);
+            }
+            InputStream content = open(real, request.uri);
+            if (ResourceRequest.TEXT_NATURE.equals(request.nature)
+                    || ResourceRequest.BINARY_NATURE.equals(request.nature)) {
+                return new StreamSource(content, request.uri);
+            }
+            var input = new InputSource(content);
+            input.setSystemId(request.uri);
+            return new SAXSource(newSecureXmlReader(), input);
+        }
+    }
+
+    private static InputStream open(Path real, String target) throws XPathException {
+        try {
+            return Files.newInputStream(real);
+        } catch (IOException e) {
+            throw blocked(target);
+        }
     }
 
     /**

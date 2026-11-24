@@ -11,6 +11,7 @@ import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import net.sf.saxon.s9api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -26,8 +27,10 @@ import java.util.*;
  * {@link Reloadable} arayüzü ile hot-reload destekler.
  * <p>
  * Güvenlik: Kullanıcı XSLT'si, gömülü XSLT ve varsayılan şablon yollarının hepsi
- * {@link XsltSandbox} ile sandbox'lanmış bir {@link Processor} üzerinde çalışır; XML ve XSLT
- * harici DTD/varlık çözmeyen bir ayrıştırıcıyla okunur.
+ * {@link XsltSandbox} ile sandbox'lanmış işlemciler üzerinde çalışır; XML ve XSLT
+ * harici DTD/varlık çözmeyen bir ayrıştırıcıyla okunur. Operatörün açtığı istisnalar
+ * ({@link XsltSandboxPolicy}) yalnızca varsayılan şablonlara uygulanır; istekle gelen ve
+ * belgeye gömülü XSLT her zaman istisnasız işlemcide derlenir.
  */
 @Service
 public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
@@ -39,7 +42,10 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
     private final HtmlSanitizer htmlSanitizer;
     private final EmbeddedXsltExtractor embeddedXsltExtractor;
     private final XsltMetrics metrics;
+    /** İstekle gelen ve gömülü XSLT: istisnasız sandbox. */
     private final Processor processor;
+    /** Varsayılan şablonlar: operatörün sandbox istisnalarıyla. */
+    private final Processor templateProcessor;
 
     private static final Map<TransformType, String> TRANSFORM_XSL_MAP = Map.ofEntries(
             Map.entry(TransformType.INVOICE, "default_transformers/eInvoice_Base.xslt"),
@@ -60,15 +66,27 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
      */
     private volatile Map<TransformType, XsltExecutable> compiledTransforms = Map.of();
 
+    /**
+     * Sandbox istisnası olmadan oluşturur.
+     */
     public SaxonXsltTransformer(AssetManager assetManager, WatermarkService watermarkService,
                                HtmlSanitizer htmlSanitizer,
                                EmbeddedXsltExtractor embeddedXsltExtractor, XsltMetrics metrics) {
+        this(assetManager, watermarkService, htmlSanitizer, embeddedXsltExtractor, metrics, XsltSandboxPolicy.STRICT);
+    }
+
+    @Autowired
+    public SaxonXsltTransformer(AssetManager assetManager, WatermarkService watermarkService,
+                               HtmlSanitizer htmlSanitizer,
+                               EmbeddedXsltExtractor embeddedXsltExtractor, XsltMetrics metrics,
+                               XsltSandboxPolicy sandboxPolicy) {
         this.assetManager = assetManager;
         this.watermarkService = watermarkService;
         this.htmlSanitizer = htmlSanitizer;
         this.embeddedXsltExtractor = embeddedXsltExtractor;
         this.metrics = metrics;
         this.processor = XsltSandbox.newProcessor();
+        this.templateProcessor = XsltSandbox.newProcessor(sandboxPolicy);
     }
 
     // ── Reloadable ──────────────────────────────────────────────────
@@ -83,7 +101,7 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
         long startTime = System.currentTimeMillis();
         var newCache = new HashMap<TransformType, XsltExecutable>();
         var errors = new ArrayList<String>();
-        var compiler = XsltSandbox.newCompiler(processor);
+        var compiler = XsltSandbox.newCompiler(templateProcessor);
         int missingCount = 0;
 
         for (var entry : TRANSFORM_XSL_MAP.entrySet()) {
@@ -221,7 +239,7 @@ public class SaxonXsltTransformer implements IXsltTransformer, Reloadable {
         try {
             var transformer = XsltSandbox.load(executable);
             var outputStream = new ByteArrayOutputStream();
-            var serializer = processor.newSerializer(outputStream);
+            var serializer = templateProcessor.newSerializer(outputStream);
             transformer.transform(XsltSandbox.secureSource(document), serializer);
             return outputStream.toByteArray();
         } catch (SaxonApiException | SaxonApiUncheckedException e) {

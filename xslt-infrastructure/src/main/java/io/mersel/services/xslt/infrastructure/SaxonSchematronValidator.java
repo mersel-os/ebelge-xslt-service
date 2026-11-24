@@ -12,6 +12,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import net.sf.saxon.s9api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.Document;
@@ -140,15 +141,27 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
     @Value("${xslt.cache.schematron-custom-rule-ttl-hours:1}")
     private int customRuleCacheTtlHours;
 
+    /**
+     * Sandbox istisnası olmadan oluşturur.
+     */
     public SaxonSchematronValidator(AssetManager assetManager,
                                    SchematronRuntimeCompiler runtimeCompiler,
                                    XsltMetrics metrics) {
+        this(assetManager, runtimeCompiler, metrics, XsltSandboxPolicy.STRICT);
+    }
+
+    @Autowired
+    public SaxonSchematronValidator(AssetManager assetManager,
+                                   SchematronRuntimeCompiler runtimeCompiler,
+                                   XsltMetrics metrics,
+                                   XsltSandboxPolicy sandboxPolicy) {
         this.assetManager = assetManager;
         this.runtimeCompiler = runtimeCompiler;
         this.metrics = metrics;
         // Pre-compiled XSL'ler bu işlemciyle derlenir; runtime derlenenler SchematronRuntimeCompiler'ın
-        // sandbox işlemcisiyle. Kural ifadeleri ortam değişkenine, dosyaya ve ağa erişemez.
-        this.processor = XsltSandbox.newProcessor();
+        // sandbox işlemcisiyle. Kural ifadeleri, operatörün açtığı istisnalar dışında ortam değişkenine,
+        // dosyaya ve ağa erişemez.
+        this.processor = XsltSandbox.newProcessor(sandboxPolicy);
     }
 
     @PostConstruct

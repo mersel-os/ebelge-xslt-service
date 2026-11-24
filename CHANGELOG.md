@@ -4,6 +4,10 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Eklenen
+
+- `xslt.sandbox.resource-dirs` (env: `XSLT_SANDBOX_RESOURCE_DIRS`): varsayılan XSLT şablonlarının ve Schematron'un (özel kurallar dahil) dosya okuyabileceği mutlak dizinler. Varsayılan boş; boşken davranış değişmez. Dizindeki var olan dosyalar mutlak `file:` URI'siyle `doc()`, `document()`, `unparsed-text*()`, `json-doc()` ve `xsl:include`/`xsl:import` ile okunabilir; dizin dışı, ağ, listeleme, yazma, ortam değişkenleri ve JVM özellikleri kapalı kalır. `/v1/transform` ile gönderilen ve belgeye gömülü XSLT bu istisnayı kullanamaz. Ayar yalnızca başlangıçta okunur; geçersiz değerde uygulama başlamaz. Dizine sonradan eklenen dosyalar yeniden başlatmadan okunur
+
 ### Güvenlik
 
 - XSLT dönüşümleri sandbox'landı. Kullanıcının yüklediği XSLT, belgeye gömülü XSLT ve varsayılan şablonlar artık ortam değişkenlerini (`environment-variable()` her zaman boş döner), JVM özelliklerini (`system-property()`), dosya sistemini ve ağı (`unparsed-text`, `unparsed-text-lines`, `unparsed-text-available`, `json-doc`, `collection`, `uri-collection`, `doc`/`document`, `xsl:include`/`xsl:import`; izinli protokol listesi boş) okuyamıyor; `href` içeren `xsl:result-document` derlenmiyor; `transform()` ve `load-xquery-module()` kullanılamıyor. Girdi XML'i ve XSLT harici DTD ve harici entity çözülmeden okunuyor (XXE); aynı kısıt `parse-xml()` için de geçerli. İç DTD alt kümesindeki entity'ler çalışmaya devam ediyor. Özel ya da gömülü XSLT bu kısıtlara takılırsa önceki davranışla aynı şekilde varsayılan XSLT'ye dönülüyor ve neden `X-Xslt-Custom-Error` header'ında bildiriliyor; varsayılan şablonun kendisi takılırsa `422` dönüyor. Önceden varsayılan şablon yolunda URI çözümleme kısıtı yoktu

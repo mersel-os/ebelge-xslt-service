@@ -4,6 +4,7 @@ import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import net.sf.saxon.s9api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -45,7 +46,8 @@ import java.util.List;
  *       {@code test}, {@code select}) bu adımlarda yalnızca metin olarak taşınır, çalıştırılmaz.</li>
  *   <li>Pipeline'ın ürettiği son XSLT, {@link XsltSandbox} işlemcisiyle derlenir. Özel kuralların
  *       XPath ifadeleri bu XSLT'nin içinde çalıştığı için ortam değişkenlerine, dosyalara ve ağa
- *       erişemez. Doğrulama sırasında transformer {@link XsltSandbox#load} ile açılmalıdır.</li>
+ *       erişemez; operatörün açtığı istisnalar ({@link XsltSandboxPolicy}) bu işlemciye uygulanır.
+ *       Doğrulama sırasında transformer {@link XsltSandbox#load} ile açılmalıdır.</li>
  * </ul>
  */
 @Component
@@ -75,9 +77,17 @@ public class SchematronRuntimeCompiler {
     private XsltExecutable abstractExecutable;
     private XsltExecutable messageExecutable;
 
+    /**
+     * Sandbox istisnası olmadan oluşturur.
+     */
     public SchematronRuntimeCompiler(XsltMetrics metrics) {
+        this(metrics, XsltSandboxPolicy.STRICT);
+    }
+
+    @Autowired
+    public SchematronRuntimeCompiler(XsltMetrics metrics, XsltSandboxPolicy sandboxPolicy) {
         this.processor = new Processor(false);
-        this.sandboxProcessor = XsltSandbox.newProcessor();
+        this.sandboxProcessor = XsltSandbox.newProcessor(sandboxPolicy);
         this.metrics = metrics;
     }
 
