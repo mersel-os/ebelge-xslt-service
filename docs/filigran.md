@@ -9,6 +9,7 @@
 - [Tarifler](#tarifler)
 - [Kurallar ve sınırlar](#kurallar-ve-sınırlar)
 - [Sorun giderme](#sorun-giderme)
+- [Ekran görüntüleri](#ekran-görüntüleri)
 
 ## Filigran isteme
 
@@ -146,7 +147,7 @@ i.m.s.x.infrastructure.AssetRegistry -     ✓ Filigran Stili — 1 öğe yükle
 
 Servisi yeniden başlatmanız gerekmez. Üç yol var:
 
-1. **Dosya izleme** (varsayılan açık, `XSLT_ASSETS_WATCH_ENABLED=true`): dosyayı bağlı dizine koyun, değiştirin ya da silin. Değişiklik bir iki saniye içinde uygulanır.
+1. **Dosya izleme** (varsayılan açık, `XSLT_ASSETS_WATCH_ENABLED=true`): dosyayı bağlı dizine koyun ya da değiştirin. Değişiklik bir iki saniye içinde uygulanır.
 2. **Çalışan konteynere kopyalama:** dizin bağlı değilse ya da Docker Compose'daki gibi adlandırılmış birim kullanılıyorsa:
    ```bash
    docker cp watermark.css <konteyner>:/opt/xslt-assets/watermark.css
@@ -167,7 +168,7 @@ Servisi yeniden başlatmanız gerekmez. Üç yol var:
    ```
    `count: 1` özel stilin yüklendiğini, `count: 0` dosyanın olmadığını gösterir. `status: "FAILED"` olduğunda neden `errors` içindedir.
 
-Dosyayı silmek özel stili kaldırır; dahili görünüme dönülür.
+**Özel stili kaldırmak:** dosyayı silin ve elle yeniden yükleyin ya da dosyanın içeriğini boşaltın; ikisinde de dahili görünüme dönülür. Docker Desktop (macOS, Windows) ile bağlanan dizinlerde ana makinede yapılan silme konteynere dosya olayı olarak ulaşmayabilir. Bu durumda dosya izleyici silmeyi görmez ve eski stil yeniden yüklenene kadar kullanılmaya devam eder. Dosyayı boşaltmak ise bir değişiklik olayı olarak algılanır.
 
 ### Kurumunuza özel stili nerede tutmalı
 
@@ -237,8 +238,34 @@ Aşağıdaki kurallar `watermark.css`'e eklenir. Hepsi Chrome baskısıyla denen
 | Reload sonucu `FAILED`, hata `'</style' içeremez` | Dosyada (yorumlar dahil) style kapanış etiketi var | O diziyi kaldırın |
 | Reload sonucu `FAILED`, hata `geçerli UTF-8 değil` ya da `bayttan büyük` | Dosya kodlaması ya da boyutu | UTF-8 ile kaydedin, 64 KB'ın altına indirin |
 | Değişiklik uygulanmıyor | Dosya izleme kapalı ya da dosya bağlı dizinin dışında | Elle reload yapın; `XSLT_ASSETS_WATCH_ENABLED` değerini kontrol edin |
+| Dosya silindi ama özel stil hâlâ uygulanıyor | Silme olayı konteynere ulaşmadı (Docker Desktop bağlı dizini) | Elle reload yapın; sonraki seferde dosyayı silmek yerine içeriğini boşaltın |
 | Reload `Reload already in progress` dönüyor | Açılıştaki GİB sync ya da başka bir reload sürüyor | Birkaç saniye sonra tekrar deneyin |
 | Kural yazıldı ama dahili değer değişmedi | `!important` eksik ya da seçici farklı | Aynı seçiciyi `!important` ile yazın |
 | Ekranda çok kısa belgede filigran yok | Katman ekranda içerik yüksekliğinde biter; içerik ~100 px'ten kısaysa metinler kırpılır | Bilinen sınır; baskı ve PDF etkilenmez |
 | Ekranda uzun belgenin sonlarında filigran yok | Satırlar belge sonuna yetmiyor | `XSLT_WATERMARK_ROWS` değerini artırın |
 | `X-Xslt-Watermark-Applied: true` ama filigran yok | HTML'de `</body>` yok; filigran eklenemedi (log: `</body> etiketi bulunamadı`) | XSLT çıktısının `<body>` içerdiğinden emin olun |
+
+## Ekran görüntüleri
+
+Web arayüzünden alındı. Örnek veri: 240 kalemli bir sipariş listesi ve onu tabloya çeviren özel bir XSLT; filigran metni "TASLAK".
+
+**Dönüşüm ekranı** — yüklenen dosyalar, filigran alanı, "Filigranlı" rozeti ve önizleme. Belgenin kendi `div { border; opacity }` stili filigrana sızmıyor.
+
+![Dönüşüm ekranı ve filigranlı önizleme](screenshots/filigran-donusum-onizleme.png)
+
+**Önizlemede kaydırma** — önizleme 100.–123. satırlara kaydırıldı; filigran satırları belgeyle birlikte kayıyor.
+
+![Kaydırılmış önizleme](screenshots/filigran-onizleme-kaydirilmis.png)
+
+**Yazdırma** — aynı çıktının Chrome ile basılan PDF'i. 7 sayfanın hepsinde filigran var; yalnız birkaç satır içeren son sayfa da tamamen kaplı.
+
+![PDF sayfaları](screenshots/filigran-pdf-sayfalar.png)
+
+**Özel stil** — servis çalışırken asset dizinine `watermark.css` (mavi, kalın, 40 px) eklendi. Dosya izleyici iki saniye içinde yükledi; yeniden başlatma gerekmedi.
+
+![watermark.css ile özel stil](screenshots/filigran-ozel-stil.png)
+
+**Geçersiz dosya** — `</style><script>…` içeren bir `watermark.css` reddedildi (`Filigran Stili — FAILED: dosya '</style' içeremez`). Dahili stil kullanıldı ve önizlemeye script girmedi.
+
+![Geçersiz watermark.css](screenshots/filigran-gecersiz-stil.png)
+

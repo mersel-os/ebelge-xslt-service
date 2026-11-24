@@ -66,6 +66,16 @@ Prometheus metrikleri ile beslenen Grafana dashboard. Servis durumu, toplam doğ
 
 ---
 
+## Yayınlanmamış — Filigran
+
+### Filigranlı Önizleme
+
+Filigranlı dönüşümün web arayüzündeki önizlemesi. Diğer ekranlar (kaydırma, PDF sayfaları, `watermark.css` ile özel stil, geçersiz dosya): [Filigran Kullanım Kılavuzu → Ekran görüntüleri](docs/filigran.md#ekran-görüntüleri).
+
+![Filigranlı önizleme](docs/screenshots/filigran-donusum-onizleme.png)
+
+---
+
 ## Görsel Ekleme Rehberi
 
 1. Ekran görüntüsünü alın (PNG veya JPG formatında)
