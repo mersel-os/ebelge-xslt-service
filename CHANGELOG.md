@@ -4,6 +4,10 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Düzeltilen
+
+- `POST /v1/transform` yanıtında `X-Xslt-Custom-Error` ve `X-Xslt-Security-Violations` header'ları, değer ISO-8859-1 dışı bir karakter (ı, ş, ğ, İ, uzun tire gibi) içerdiğinde Tomcat tarafından yanıttan tamamen çıkarılıyordu. "Gömülü XSLT ile dönüşüm başarısız: …" önekiyle başlayan gömülü XSLT hataları ve "Harici script kaynağı engellendi: …" ihlalleri bu yüzden istemciye hiç ulaşmıyordu. Değerler artık ISO-8859-1'e indiriliyor: ü/ç/ö korunuyor, ı/ş/ğ/İ `i`/`s`/`g`/`I`'ya, uzun/kısa tire `-`'ye, tipografik tırnaklar düz tırnağa çevriliyor, karşılığı olmayan karakterler `?` oluyor, kontrol karakterleri boşluk oluyor. Değer yüzde-kodlanmadığı için .NET istemcisi ve web arayüzü değişmeden çalışıyor; yalnız ASCII ve ü/ç/ö içeren mesajlar eskisiyle bayt bayt aynı
+
 ## [1.4.0] - 2026-10-04
 
 ### Eklenen

@@ -7,6 +7,7 @@ import io.mersel.services.xslt.application.models.TransformRequest;
 import io.mersel.services.xslt.application.models.TransformResult;
 import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import io.mersel.services.xslt.web.dto.TransformRequestDto;
+import io.mersel.services.xslt.web.infrastructure.HeaderValueSanitizer;
 import io.mersel.services.xslt.web.infrastructure.XsltHeaders;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;
@@ -65,6 +66,8 @@ public class TransformController {
     private static final MediaType TEXT_HTML_UTF8 = new MediaType("text", "html", StandardCharsets.UTF_8);
     private static final String VALID_TRANSFORM_TYPES = String.join(", ",
             Arrays.stream(TransformType.values()).map(Enum::name).toList());
+    private static final int MAX_CUSTOM_ERROR_HEADER_LENGTH = 500;
+    private static final int MAX_SECURITY_VIOLATIONS_HEADER_LENGTH = 1000;
 
     @Value("${xslt.limits.max-document-size-mb:${XSLT_MAX_DOCUMENT_SIZE_MB:100}}")
     private int maxDocumentSizeMb;
@@ -190,28 +193,22 @@ public class TransformController {
         headers.set(XsltHeaders.OUTPUT_SIZE, String.valueOf(result.getHtmlContent().length));
         headers.set(XsltHeaders.SCRIPTS_REMOVED, String.valueOf(result.getRemovedScriptCount()));
 
-        // Güvenlik ihlalleri — tüketici incelesin diye
+        // Güvenlik ihlalleri — tüketici incelesin diye.
+        // Serbest metin header'ları HeaderValueSanitizer'dan geçer: CRLF temizlenir
+        // (HTTP Response Splitting) ve ISO-8859-1 dışı karakterler sadeleştirilir;
+        // aksi halde Tomcat "ı", "ş", "ğ" içeren header'ı yanıttan tamamen düşürür.
         if (!result.getSecurityViolations().isEmpty()) {
-            String violations = result.getSecurityViolations().stream()
-                    .map(v -> v.replaceAll("[\\r\\n]", " "))
-                    .collect(Collectors.joining(", "));
-            if (violations.length() > 1000) {
-                violations = violations.substring(0, 1000);
-            }
-            headers.set(XsltHeaders.SECURITY_VIOLATIONS, violations);
+            String violations = String.join(", ", result.getSecurityViolations());
+            headers.set(XsltHeaders.SECURITY_VIOLATIONS,
+                    HeaderValueSanitizer.sanitize(violations, MAX_SECURITY_VIOLATIONS_HEADER_LENGTH));
         }
 
         // Dinamik CSP — izin verilen scriptlerin hash'leri ile
         headers.set("Content-Security-Policy", buildTransformCsp(result.getAllowedScriptHashes()));
 
         if (result.getCustomXsltError() != null) {
-            // CRLF sanitize — HTTP Response Splitting koruması
-            String sanitized = result.getCustomXsltError()
-                    .replaceAll("[\\r\\n]", " ");
-            if (sanitized.length() > 500) {
-                sanitized = sanitized.substring(0, 500);
-            }
-            headers.set(XsltHeaders.CUSTOM_ERROR, sanitized);
+            headers.set(XsltHeaders.CUSTOM_ERROR,
+                    HeaderValueSanitizer.sanitize(result.getCustomXsltError(), MAX_CUSTOM_ERROR_HEADER_LENGTH));
         }
 
         return new ResponseEntity<>(result.getHtmlContent(), headers, HttpStatus.OK);

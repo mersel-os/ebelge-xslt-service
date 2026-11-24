@@ -24,6 +24,9 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -116,6 +119,76 @@ class TransformControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
                 .andExpect(header().string(XsltHeaders.DEFAULT_USED, "true"))
                 .andExpect(header().string(XsltHeaders.CUSTOM_ERROR, "XSLT compilation failed at line 42"));
+    }
+
+    // Tomcat, ISO-8859-1 ile kodlanamayan header'ı yanıta hiç yazmaz; MockMvc bunu
+    // yapmadığı için testler header'ın varlığına ek olarak kodlanabilirliğini de doğrular.
+    private static void assertLatin1Encodable(String headerValue) {
+        assertThat(headerValue).isNotNull();
+        assertThat(StandardCharsets.ISO_8859_1.newEncoder().canEncode(headerValue))
+                .as("ISO-8859-1 ile kodlanabilir olmalı: %s", headerValue)
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("Gömülü XSLT hatası ı/ş/ğ/— içerse de X-Xslt-Custom-Error okunabilir dönmeli")
+    void shouldReturnReadableCustomErrorHeaderForTurkishMessage() throws Exception {
+        var result = TransformResult.builder()
+                .htmlContent("<html><body>Default</body></html>".getBytes())
+                .defaultXslUsed(true)
+                .customXsltError("Gömülü XSLT ile dönüşüm başarısız: Fatura numarası boş — ğ/ş/ı kontrolü\r\nX-Evil: 1")
+                .watermarkApplied(false)
+                .durationMs(230)
+                .build();
+
+        when(xsltTransformer.transform(any())).thenReturn(result);
+
+        var xmlFile = new MockMultipartFile("document", "test.xml", "text/xml",
+                "<Invoice/>".getBytes());
+
+        var response = mockMvc.perform(multipart("/v1/transform")
+                        .file(xmlFile)
+                        .param("transformType", "INVOICE")
+                        .param("useEmbeddedXslt", "true"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(XsltHeaders.DEFAULT_USED, "true"))
+                .andExpect(header().string(XsltHeaders.CUSTOM_ERROR,
+                        "Gömülü XSLT ile dönüsüm basarisiz: Fatura numarasi bos - g/s/i kontrolü  X-Evil: 1"))
+                .andExpect(header().doesNotExist("X-Evil"))
+                .andReturn().getResponse();
+
+        assertLatin1Encodable(response.getHeader(XsltHeaders.CUSTOM_ERROR));
+    }
+
+    @Test
+    @DisplayName("Güvenlik ihlali ı/ş/ğ içerse de X-Xslt-Security-Violations okunabilir dönmeli")
+    void shouldReturnReadableSecurityViolationsHeaderForTurkishMessage() throws Exception {
+        var result = TransformResult.builder()
+                .htmlContent("<html><body>Fatura</body></html>".getBytes())
+                .defaultXslUsed(false)
+                .watermarkApplied(false)
+                .durationMs(120)
+                .removedScriptCount(2)
+                .securityViolations(List.of(
+                        "Harici script kaynağı engellendi: https://örnek.com/ğ.js",
+                        "Script exfiltration API içeriyor: cookie access"))
+                .build();
+
+        when(xsltTransformer.transform(any())).thenReturn(result);
+
+        var xmlFile = new MockMultipartFile("document", "test.xml", "text/xml",
+                "<Invoice/>".getBytes());
+
+        var response = mockMvc.perform(multipart("/v1/transform")
+                        .file(xmlFile)
+                        .param("transformType", "INVOICE"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(XsltHeaders.SECURITY_VIOLATIONS,
+                        "Harici script kaynagi engellendi: https://örnek.com/g.js, "
+                                + "Script exfiltration API içeriyor: cookie access"))
+                .andReturn().getResponse();
+
+        assertLatin1Encodable(response.getHeader(XsltHeaders.SECURITY_VIOLATIONS));
     }
 
     @Test

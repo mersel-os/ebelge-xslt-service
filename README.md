@@ -233,7 +233,7 @@ curl -v -X POST http://localhost:8080/v1/transform \
 |--------|-----|----------|
 | `X-Xslt-Default-Used` | boolean | Varsayılan XSLT şablonu kullanıldı mı |
 | `X-Xslt-Embedded-Used` | boolean | Belgeden çıkarılan gömülü XSLT kullanıldı mı |
-| `X-Xslt-Custom-Error` | string | Özel/gömülü XSLT hata mesajı (sadece fallback durumunda) |
+| `X-Xslt-Custom-Error` | string | Özel/gömülü XSLT hata mesajı (sadece fallback durumunda). En fazla 500 karakter, ISO-8859-1: ü/ç/ö korunur; ı, ş, ğ, İ `i`, `s`, `g`, `I`; uzun tire `-` olur, karşılığı olmayan karakter `?` olur |
 | `X-Xslt-Duration-Ms` | integer | İşlem süresi (milisaniye) |
 | `X-Xslt-Watermark-Applied` | boolean | Filigran uygulandı mı |
 | `X-Xslt-Output-Size` | integer | Çıktı boyutu (byte) |
