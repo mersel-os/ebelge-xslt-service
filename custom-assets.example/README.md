@@ -29,6 +29,7 @@ Bu dizin, XSLT Service'in asset dosyalarını dışarıdan override etmek için 
 ```
 custom-assets/
 ├── validation-profiles.yml            # Doğrulama profilleri (bastırma kuralları)
+├── watermark.css                      # Filigran görünümü (opsiyonel)
 ├── default_transformers/              # Varsayılan HTML dönüşüm XSLT'leri
 │   ├── eInvoice_Base.xslt
 │   ├── eArchive_Base.xslt
@@ -88,6 +89,20 @@ curl -F "source=@fatura.xml" -F "profile=my-company" \
      localhost:8080/v1/validate
 ```
 
+### Filigran Görünümünü Değiştirme
+`watermarkText` ile eklenen filigranın rengini, boyutunu ya da açısını değiştirmek için:
+```bash
+cat > custom-assets/watermark.css <<'CSS'
+#watermark > div > div {
+    color: rgba(0, 0, 160, 0.25) !important;
+    font-size: 40px !important;
+}
+CSS
+```
+Dosya dahili stilden sonra eklenir; servis çalışırken eklenen ya da değiştirilen dosya
+dosya izleyiciyle veya `POST /v1/admin/assets/reload` ile uygulanır. Seçiciler ve kurallar için
+ana README'deki "Filigran" bölümüne bakın.
+
 ## Önemli Notlar
 
 - `custom-assets/` dizini `.gitignore`'da tanımlıdır — commit edilmez
@@ -98,4 +113,4 @@ curl -F "source=@fatura.xml" -F "profile=my-company" \
   `validator/ubl-tr-package/` altındaki XSD ve Schematron ile doğrulanır
 - e-Dekont varsayılan XSLT'si paket sync sırasında resmi örnek XML'in içinden çıkarılır ve `eDekont_Base.xslt` adıyla kaydedilir
 - e-Adisyon varsayılan XSLT'si GİB paketinden gelmez; `eAdisyon_Base.xslt` adıyla manuel yüklenmelidir
-- Doğrulama profilleri hot-reload destekler — dosya değişikliği algılandığında otomatik yüklenir
+- Doğrulama profilleri ve `watermark.css` hot-reload destekler — dosya değişikliği algılandığında otomatik yüklenir

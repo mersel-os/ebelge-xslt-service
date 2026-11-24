@@ -30,7 +30,7 @@ class SaxonXsltTransformerTest {
     void setUp() {
         var assetManager = new AssetManager();
         assetManager.init();
-        var watermarkService = new WatermarkService();
+        var watermarkService = new WatermarkService(assetManager);
         var htmlSanitizer = new HtmlSanitizer();
         var embeddedXsltExtractor = new EmbeddedXsltExtractor();
         var metrics = new XsltMetrics(new SimpleMeterRegistry());
@@ -171,7 +171,7 @@ class SaxonXsltTransformerTest {
         var metrics = new XsltMetrics(new SimpleMeterRegistry());
         var reloadableTransformer = new SaxonXsltTransformer(
                 assetManager,
-                new WatermarkService(),
+                new WatermarkService(assetManager),
                 new HtmlSanitizer(),
                 new EmbeddedXsltExtractor(),
                 metrics);

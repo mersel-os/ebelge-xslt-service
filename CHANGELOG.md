@@ -4,6 +4,10 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Eklenen
+
+- Filigran görünümü kod değiştirmeden özelleştirilebiliyor: asset dizinine konan `watermark.css` dahili stilden sonra eklenir. Dosya açılışta okunur; dosya izleyiciyle ve `POST /v1/admin/assets/reload` ile sonradan da uygulanır. UTF-8, en çok 64 KB, `</style` içeremez; geçersizse yok sayılır ve reload sonucunda hata olarak görünür. Satır sayısı `xslt.watermark.rows` ile ayarlanır (env: `XSLT_WATERMARK_ROWS`, varsayılan 200, 1–1000)
+
 ### Düzeltilen
 
 - Filigran çok sayfalı belgelerde yalnızca ilk sayfada çıkıyordu. Filigran artık belgenin tamamını kaplayan tek bir katman (`#watermark`): satırlar 300 px arayla döşeniyor (200 satır), ekranda katman belgeyle birlikte kayıyor, yazdırmada ve PDF'te her sayfaya basılıyor. Stiller id seçici ve `!important` ile XSLT tasarımındaki stillerden korunuyor; çapraz yazı eski WebKit motorları için `-webkit-transform` ile de veriliyor. Satır başına metin sayısı yine `xslt.watermark.count` ile ayarlanıyor. `<head>` yoksa stil katmanla birlikte body'ye ekleniyor; `</body>` yoksa içerik değiştirilmeden dönüyor

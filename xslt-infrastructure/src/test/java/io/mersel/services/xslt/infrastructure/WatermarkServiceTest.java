@@ -1,11 +1,16 @@
 package io.mersel.services.xslt.infrastructure;
 
+import io.mersel.services.xslt.application.interfaces.ReloadResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,11 +22,26 @@ class WatermarkServiceTest {
 
     private static final String LAYER_OPEN = "<div id=\"watermark\">";
 
+    @TempDir
+    Path assetDir;
+
     private WatermarkService watermarkService;
 
     @BeforeEach
     void setUp() {
-        watermarkService = new WatermarkService();
+        var assetManager = new AssetManager();
+        ReflectionTestUtils.setField(assetManager, "externalPath", assetDir.toString());
+        assetManager.init();
+        watermarkService = new WatermarkService(assetManager);
+        watermarkService.reload();
+    }
+
+    private void writeCustomStyle(byte[] content) throws IOException {
+        Files.write(assetDir.resolve(WatermarkService.CUSTOM_STYLE_ASSET), content);
+    }
+
+    private void writeCustomStyle(String content) throws IOException {
+        writeCustomStyle(content.getBytes(StandardCharsets.UTF_8));
     }
 
     private String apply(String html, String watermarkText) {
@@ -49,9 +69,9 @@ class WatermarkServiceTest {
         String resultHtml = apply("<html><head></head><body><p>İçerik</p></body></html>", "TEST");
 
         assertThat(occurrences(resultHtml, LAYER_OPEN)).isEqualTo(1);
-        assertThat(occurrences(resultHtml, "<div>TEST</div>")).isEqualTo(WatermarkService.ROW_COUNT * 3);
+        assertThat(occurrences(resultHtml, "<div>TEST</div>")).isEqualTo(WatermarkService.DEFAULT_ROW_COUNT * 3);
         assertThat(occurrences(resultHtml, "<div><div>TEST</div><div>TEST</div><div>TEST</div></div>"))
-                .isEqualTo(WatermarkService.ROW_COUNT);
+                .isEqualTo(WatermarkService.DEFAULT_ROW_COUNT);
         assertThat(resultHtml).contains("height: 300px !important");
     }
 
@@ -100,7 +120,7 @@ class WatermarkServiceTest {
 
         String resultHtml = apply("<html><head></head><body></body></html>", "TEST");
 
-        assertThat(occurrences(resultHtml, "<div>TEST</div>")).isEqualTo(WatermarkService.ROW_COUNT * 2);
+        assertThat(occurrences(resultHtml, "<div>TEST</div>")).isEqualTo(WatermarkService.DEFAULT_ROW_COUNT * 2);
         assertThat(resultHtml).contains("nth-child(1) { left: 10% !important; }");
         assertThat(resultHtml).contains("nth-child(2) { left: 56% !important; }");
         assertThat(resultHtml).doesNotContain("nth-child(3)");
@@ -212,5 +232,141 @@ class WatermarkServiceTest {
         assertThat(watermarkService.addWatermark(original, "")).isEqualTo(original);
         assertThat(watermarkService.addWatermark(original, "   ")).isEqualTo(original);
         assertThat(watermarkService.addWatermark(original, null)).isEqualTo(original);
+    }
+
+    // ── Özelleştirme: xslt.watermark.rows ────────────────────────────
+
+    @Test
+    @DisplayName("xslt.watermark.rows satır sayısını belirlemeli, 1–1000 aralığına sıkıştırılmalı")
+    void shouldHonourConfiguredRowsWithinBounds() {
+        String html = "<html><head></head><body></body></html>";
+
+        ReflectionTestUtils.setField(watermarkService, "numberOfRows", 5);
+        assertThat(occurrences(apply(html, "T"), "<div>T</div>")).isEqualTo(5 * 3);
+
+        ReflectionTestUtils.setField(watermarkService, "numberOfRows", 0);
+        assertThat(occurrences(apply(html, "T"), "<div>T</div>")).isEqualTo(3);
+
+        ReflectionTestUtils.setField(watermarkService, "numberOfRows", 50_000);
+        assertThat(occurrences(apply(html, "T"), "<div>T</div>")).isEqualTo(WatermarkService.MAX_ROW_COUNT * 3);
+    }
+
+    // ── Özelleştirme: watermark.css ──────────────────────────────────
+
+    @Test
+    @DisplayName("watermark.css yoksa yalnız dahili stil kullanılmalı")
+    void shouldUseBuiltInStyleWhenNoCustomStyle() {
+        ReloadResult result = watermarkService.reload();
+
+        assertThat(result.status()).isEqualTo(ReloadResult.Status.OK);
+        assertThat(result.loadedCount()).isZero();
+        assertThat(apply("<html><head></head><body></body></html>", "TASLAK"))
+                .doesNotContain("/* " + WatermarkService.CUSTOM_STYLE_ASSET + " */");
+    }
+
+    @Test
+    @DisplayName("watermark.css dahili stilden sonra, </style>'dan önce eklenmeli")
+    void shouldAppendCustomStyleAfterBuiltInStyle() throws IOException {
+        String custom = "#watermark > div > div { color: rgba(0, 0, 255, 0.2) !important; font-size: 48px !important; }";
+        writeCustomStyle(custom);
+
+        ReloadResult result = watermarkService.reload();
+        String resultHtml = apply("<html><head></head><body></body></html>", "TASLAK");
+
+        assertThat(result.status()).isEqualTo(ReloadResult.Status.OK);
+        assertThat(result.loadedCount()).isEqualTo(1);
+        int builtIn = resultHtml.indexOf("color: rgba(255, 0, 0, 0.3) !important");
+        int lastBuiltInRule = resultHtml.indexOf("nth-child(3) { left: 68% !important; }");
+        int customIndex = resultHtml.indexOf(custom);
+        int styleClose = resultHtml.indexOf("</style>");
+        assertThat(customIndex).isGreaterThan(builtIn).isGreaterThan(lastBuiltInRule).isLessThan(styleClose);
+    }
+
+    @Test
+    @DisplayName("Sonradan eklenen, değişen ve silinen watermark.css reload ile uygulanmalı")
+    void shouldPickUpCustomStyleChangesOnReload() throws IOException {
+        String html = "<html><head></head><body></body></html>";
+        assertThat(apply(html, "TASLAK")).doesNotContain("font-size: 48px");
+
+        writeCustomStyle("#watermark > div > div { font-size: 48px !important; }");
+        watermarkService.reload();
+        assertThat(apply(html, "TASLAK")).contains("font-size: 48px !important;");
+
+        writeCustomStyle("#watermark > div > div { font-size: 20px !important; }");
+        watermarkService.reload();
+        assertThat(apply(html, "TASLAK")).contains("font-size: 20px !important;").doesNotContain("font-size: 48px");
+
+        Files.delete(assetDir.resolve(WatermarkService.CUSTOM_STYLE_ASSET));
+        watermarkService.reload();
+        assertThat(apply(html, "TASLAK")).doesNotContain("font-size: 20px");
+    }
+
+    @Test
+    @DisplayName("</style> içeren watermark.css reddedilmeli (HTML enjeksiyonu)")
+    void shouldRejectCustomStyleThatClosesStyleElement() throws IOException {
+        writeCustomStyle("#watermark { color: red; }</STYLE ><script>alert(1)</script><style>");
+
+        ReloadResult result = watermarkService.reload();
+        String resultHtml = apply("<html><head></head><body></body></html>", "TASLAK");
+
+        assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
+        assertThat(result.errors()).singleElement().asString().contains("</style");
+        assertThat(resultHtml).doesNotContain("<script>").doesNotContain("color: red;");
+        assertThat(resultHtml).contains(LAYER_OPEN);
+    }
+
+    @Test
+    @DisplayName("Geçersiz watermark.css önceki özel stili de kaldırmalı")
+    void shouldDropPreviousCustomStyleWhenNewOneIsInvalid() throws IOException {
+        writeCustomStyle("#watermark > div > div { font-size: 48px !important; }");
+        watermarkService.reload();
+
+        writeCustomStyle("</style>");
+        ReloadResult result = watermarkService.reload();
+
+        assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
+        assertThat(apply("<html><head></head><body></body></html>", "TASLAK")).doesNotContain("font-size: 48px");
+    }
+
+    @Test
+    @DisplayName("64 KB'tan büyük watermark.css reddedilmeli")
+    void shouldRejectOversizedCustomStyle() throws IOException {
+        writeCustomStyle("/*" + "x".repeat(WatermarkService.MAX_CUSTOM_STYLE_BYTES) + "*/");
+
+        ReloadResult result = watermarkService.reload();
+
+        assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
+        assertThat(apply("<html><head></head><body></body></html>", "TASLAK")).doesNotContain("xxxx");
+    }
+
+    @Test
+    @DisplayName("UTF-8 olmayan watermark.css reddedilmeli")
+    void shouldRejectNonUtf8CustomStyle() throws IOException {
+        writeCustomStyle(new byte[]{'a', (byte) 0xC3, (byte) 0x28, 'b'});
+
+        assertThat(watermarkService.reload().status()).isEqualTo(ReloadResult.Status.FAILED);
+    }
+
+    @Test
+    @DisplayName("watermark.css başındaki BOM atılmalı, Türkçe karakterler korunmalı")
+    void shouldStripBomFromCustomStyle() throws IOException {
+        writeCustomStyle("﻿#watermark > div > div::after { content: \" — ÖRNEK\" !important; }");
+
+        assertThat(watermarkService.reload().status()).isEqualTo(ReloadResult.Status.OK);
+        String resultHtml = apply("<html><head></head><body></body></html>", "TASLAK");
+        assertThat(resultHtml).contains("*/\n#watermark > div > div::after { content: \" — ÖRNEK\" !important; }\n</style>");
+        assertThat(resultHtml).doesNotContain("﻿");
+    }
+
+    @Test
+    @DisplayName("Asset dizini yapılandırılmamışsa reload başarılı olmalı, dahili stil kullanılmalı")
+    void shouldWorkWithoutAssetDirectory() {
+        var service = new WatermarkService(new AssetManager());
+
+        ReloadResult result = service.reload();
+        byte[] out = service.addWatermark("<html><head></head><body></body></html>".getBytes(StandardCharsets.UTF_8), "TASLAK");
+
+        assertThat(result.status()).isEqualTo(ReloadResult.Status.OK);
+        assertThat(new String(out, StandardCharsets.UTF_8)).contains(LAYER_OPEN);
     }
 }

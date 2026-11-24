@@ -526,10 +526,44 @@ custom-assets/
 │   │   └── schema/                    # UBL-TR XSD dosyaları
 │   ├── earchive/                      # e-Arşiv dosyaları
 │   └── eledger/                       # e-Defter dosyaları
-└── validation-profiles.yml            # Özel doğrulama profilleri
+├── validation-profiles.yml            # Özel doğrulama profilleri
+└── watermark.css                      # Filigran görünümü (opsiyonel, bkz. Filigran)
 ```
 
 Örnek yapı için `custom-assets.example/` dizinine bakın.
+
+## Filigran
+
+`watermarkText` verilen dönüşümlerde HTML'e belgenin tamamını kaplayan bir filigran katmanı eklenir. Katman ekranda belgeyle birlikte kayar. Yazdırmada ve Chromium tabanlı PDF motorlarında her sayfaya basılır.
+
+| Parametre | Env Variable | Varsayılan | Açıklama |
+|-----------|-------------|------------|----------|
+| `xslt.watermark.count` | `XSLT_WATERMARK_COUNT` | `3` | Satır başına filigran metni |
+| `xslt.watermark.rows` | `XSLT_WATERMARK_ROWS` | `200` | Satır sayısı (1–1000). Satırlar 300 px arayla dizilir; ekranda uzun belgelerin sonuna kadar filigran düşmesi bu sayıya bağlıdır |
+
+### Görünümü özelleştirme
+
+Asset dizinine `watermark.css` koyun. Dosya dahili stilden **sonra** eklenir: aynı seçicileri `!important` ile yazarak dahili değerleri ezersiniz. Kod ya da imaj değişikliği gerekmez.
+
+```css
+/* custom-assets/watermark.css */
+#watermark > div > div {
+    color: rgba(0, 0, 160, 0.25) !important;
+    font-size: 40px !important;
+}
+```
+
+| Seçici | Öğe |
+|--------|-----|
+| `#watermark` | Katman (ekranda `absolute`, baskıda `fixed`) |
+| `#watermark > div` | Satır (yükseklik 300 px) |
+| `#watermark > div > div` | Metin (-45° döndürülmüş, satır içinde `top: 240px`). Yatay konum `:nth-child(n)` ile verilir |
+
+- **Ne zaman okunur:** servis açılırken. Dosya izleme açıksa (`XSLT_ASSETS_WATCH_ENABLED=true`) dosya eklendiğinde, değiştiğinde ya da silindiğinde de okunur. `POST /v1/admin/assets/reload` ile elle de tetiklenebilir. Yeniden başlatma gerekmez.
+- **Kurallar:** UTF-8, en çok 64 KB, `</style` içeremez. Geçersiz dosya yok sayılır ve dahili stil kullanılır; hata reload sonucunda ve logda görünür.
+- **Satır yüksekliği:** `#watermark > div { height: … }` ile değiştirirseniz `xslt.watermark.rows` değerini de buna göre ayarlayın.
+- **Görsel ve font:** yalnız `data:` URI kullanın. Dönüşüm yanıtının CSP'si dış fontları engeller. HTML'i doğrudan alan PDF motorlarında ise CSP hiç uygulanmaz; dış adresler belge her işlendiğinde çağrılır.
+- **Gizlilik:** `watermark.css`'i kurumunuza özel bir depoda ya da birimde tutun. Bu depoya eklemeyin.
 
 ## Konfigürasyon
 

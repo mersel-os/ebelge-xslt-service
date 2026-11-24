@@ -1,10 +1,16 @@
 package io.mersel.services.xslt.infrastructure;
 
+import io.mersel.services.xslt.application.interfaces.ReloadResult;
+import io.mersel.services.xslt.application.interfaces.Reloadable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13,8 +19,8 @@ import java.util.regex.Pattern;
  * HTML çıktısına filigran (watermark) ekler.
  * <p>
  * Filigran, belgenin tamamını kaplayan tek bir katmandır ({@code #watermark}). Katmanın içinde
- * 300 px arayla döşenmiş satırlar, her satırda da çapraz yazılmış {@code xslt.watermark.count}
- * adet metin bulunur. Böylece çok sayfalı belgeler yazdırıldığında ya da PDF'e çevrildiğinde
+ * 300 px arayla döşenmiş {@code xslt.watermark.rows} satır, her satırda da çapraz yazılmış
+ * {@code xslt.watermark.count} adet metin bulunur. Böylece çok sayfalı belgeler yazdırıldığında ya da PDF'e çevrildiğinde
  * her sayfaya katmanın kendi dilimi düşer.
  * <ul>
  *   <li>Ekranda katman {@code html}'e göre {@code position: absolute} ile tüm belge yüksekliğini
@@ -33,22 +39,120 @@ import java.util.regex.Pattern;
  * </ul>
  * Stil {@code <head>} varsa oraya, yoksa katmanın hemen önüne eklenir. {@code </body>} yoksa
  * filigran eklenmez ve içerik değiştirilmeden döner.
+ * <p>
+ * <b>Özelleştirme.</b> Servisi çalıştıran, görünümü kod değiştirmeden ayarlayabilir:
+ * <ul>
+ *   <li>{@code xslt.watermark.count} ve {@code xslt.watermark.rows}: satır başına metin ve satır
+ *       sayısı (açılışta okunur).</li>
+ *   <li>Dış asset dizinindeki {@value #CUSTOM_STYLE_ASSET}: dahili stilden <b>sonra</b> eklenir.
+ *       Aynı seçiciler ve {@code !important} ile dahili değerler ezilir. Dosya açılışta, dosya
+ *       izleyicisi değişiklik gördüğünde ya da {@code POST /v1/admin/assets/reload} ile yeniden
+ *       okunur. Geçersizse yok sayılır ve dahili stil kullanılır.</li>
+ * </ul>
+ * Stil sözleşmesi sabittir: {@code #watermark} katman, {@code #watermark > div} satır,
+ * {@code #watermark > div > div} metin.
  */
 @Service
-public class WatermarkService {
+public class WatermarkService implements Reloadable {
 
     private static final Logger log = LoggerFactory.getLogger(WatermarkService.class);
 
+    /** Dış asset dizininde, dahili stilden sonra eklenen isteğe bağlı stil dosyası. */
+    static final String CUSTOM_STYLE_ASSET = "watermark.css";
+
+    /** Özel stil dosyası için üst sınır (bayt). Stil her filigranlı yanıta eklenir. */
+    static final int MAX_CUSTOM_STYLE_BYTES = 64 * 1024;
+
+    /** {@code </style} dizisi stil bloğunu erken kapatıp HTML enjekte edebilir. */
+    private static final Pattern STYLE_CLOSE_PATTERN = Pattern.compile("</style", Pattern.CASE_INSENSITIVE);
+
     /**
-     * Filigran satır sayısı. Satırlar 300 px arayla döşenir; uzun belgelerde her sayfaya filigran
-     * düşmesi bu sayıya bağlıdır (200 satır = 60.000 px, yaklaşık 40+ A4 sayfa). Belge sonunu
-     * aşan satırlar katmanın {@code overflow: hidden} ayarıyla kırpılır, sayfa eklemez.
+     * Varsayılan satır sayısı. Satırlar 300 px arayla döşenir; ekranda uzun belgelerin sonuna kadar
+     * filigran düşmesi bu sayıya bağlıdır (200 satır = 60.000 px, yaklaşık 40+ A4 sayfa). Belge
+     * sonunu aşan satırlar katmanın {@code overflow: hidden} ayarıyla kırpılır, sayfa eklemez.
      */
-    static final int ROW_COUNT = 200;
+    static final int DEFAULT_ROW_COUNT = 200;
+
+    /** Satır sayısı üst sınırı; yanıt boyutunu sınırlar. */
+    static final int MAX_ROW_COUNT = 1000;
+
+    private final AssetManager assetManager;
 
     /** Satır başına filigran metni sayısı. */
     @Value("${xslt.watermark.count:3}")
     private int numberOfWatermarks = 3;
+
+    /** Satır sayısı (1–{@value #MAX_ROW_COUNT}). */
+    @Value("${xslt.watermark.rows:200}")
+    private int numberOfRows = DEFAULT_ROW_COUNT;
+
+    /** Geçerli özel stil; yoksa boş. {@link #reload()} ile atomik olarak değiştirilir. */
+    private volatile String customStyle = "";
+
+    public WatermarkService(AssetManager assetManager) {
+        this.assetManager = assetManager;
+    }
+
+    // ── Reloadable ──────────────────────────────────────────────────
+
+    @Override
+    public String getName() {
+        return "Filigran Stili";
+    }
+
+    /**
+     * Dış asset dizinindeki {@value #CUSTOM_STYLE_ASSET} dosyasını okur. Dosya yoksa özel stil
+     * kaldırılır; geçersizse özel stil kaldırılır ve sonuç başarısız döner.
+     */
+    @Override
+    public ReloadResult reload() {
+        long start = System.currentTimeMillis();
+        if (!assetManager.assetExists(CUSTOM_STYLE_ASSET)) {
+            customStyle = "";
+            return ReloadResult.success(getName(), 0, System.currentTimeMillis() - start);
+        }
+        try {
+            String css = readCustomStyle();
+            customStyle = css;
+            if (!css.isEmpty()) {
+                log.info("Özel filigran stili yüklendi: {} ({} karakter)", CUSTOM_STYLE_ASSET, css.length());
+            }
+            return ReloadResult.success(getName(), css.isEmpty() ? 0 : 1, System.currentTimeMillis() - start);
+        } catch (IOException | IllegalArgumentException e) {
+            customStyle = "";
+            String error = CUSTOM_STYLE_ASSET + " yok sayıldı, dahili stil kullanılıyor: " + e.getMessage();
+            log.warn("  {}", error);
+            return ReloadResult.failed(getName(), System.currentTimeMillis() - start, error);
+        }
+    }
+
+    private String readCustomStyle() throws IOException {
+        long size = assetManager.getAssetSize(CUSTOM_STYLE_ASSET);
+        if (size > MAX_CUSTOM_STYLE_BYTES) {
+            throw new IllegalArgumentException("dosya " + MAX_CUSTOM_STYLE_BYTES + " bayttan büyük olamaz (" + size + ")");
+        }
+        byte[] bytes = assetManager.readAssetBytes(CUSTOM_STYLE_ASSET);
+        if (bytes.length > MAX_CUSTOM_STYLE_BYTES) {
+            throw new IllegalArgumentException("dosya " + MAX_CUSTOM_STYLE_BYTES + " bayttan büyük olamaz (" + bytes.length + ")");
+        }
+        String css;
+        try {
+            css = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException e) {
+            throw new IllegalArgumentException("dosya geçerli UTF-8 değil");
+        }
+        if (css.startsWith("﻿")) {
+            css = css.substring(1);
+        }
+        if (STYLE_CLOSE_PATTERN.matcher(css).find()) {
+            throw new IllegalArgumentException("dosya '</style' içeremez");
+        }
+        return css.strip();
+    }
 
     private static final Pattern HEAD_PATTERN = Pattern.compile("<head\\b[^>]*>", Pattern.CASE_INSENSITIVE);
     private static final Pattern BODY_CLOSE_PATTERN = Pattern.compile("</body\\s*>", Pattern.CASE_INSENSITIVE);
@@ -105,9 +209,10 @@ public class WatermarkService {
         }
 
         int count = Math.max(1, numberOfWatermarks);
-        String style = buildStyle(count);
+        int rows = Math.min(MAX_ROW_COUNT, Math.max(1, numberOfRows));
+        String style = buildStyle(count, customStyle);
         // XSS koruması — filigran metnini HTML escape et
-        String layer = buildLayer(escapeHtml(watermarkText), count);
+        String layer = buildLayer(escapeHtml(watermarkText), count, rows);
 
         StringBuilder result = new StringBuilder(html.length() + style.length() + layer.length());
         Matcher headMatcher = HEAD_PATTERN.matcher(html.substring(0, bodyCloseIndex));
@@ -129,9 +234,9 @@ public class WatermarkService {
 
     /**
      * Stil bloğunu oluşturur. Metinlerin yatay konumları satır başına metin sayısına göre hesaplanır
-     * (3 metin için %10, %39, %68).
+     * (3 metin için %10, %39, %68). Özel stil en sona eklenir ki dahili kuralları ezebilsin.
      */
-    private static String buildStyle(int count) {
+    private static String buildStyle(int count, String customCss) {
         StringBuilder style = new StringBuilder("<style type=\"text/css\">\n").append(WATERMARK_BASE_STYLE);
         int width = 100 / count;
         int left = 10;
@@ -140,13 +245,16 @@ public class WatermarkService {
                  .append(") { left: ").append(left).append("% !important; }\n");
             left += width - 4;
         }
+        if (!customCss.isEmpty()) {
+            style.append("/* ").append(CUSTOM_STYLE_ASSET).append(" */\n").append(customCss).append('\n');
+        }
         return style.append("</style>").toString();
     }
 
-    private static String buildLayer(String escapedText, int count) {
+    private static String buildLayer(String escapedText, int count, int rows) {
         String cell = "<div>" + escapedText + "</div>";
         String row = "<div>" + cell.repeat(count) + "</div>";
-        return "<div id=\"watermark\">" + row.repeat(ROW_COUNT) + "</div>";
+        return "<div id=\"watermark\">" + row.repeat(rows) + "</div>";
     }
 
     private static int lastMatchStart(Pattern pattern, String text) {
