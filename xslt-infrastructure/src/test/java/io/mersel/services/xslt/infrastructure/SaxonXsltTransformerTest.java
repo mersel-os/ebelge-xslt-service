@@ -89,6 +89,9 @@ class SaxonXsltTransformerTest {
         String html = new String(result.getHtmlContent(), StandardCharsets.UTF_8);
         assertThat(html).contains("TASLAK");
         assertThat(html).contains("watermark");
+        // HtmlSanitizer filigran katmanını ve stilini silmemeli
+        assertThat(html).contains("id=\"watermark\"");
+        assertThat(html).contains("html { position: relative !important; }");
     }
 
     @Test

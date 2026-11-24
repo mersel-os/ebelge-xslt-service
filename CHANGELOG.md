@@ -4,6 +4,10 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Düzeltilen
+
+- Filigran çok sayfalı belgelerde yalnızca ilk sayfada çıkıyordu. Filigran artık belgenin tamamını kaplayan tek bir katman (`#watermark`): satırlar 300 px arayla döşeniyor (200 satır), ekranda katman belgeyle birlikte kayıyor, yazdırmada ve PDF'te her sayfaya basılıyor. Stiller id seçici ve `!important` ile XSLT tasarımındaki stillerden korunuyor; çapraz yazı eski WebKit motorları için `-webkit-transform` ile de veriliyor. Satır başına metin sayısı yine `xslt.watermark.count` ile ayarlanıyor. `<head>` yoksa stil katmanla birlikte body'ye ekleniyor; `</body>` yoksa içerik değiştirilmeden dönüyor
+
 ## [1.4.0] - 2026-10-04
 
 ### Eklenen
