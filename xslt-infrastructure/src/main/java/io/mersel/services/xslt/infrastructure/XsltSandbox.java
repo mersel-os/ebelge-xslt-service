@@ -1,10 +1,15 @@
 package io.mersel.services.xslt.infrastructure;
 
+import net.sf.saxon.Configuration;
+import net.sf.saxon.functions.registry.BuiltInFunctionSet;
+import net.sf.saxon.functions.registry.UseWhen30FunctionSet;
+import net.sf.saxon.functions.registry.XSLT30FunctionSet;
 import net.sf.saxon.lib.EnvironmentVariableResolver;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.ResourceRequest;
 import net.sf.saxon.lib.ResourceResolver;
+import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.SaxonApiUncheckedException;
@@ -25,6 +30,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Güvenilmeyen XSLT ve XML ile çalışan Saxon dönüşümleri için sandbox.
@@ -49,6 +55,9 @@ import java.util.Set;
  *       Aynı ayarlar Saxon'un kendi açtığı ayrıştırıcılara da ({@code parse-xml()} vb.) uygulanır.
  *       İç DTD alt kümesindeki varlıklar (GİB şablonlarındaki {@code &nbsp;} tanımları gibi)
  *       çalışmaya devam eder; genişleme sınırları {@link XMLConstants#FEATURE_SECURE_PROCESSING} ile gelir.</li>
+ *   <li>{@code fn:transform} ve {@code fn:load-xquery-module} yoktur ({@link #UNAVAILABLE_FUNCTIONS}):
+ *       çağrı sırasında sıfırdan yeni bir Saxon yapılandırması kurabildikleri için bu kısıtları taşımazlar.
+ *       Derleme zamanı ifadeleri, {@code function-lookup()} ve isimli fonksiyon referansları da onları bulamaz.</li>
  * </ul>
  * Bu ayarların kapsamı yalnızca {@link #newProcessor()} ile oluşturulan {@link Processor}'dür;
  * diğer Saxon kullanıcılarını (Schematron doğrulama vb.) etkilemez.
@@ -76,6 +85,13 @@ final class XsltSandbox {
             EXTERNAL_PARAMETER_ENTITIES, false,
             LOAD_EXTERNAL_DTD, false);
 
+    /**
+     * Sandbox'ta bulunmayan yerleşik fonksiyonlar. İkisi de bir seçenekle (ör. {@code vendor-options}
+     * içinde Saxon yapılandırması) yeni bir {@link Configuration} kurabilir; o yapılandırma bu sınıfın
+     * hiçbir kısıtını taşımaz.
+     */
+    static final Set<String> UNAVAILABLE_FUNCTIONS = Set.of("transform", "load-xquery-module");
+
     private static final EnvironmentVariableResolver NO_ENVIRONMENT = new EnvironmentVariableResolver() {
         @Override
         public Set<String> getAvailableEnvironmentVariables() {
@@ -98,7 +114,7 @@ final class XsltSandbox {
      * Sandbox ayarları uygulanmış yeni bir Saxon HE {@link Processor} oluşturur.
      */
     static Processor newProcessor() {
-        var processor = new Processor(false);
+        var processor = new Processor(new SandboxConfiguration());
         processor.setConfigurationProperty(Feature.ALLOWED_PROTOCOLS, "");
         processor.setConfigurationProperty(Feature.ALLOW_EXTERNAL_FUNCTIONS, false);
         processor.setConfigurationProperty(Feature.ENVIRONMENT_VARIABLE_RESOLVER, NO_ENVIRONMENT);
@@ -177,6 +193,104 @@ final class XsltSandbox {
 
     private static Source denyResource(ResourceRequest request) throws XPathException {
         throw blocked(request.uri != null ? request.uri : request.relativeUri);
+    }
+
+    /**
+     * {@link #UNAVAILABLE_FUNCTIONS} içindeki fonksiyonları XSLT, XPath ve derleme zamanı
+     * ({@code use-when}, {@code static}) fonksiyon setlerinden çıkaran Saxon HE yapılandırması.
+     * Saxon'un fonksiyon çözümlemesi (çağrı, {@code function-available()}, {@code function-lookup()},
+     * isimli fonksiyon referansı) bu setlerin {@code getFunctionDetails} metodundan geçer.
+     */
+    private static final class SandboxConfiguration extends Configuration {
+
+        private final Map<Integer, BuiltInFunctionSet> xpathFunctionSets = new ConcurrentHashMap<>();
+        private final Map<Integer, BuiltInFunctionSet> xsltFunctionSets = new ConcurrentHashMap<>();
+        private final Map<Integer, UseWhen30FunctionSet> useWhenFunctionSets = new ConcurrentHashMap<>();
+
+        @Override
+        public BuiltInFunctionSet getXPathFunctionSet(int version) {
+            BuiltInFunctionSet base = super.getXPathFunctionSet(version);
+            if (!containsUnavailableFunction(base)) {
+                return base;
+            }
+            return xpathFunctionSets.computeIfAbsent(version, v -> new RestrictedFunctionSet(base));
+        }
+
+        @Override
+        public BuiltInFunctionSet getXSLTFunctionSet(int version) {
+            BuiltInFunctionSet base = super.getXSLTFunctionSet(version);
+            if (!containsUnavailableFunction(base)) {
+                return base;
+            }
+            if (base instanceof XSLT30FunctionSet) {
+                return xsltFunctionSets.computeIfAbsent(version, v -> new RestrictedXslt30FunctionSet());
+            }
+            return xsltFunctionSets.computeIfAbsent(version, v -> new RestrictedFunctionSet(base));
+        }
+
+        @Override
+        public synchronized UseWhen30FunctionSet getUseWhenFunctionLibrary(int version) {
+            return useWhenFunctionSets.computeIfAbsent(version, RestrictedUseWhenFunctionSet::new);
+        }
+
+        private static boolean containsUnavailableFunction(BuiltInFunctionSet set) {
+            if (set == null) {
+                return false;
+            }
+            for (String name : UNAVAILABLE_FUNCTIONS) {
+                for (int arity = 0; arity <= 3; arity++) {
+                    if (set.getFunctionDetails(name, arity) != null) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
+
+    /** Saxon'un XSLT 3.0 fonksiyon seti, {@link #UNAVAILABLE_FUNCTIONS} hariç. */
+    private static final class RestrictedXslt30FunctionSet extends XSLT30FunctionSet {
+        @Override
+        public Entry getFunctionDetails(String name, int arity) {
+            return UNAVAILABLE_FUNCTIONS.contains(name) ? null : super.getFunctionDetails(name, arity);
+        }
+    }
+
+    /** Saxon'un derleme zamanı ({@code use-when}) fonksiyon seti, {@link #UNAVAILABLE_FUNCTIONS} hariç. */
+    private static final class RestrictedUseWhenFunctionSet extends UseWhen30FunctionSet {
+        RestrictedUseWhenFunctionSet(int version) {
+            super(version);
+        }
+
+        @Override
+        public Entry getFunctionDetails(String name, int arity) {
+            return UNAVAILABLE_FUNCTIONS.contains(name) ? null : super.getFunctionDetails(name, arity);
+        }
+    }
+
+    /** Verilen yerleşik fonksiyon setinin kopyası, {@link #UNAVAILABLE_FUNCTIONS} hariç. */
+    private static final class RestrictedFunctionSet extends BuiltInFunctionSet {
+        private final BuiltInFunctionSet base;
+
+        RestrictedFunctionSet(BuiltInFunctionSet base) {
+            this.base = base;
+            importFunctionSet(base);
+        }
+
+        @Override
+        public Entry getFunctionDetails(String name, int arity) {
+            return UNAVAILABLE_FUNCTIONS.contains(name) ? null : super.getFunctionDetails(name, arity);
+        }
+
+        @Override
+        public NamespaceUri getNamespace() {
+            return base.getNamespace();
+        }
+
+        @Override
+        public String getConventionalPrefix() {
+            return base.getConventionalPrefix();
+        }
     }
 
     /**

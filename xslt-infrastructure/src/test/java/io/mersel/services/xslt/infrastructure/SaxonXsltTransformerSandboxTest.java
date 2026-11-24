@@ -301,6 +301,59 @@ class SaxonXsltTransformerSandboxTest {
         assertThat(html(result)).contains("ANA-CIKTI");
     }
 
+    // ── Yeni Saxon yapılandırması kurabilen fonksiyonlar ───────────
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(TemplatePath.class)
+    @DisplayName("transform() ve load-xquery-module() sandbox'ta yoktur")
+    void configurationCreatingFunctionsAreUnavailable(TemplatePath path) throws Exception {
+        var result = transform(path, stylesheet("""
+                <p>FA=[<xsl:value-of select="function-available('transform', 1), function-available('load-xquery-module', 1), function-available('load-xquery-module', 2)"/>]</p>
+                <p>LOOKUP=[<xsl:value-of select="exists(function-lookup(QName('http://www.w3.org/2005/xpath-functions', 'transform'), 1))"/>]</p>
+                <p>CONTROL=[<xsl:value-of select="function-available('parse-xml', 1)"/>]</p>"""));
+
+        assertOwnTemplateUsed(path, result);
+        assertThat(html(result)).contains("FA=[false false false]", "LOOKUP=[false]", "CONTROL=[true]");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(TemplatePath.class)
+    @DisplayName("transform() ile yeni yapılandırmada dosya okunamaz")
+    void transformWithVendorConfigurationIsBlocked(TemplatePath path) {
+        assertBlocked(path, stylesheet(nestedTransformReading("transform")), SECRET, null);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(TemplatePath.class)
+    @DisplayName("function-lookup ile transform() çağrılamaz")
+    void transformThroughFunctionLookupIsBlocked(TemplatePath path) {
+        assertBlocked(path, stylesheet(nestedTransformReading(
+                "function-lookup(QName('http://www.w3.org/2005/xpath-functions', 'transform'), 1)")), SECRET, null);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(TemplatePath.class)
+    @DisplayName("İsimli fonksiyon referansıyla transform() çağrılamaz")
+    void transformThroughNamedFunctionReferenceIsBlocked(TemplatePath path) {
+        assertBlocked(path, stylesheet(nestedTransformReading("transform#1")), SECRET, null);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(TemplatePath.class)
+    @DisplayName("Derleme zamanı (static) ifadede transform() çağrılamaz")
+    void transformInStaticExpressionIsBlocked(TemplatePath path) {
+        // XPath dizge sabiti içinde: ' iki katına çıkar; nitelik değeri içinde: " ve < kaçışlanır.
+        String innerXslt = innerStylesheetReadingSecret().replace("'", "''").replace("\"", "&quot;").replace("<", "&lt;");
+        String config = CONFIGURATION_XML.replace("\"", "&quot;").replace("<", "&lt;");
+        String xslt = """
+                <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:param name="leak" static="yes" select="string(transform(map{'stylesheet-node': parse-xml('%s'), 'source-node': parse-xml('&lt;x/&gt;'), 'vendor-options': map{QName('http://saxon.sf.net/', 'configuration'): parse-xml('%s')}})?output)"/>
+                    <xsl:template match="/"><html><head></head><body><p>OUT=[<xsl:value-of select="$leak"/>]</p></body></html></xsl:template>
+                </xsl:stylesheet>""".formatted(innerXslt, config);
+
+        assertBlocked(path, xslt, SECRET, null);
+    }
+
     // ── Kontrol: sandbox olmadan aynı girdiler gerçekten sızdırıyor ─────
 
     /**
@@ -402,6 +455,28 @@ class SaxonXsltTransformerSandboxTest {
                 </body></html>
                     </xsl:template>
                 </xsl:stylesheet>""";
+    }
+
+    /** Saxon'un {@code transform()} seçeneğiyle sıfırdan kurulan yapılandırma. */
+    private static final String CONFIGURATION_XML =
+            "<configuration xmlns=\"http://saxon.sf.net/ns/configuration\" edition=\"HE\"/>";
+
+    private String innerStylesheetReadingSecret() {
+        return "<xsl:stylesheet version=\"3.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\">"
+                + "<xsl:template match=\"/\"><r><xsl:value-of select=\"unparsed-text('" + secretTextUri + "')\"/></r>"
+                + "</xsl:template></xsl:stylesheet>";
+    }
+
+    /**
+     * Verilen fonksiyonla, yeni bir Saxon yapılandırması isteyerek gizli dosyayı okuyan bir iç stylesheet
+     * çalıştıran gövde. Fonksiyon ifadesi {@code transform} ya da ona dönen bir ifade olabilir.
+     */
+    private String nestedTransformReading(String function) {
+        return """
+                <xsl:variable name="inner"><![CDATA[%s]]></xsl:variable>
+                <xsl:variable name="cfg"><![CDATA[%s]]></xsl:variable>
+                <p>OUT=[<xsl:value-of select="%s(map{'stylesheet-node': parse-xml(string($inner)), 'source-node': parse-xml('&lt;x/&gt;'), 'vendor-options': map{QName('http://saxon.sf.net/', 'configuration'): parse-xml(string($cfg))}})?output"/>]</p>"""
+                .formatted(innerStylesheetReadingSecret(), CONFIGURATION_XML, function);
     }
 
     private String withUris(String expression) {
