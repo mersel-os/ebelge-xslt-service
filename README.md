@@ -461,6 +461,8 @@ Admin panelinden (`Kurallar` tab'ı) veya `PUT /v1/admin/schematron-rules` API's
 | **Mesaj** | Hata mesajı — `{{xpath}}` placeholder'ları desteklenir |
 | **Flag** | Hata seviyesi (`error`, `warning`, `info`) |
 
+> **Sandbox:** Özel kurallar, derlenen Schematron'un geri kalanıyla birlikte [XSLT dönüşümündeki](#xslt-dönüşüm) kısıtlı Saxon yapılandırmasında çalışır: `environment-variable()` boş döner, `system-property()` JVM özelliklerini döndürmez, `doc()`/`document()`, `unparsed-text*()`, `json-doc()`, `collection()` ve `uri-collection()` dosyaya ya da ağa erişemez. Kural bu yüzden reddedilmeden kaydedilir; erişim doğrulama sırasında engellenir ve yanıtta `Schematron doğrulama hatası: ...` mesajlı tek bir hata döner. Kurallar yalnızca doğrulanan belgeyi ve `parameters` ile geçirilen değerleri kullanmalıdır.
+
 ### Dinamik Parametreler
 
 Kural test ifadelerinde `$parametre_adi` şeklinde değişkenler kullanılabilir. Bu değişkenler otomatik tanınır ve doğrulama isteğinde `parameters` alanı ile değerleri geçirilir.

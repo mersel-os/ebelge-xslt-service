@@ -39,8 +39,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code system-property()} ile JVM özelliklerini, {@code unparsed-text*()}, {@code json-doc()},
  * {@code collection()} ve {@code uri-collection()} ile dosya sistemini ya da ağı okuyabilir ve
  * {@code xsl:result-document} ile diske yazabilir. Varsayılan XML ayrıştırıcısı da DOCTYPE içindeki
- * harici varlıkları çözer (XXE). Bu sınıf, kullanıcının yüklediği XSLT, belgeye gömülü XSLT ve
- * varsayılan şablon yollarının hepsinde bu kapıları kapatır:
+ * harici varlıkları çözer (XXE). Bu sınıf, kullanıcının yüklediği XSLT, belgeye gömülü XSLT,
+ * varsayılan şablon yollarında ve Schematron doğrulamasında (yönetici API'siyle eklenen özel kurallar
+ * dahil, derlenmiş Schematron XSLT'leri) bu kapıları kapatır:
  * <ul>
  *   <li>İzinli protokol listesi boştur ({@link Feature#ALLOWED_PROTOCOLS}); {@code doc()},
  *       {@code xsl:include}, {@code xsl:source-document}, {@code fn:transform} gibi okumalar hiçbir
@@ -60,7 +61,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *       Derleme zamanı ifadeleri, {@code function-lookup()} ve isimli fonksiyon referansları da onları bulamaz.</li>
  * </ul>
  * Bu ayarların kapsamı yalnızca {@link #newProcessor()} ile oluşturulan {@link Processor}'dür;
- * diğer Saxon kullanıcılarını (Schematron doğrulama vb.) etkilemez.
+ * diğer Saxon kullanıcılarını etkilemez. Schematron pipeline adımları ({@code sch:include} için dosya
+ * okuyan) bu yüzden ayrı, kısıtsız bir işlemcide çalışır; bkz. {@link SchematronRuntimeCompiler}.
  */
 final class XsltSandbox {
 
