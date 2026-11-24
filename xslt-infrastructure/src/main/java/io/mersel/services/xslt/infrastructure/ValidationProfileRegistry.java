@@ -19,6 +19,8 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.error.Mark;
+import org.yaml.snakeyaml.error.MarkedYAMLException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -85,12 +87,29 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
         return "Validation Profiles";
     }
 
+    /**
+     * Profilleri ve global Schematron kurallarını yeniden yükler.
+     * <p>
+     * Dosya yoksa profil yoktur ve sonuç başarılıdır. Dosya okunamaz ya da ayrıştırılamazsa
+     * (YAML sözdizimi veya yapı hatası) önceki geçerli profiller ve global kurallar korunur,
+     * sonuç {@code FAILED} döner ve hata satır/sütun bilgisiyle {@code errors} içinde raporlanır.
+     */
     @Override
     public ReloadResult reload() {
         long startTime = System.currentTimeMillis();
 
+        YamlData yamlData;
         try {
-            var yamlData = loadYamlWithGlobalRules();
+            yamlData = loadYamlWithGlobalRules();
+        } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            String error = PROFILES_ASSET_PATH + " okunamadı, önceki " + profileData.profiles().size()
+                    + " profil korunuyor: " + describeLoadError(e);
+            log.error("  {}", error);
+            return ReloadResult.failed(getName(), elapsed, error);
+        }
+
+        try {
             Map<String, RawProfile> rawProfiles = yamlData.profiles;
 
             // Global Schematron kurallarını validator'a aktar (reload öncesi set edilmeli)
@@ -541,37 +560,73 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
             Map<String, List<SchematronCustomAssertion>> globalSchematronRules
     ) {}
 
+    /**
+     * Dosya yoksa boş sonuç döner. Dosya okunamaz, YAML sözdizimi bozuk ya da yapı beklenenden
+     * farklıysa istisna fırlatır; çağıran ({@link #reload()}) önceki profilleri korur.
+     */
     @SuppressWarnings("unchecked")
-    private YamlData loadYamlWithGlobalRules() {
+    private YamlData loadYamlWithGlobalRules() throws IOException {
         Map<String, RawProfile> result = new LinkedHashMap<>();
         Map<String, List<SchematronCustomAssertion>> globalRules = Map.of();
 
+        // Dosya yoksa profil de yoktur; bu bir hata değil
+        if (!assetManager.assetExists(PROFILES_ASSET_PATH)) {
+            return new YamlData(result, globalRules);
+        }
+
         try (InputStream is = assetManager.getAssetStream(PROFILES_ASSET_PATH)) {
             Yaml yaml = new Yaml(new org.yaml.snakeyaml.constructor.SafeConstructor(new org.yaml.snakeyaml.LoaderOptions()));
-            Map<String, Object> root = yaml.load(is);
+            Object loaded = yaml.load(is);
 
-            if (root == null) {
+            if (loaded == null) {
                 return new YamlData(result, globalRules);
             }
+            if (!(loaded instanceof Map<?, ?>)) {
+                throw new IllegalArgumentException("dosyanın kökü bir eşleme (anahtar: değer) olmalı");
+            }
+            Map<String, Object> root = (Map<String, Object>) loaded;
 
             // Global Schematron kurallarını parse et
             globalRules = parseGlobalSchematronRules(root);
 
-            if (!root.containsKey("profiles")) {
-                log.debug("validation-profiles.yml 'profiles' anahtarı bulunamadı");
+            Object profilesObj = root.get("profiles");
+            if (profilesObj == null) {
+                log.debug("validation-profiles.yml 'profiles' anahtarı bulunamadı ya da boş");
                 return new YamlData(result, globalRules);
             }
-
-            Map<String, Object> profiles = (Map<String, Object>) root.get("profiles");
-            for (var entry : profiles.entrySet()) {
-                Map<String, Object> profileMap = (Map<String, Object>) entry.getValue();
-                result.put(entry.getKey(), parseRawProfile(entry.getKey(), profileMap));
+            if (!(profilesObj instanceof Map<?, ?> profiles)) {
+                throw new IllegalArgumentException("'profiles' bir eşleme (profil adı: tanım) olmalı");
             }
-        } catch (Exception e) {
-            log.warn("validation-profiles.yml yükleme hatası: {}", e.getMessage());
+
+            for (var entry : profiles.entrySet()) {
+                String name = String.valueOf(entry.getKey());
+                if (!(entry.getValue() instanceof Map<?, ?> profileMap)) {
+                    throw new IllegalArgumentException("'" + name + "' profili bir eşleme olmalı");
+                }
+                result.put(name, parseRawProfile(name, (Map<String, Object>) profileMap));
+            }
         }
 
         return new YamlData(result, globalRules);
+    }
+
+    /**
+     * Yükleme hatasını tek satırlık, okunur bir mesaja çevirir. YAML sözdizimi hatalarında
+     * satır ve sütun (1'den başlayarak) verilir.
+     */
+    static String describeLoadError(Exception e) {
+        if (e instanceof MarkedYAMLException yamlError) {
+            Mark mark = yamlError.getContextMark() != null ? yamlError.getContextMark() : yamlError.getProblemMark();
+            String detail = java.util.stream.Stream.of(yamlError.getContext(), yamlError.getProblem())
+                    .filter(Objects::nonNull)
+                    .collect(java.util.stream.Collectors.joining(", "));
+            if (mark != null) {
+                return "satır " + (mark.getLine() + 1) + ", sütun " + (mark.getColumn() + 1) + ": " + detail;
+            }
+            return detail;
+        }
+        String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        return message.replaceAll("\\s+", " ").trim();
     }
 
     /**

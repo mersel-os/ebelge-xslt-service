@@ -12,6 +12,7 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 - Filigran çok sayfalı belgelerde yalnızca ilk sayfada çıkıyordu. Filigran artık belgenin tamamını kaplayan tek bir katman (`#watermark`): satırlar 300 px arayla döşeniyor (200 satır), ekranda katman belgeyle birlikte kayıyor, yazdırmada ve PDF'te her sayfaya basılıyor. Stiller id seçici ve `!important` ile XSLT tasarımındaki stillerden korunuyor; çapraz yazı eski WebKit motorları için `-webkit-transform` ile de veriliyor. Satır başına metin sayısı yine `xslt.watermark.count` ile ayarlanıyor. `<head>` yoksa stil katmanla birlikte body'ye ekleniyor; `</body>` yoksa içerik değiştirilmeden dönüyor
 - Yönetim panelinde asset'leri yeniden yükleme düğmesi yoktu: "Asset Reload" kartı sekmeli tasarıma geçişte sayfadan düşmüştü. Kart "GİB Sync" sekmesinin başına geri eklendi. Artık başarısız ya da kısmen yüklenen bileşenlerin hata mesajlarını da gösteriyor; bir bileşen yüklenemezse başarı yerine uyarı bildirimi çıkıyor
+- `validation-profiles.yml` ayrıştırılamadığında (YAML sözdizimi ya da yapı hatası) servis yalnız uyarı logu yazıyor, reload sonucunu "başarılı, 0 profil" olarak dönüyor ve bütün profilleri sessizce düşürüyordu. Artık reload sonucu `FAILED` dönüyor; hata satır ve sütun bilgisiyle `errors` içinde raporlanıyor. Önceki geçerli profiller ve global Schematron kuralları korunuyor. Dosyanın olmaması ve boş `profiles:` anahtarı hata sayılmıyor
 
 ## [1.4.0] - 2026-10-04
 
