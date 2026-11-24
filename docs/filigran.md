@@ -145,7 +145,7 @@ i.m.s.x.infrastructure.AssetRegistry -     ✓ Filigran Stili — 1 öğe yükle
 
 ### Sonradan ekleme ya da değiştirme
 
-Servisi yeniden başlatmanız gerekmez. Üç yol var:
+Servisi yeniden başlatmanız gerekmez. Dört yol var:
 
 1. **Dosya izleme** (varsayılan açık, `XSLT_ASSETS_WATCH_ENABLED=true`): dosyayı bağlı dizine koyun ya da değiştirin. Değişiklik bir iki saniye içinde uygulanır.
 2. **Çalışan konteynere kopyalama:** dizin bağlı değilse ya da Docker Compose'daki gibi adlandırılmış birim kullanılıyorsa:
@@ -154,7 +154,8 @@ Servisi yeniden başlatmanız gerekmez. Üç yol var:
    # Docker Compose ile
    docker compose cp watermark.css xslt-service:/opt/xslt-assets/watermark.css
    ```
-3. **Elle yeniden yükleme** (dosya izleme kapalıysa ya da hemen sonuç görmek için):
+3. **Yönetim paneli:** web arayüzünde *Yönetim → GİB Sync → Asset Reload → Yükle*. Her bileşen durumuyla listelenir; "Filigran Stili" satırında yüklenen dosya sayısı, hata varsa nedeni görünür.
+4. **Elle yeniden yükleme (API)** (dosya izleme kapalıysa ya da betikten çağırmak için):
    ```bash
    TOKEN=$(curl -s -X POST http://localhost:8080/v1/auth/login \
      -H 'Content-Type: application/json' \
@@ -268,4 +269,12 @@ Web arayüzünden alındı. Örnek veri: 240 kalemli bir sipariş listesi ve onu
 **Geçersiz dosya** — `</style><script>…` içeren bir `watermark.css` reddedildi (`Filigran Stili — FAILED: dosya '</style' içeremez`). Dahili stil kullanıldı ve önizlemeye script girmedi.
 
 ![Geçersiz watermark.css](screenshots/filigran-gecersiz-stil.png)
+
+**Yönetim panelinde reload** — *Yönetim → GİB Sync → Asset Reload*. Geçerli bir `watermark.css` ile "Filigran Stili" satırı `1` gösteriyor.
+
+![Asset Reload kartı](screenshots/admin-asset-reload.png)
+
+Aynı kartta hatalar: `</style>` içeren `watermark.css`, kapanmayan tırnaklı `validation-profiles.yml` ve bozuk bir varsayılan XSLT. Her bileşenin hatası kendi satırının altında görünüyor; bildirim "3 / 5 bileşende hata var" diyor.
+
+![Asset Reload kartında hatalar](screenshots/admin-asset-reload-hata.png)
 

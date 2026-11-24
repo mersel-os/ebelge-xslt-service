@@ -66,13 +66,19 @@ Prometheus metrikleri ile beslenen Grafana dashboard. Servis durumu, toplam doğ
 
 ---
 
-## Yayınlanmamış — Filigran
+## Yayınlanmamış — Filigran ve Asset Reload
 
 ### Filigranlı Önizleme
 
 Filigranlı dönüşümün web arayüzündeki önizlemesi. Diğer ekranlar (kaydırma, PDF sayfaları, `watermark.css` ile özel stil, geçersiz dosya): [Filigran Kullanım Kılavuzu → Ekran görüntüleri](docs/filigran.md#ekran-görüntüleri).
 
 ![Filigranlı önizleme](docs/screenshots/filigran-donusum-onizleme.png)
+
+### Asset Reload
+
+Yönetim → GİB Sync sekmesindeki *Asset Reload* kartı. Servisi yeniden başlatmadan asset'leri yükler; her bileşenin durumu, yüklenen sayısı ve hatası satırında görünür. Örnekte üç bileşende hata var: bozuk varsayılan XSLT (kısmi), kapanmayan tırnaklı `validation-profiles.yml` (önceki profiller korunuyor) ve `</style>` içeren `watermark.css`.
+
+![Asset Reload kartında hatalar](docs/screenshots/admin-asset-reload-hata.png)
 
 ---
 

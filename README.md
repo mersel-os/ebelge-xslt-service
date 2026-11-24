@@ -543,7 +543,7 @@ custom-assets/
 | `xslt.watermark.count` | `XSLT_WATERMARK_COUNT` | `3` | Satır başına filigran metni |
 | `xslt.watermark.rows` | `XSLT_WATERMARK_ROWS` | `200` | Satır sayısı (1–1000, 300 px arayla) |
 
-**Görünümü özelleştirme:** asset dizininin köküne `watermark.css` koyun. Dosya dahili stilden sonra eklenir; aynı seçicileri `!important` ile yazarak renk, boyut, açı ve aralığı değiştirirsiniz. Dosya açılışta okunur. Servis çalışırken eklenen ya da değiştirilen dosya, dosya izleyiciyle veya `POST /v1/admin/assets/reload` ile uygulanır.
+**Görünümü özelleştirme:** asset dizininin köküne `watermark.css` koyun. Dosya dahili stilden sonra eklenir; aynı seçicileri `!important` ile yazarak renk, boyut, açı ve aralığı değiştirirsiniz. Dosya açılışta okunur. Servis çalışırken eklenen ya da değiştirilen dosya; dosya izleyiciyle, yönetim panelindeki *Asset Reload* kartıyla veya `POST /v1/admin/assets/reload` ile uygulanır.
 
 ```css
 /* custom-assets/watermark.css */
