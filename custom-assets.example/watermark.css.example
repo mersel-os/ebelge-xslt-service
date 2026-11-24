@@ -1,0 +1,55 @@
+/*
+ * Filigran görünümü — örnek dosya
+ *
+ * Kullanmak için asset dizininize "watermark.css" adıyla kopyalayın:
+ *   cp custom-assets.example/watermark.css.example custom-assets/watermark.css
+ *
+ * Bu dosya dahili stilden SONRA eklenir. Bir değeri değiştirmek için aynı seçiciyi
+ * "!important" ile yazın. Yalnız değiştirmek istediğiniz kuralları bırakın.
+ * Ayrıntılar: docs/filigran.md
+ *
+ * Katman yapısı:
+ *   #watermark                 katman (ekranda absolute, baskıda fixed)
+ *   #watermark > div           satır (dahili yükseklik 300px)
+ *   #watermark > div > div     metin (dahili: -45°, 32px Arial, rgba(255, 0, 0, 0.3), top 240px)
+ *   #watermark > div > div:nth-child(n)   n. metnin yatay konumu (dahili: %10, %39, %68)
+ *
+ * Kurallar: UTF-8, en çok 64 KB; yorumlar dahil hiçbir yerde style kapanış etiketi geçemez.
+ * Görsel ve font için yalnız data: URI kullanın.
+ */
+
+/* Renk, boyut ve yazı tipi */
+#watermark > div > div {
+    color: rgba(0, 0, 160, 0.25) !important;
+    font-size: 40px !important;
+    font-weight: bold !important;
+}
+
+/* Açı — eski WebKit motorları için -webkit- önekini de yazın */
+/*
+#watermark > div > div {
+    -webkit-transform: rotate(-30deg) !important;
+    transform: rotate(-30deg) !important;
+}
+*/
+
+/* Daha sık satır: satır yüksekliğini düşürün, metni satır içinde yukarı alın.
+   Ekranda uzun belgelerin sonuna kadar filigran için XSLT_WATERMARK_ROWS değerini artırın. */
+/*
+#watermark > div { height: 200px !important; }
+#watermark > div > div { top: 160px !important; }
+*/
+
+/* Metinlerin yatay konumu (XSLT_WATERMARK_COUNT=3 için) */
+/*
+#watermark > div > div:nth-child(1) { left: 5% !important; }
+#watermark > div > div:nth-child(2) { left: 38% !important; }
+#watermark > div > div:nth-child(3) { left: 71% !important; }
+*/
+
+/* Yalnız baskıda ve PDF'te göster, ekran önizlemesinde gizle */
+/*
+@media screen {
+    #watermark { display: none !important; }
+}
+*/

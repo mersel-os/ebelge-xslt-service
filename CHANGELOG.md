@@ -4,8 +4,15 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 
 ## [Unreleased]
 
+### Eklenen
+
+- Filigran görünümü kod değiştirmeden özelleştirilebiliyor: asset dizinine konan `watermark.css` dahili stilden sonra eklenir. Dosya açılışta okunur; dosya izleyiciyle ve `POST /v1/admin/assets/reload` ile sonradan da uygulanır. UTF-8, en çok 64 KB, `</style` içeremez; geçersizse yok sayılır ve reload sonucunda hata olarak görünür. Satır sayısı `xslt.watermark.rows` ile ayarlanır (env: `XSLT_WATERMARK_ROWS`, varsayılan 200, 1–1000)
+
 ### Düzeltilen
 
+- Filigran çok sayfalı belgelerde yalnızca ilk sayfada çıkıyordu. Filigran artık belgenin tamamını kaplayan tek bir katman (`#watermark`): satırlar 300 px arayla döşeniyor (200 satır), ekranda katman belgeyle birlikte kayıyor, yazdırmada ve PDF'te her sayfaya basılıyor. Stiller id seçici ve `!important` ile XSLT tasarımındaki stillerden korunuyor; çapraz yazı eski WebKit motorları için `-webkit-transform` ile de veriliyor. Satır başına metin sayısı yine `xslt.watermark.count` ile ayarlanıyor. `<head>` yoksa stil katmanla birlikte body'ye ekleniyor; `</body>` yoksa içerik değiştirilmeden dönüyor
+- Yönetim panelinde asset'leri yeniden yükleme düğmesi yoktu: "Asset Reload" kartı sekmeli tasarıma geçişte sayfadan düşmüştü. Kart "GİB Sync" sekmesinin başına geri eklendi. Artık başarısız ya da kısmen yüklenen bileşenlerin hata mesajlarını da gösteriyor; bir bileşen yüklenemezse başarı yerine uyarı bildirimi çıkıyor
+- `validation-profiles.yml` ayrıştırılamadığında (YAML sözdizimi ya da yapı hatası) servis yalnız uyarı logu yazıyor, reload sonucunu "başarılı, 0 profil" olarak dönüyor ve bütün profilleri sessizce düşürüyordu. Artık reload sonucu `FAILED` dönüyor; hata satır ve sütun bilgisiyle `errors` içinde raporlanıyor. Önceki geçerli profiller ve global Schematron kuralları korunuyor. Dosyanın olmaması ve boş `profiles:` anahtarı hata sayılmıyor
 - `POST /v1/transform` yanıtında `X-Xslt-Custom-Error` ve `X-Xslt-Security-Violations` header'ları, değer ISO-8859-1 dışı bir karakter (ı, ş, ğ, İ, uzun tire gibi) içerdiğinde Tomcat tarafından yanıttan tamamen çıkarılıyordu. "Gömülü XSLT ile dönüşüm başarısız: …" önekiyle başlayan gömülü XSLT hataları ve "Harici script kaynağı engellendi: …" ihlalleri bu yüzden istemciye hiç ulaşmıyordu. Değerler artık ISO-8859-1'e indiriliyor: ü/ç/ö korunuyor, ı/ş/ğ/İ `i`/`s`/`g`/`I`'ya, uzun/kısa tire `-`'ye, tipografik tırnaklar düz tırnağa çevriliyor, karşılığı olmayan karakterler `?` oluyor, kontrol karakterleri boşluk oluyor. Değer yüzde-kodlanmadığı için .NET istemcisi ve web arayüzü değişmeden çalışıyor; yalnız ASCII ve ü/ç/ö içeren mesajlar eskisiyle bayt bayt aynı
 
 ### Güvenlik

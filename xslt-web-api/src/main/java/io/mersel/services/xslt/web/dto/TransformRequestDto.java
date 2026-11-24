@@ -21,7 +21,9 @@ public class TransformRequestDto {
     private String transformType;
 
     @Size(max = 200)
-    @Schema(description = "Filigran metni (opsiyonel)",
+    @Schema(description = "Filigran metni (opsiyonel, en çok 200 karakter). Verilirse HTML'e belgenin tamamını "
+            + "kaplayan, yazdırmada ve PDF'te her sayfaya basılan çapraz bir filigran eklenir. Metin HTML kaçışlı "
+            + "yazılır. Görünüm, asset dizinindeki watermark.css ile değiştirilebilir (docs/filigran.md).",
             example = "TASLAK",
             nullable = true)
     private String watermarkText;
