@@ -21,6 +21,7 @@ Bu proje [Semantic Versioning](https://semver.org/) kurallarını takip eder.
 - Dosya izleyici yalnızca açılışta var olan dizinleri izliyordu: sonradan oluşan dizinler (GİB sync'in oluşturduğu paket dizinleri, sonradan eklenen asset dizinleri) içindeki değişiklikler algılanmıyordu. Yeni dizinler oluştukları anda izlemeye alınıyor
 - İzlenen bir alt dizin silinince (GİB sync hedef dizinlerini silip yeniden yazar) dosya izleyici tamamen duruyordu. Artık yalnızca o dizinin kaydı düşüyor; izleme ancak asset dizininin kendisi kaybolursa durur. Olay kuyruğu taştığında (`OVERFLOW`) değişiklik yok sayılmak yerine reload planlanıyor
 - `custom-assets.example/validation-profiles.yml` içindeki `my-company` profili tanımlı olmayan `unsigned` profilinden miras alıyordu; dizin olduğu gibi kullanıldığında profil yüklemesi hata veriyordu. README'deki örnekle aynı `unsigned` profili eklendi
+- Düz metin üreten ön-derlenmiş Schematron XSL'lerinde (GİB e-Arşiv `earsiv_schematron.xsl`, e-Döviz) sahte hata: hiçbir kural tetiklenmese de serializer'ın yazdığı XML bildirimi ayrıştırılamadığı için `<?xml version="1.0" encoding="UTF-8"?>` metni hata olarak dönüyor ve geçerli raporlar Schematron'dan geçemiyordu; gerçek ihlallerde de tüm mesajlar bildirimle birlikte tek bir hataya birleşiyordu. Bildirim artık atlanıyor, boş çıktı hata sayılmıyor ve düz metin çıktıda her mesaj (satır) ayrı bir hata olarak dönüyor; `text` bastırma kuralları mesaj başına uygulanabiliyor
 
 ## [1.4.0] - 2026-10-04
 
