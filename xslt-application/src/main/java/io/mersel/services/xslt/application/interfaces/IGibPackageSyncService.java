@@ -21,6 +21,19 @@ public interface IGibPackageSyncService {
     List<PackageSyncResult> syncAll();
 
     /**
+     * İlk kurulum sync'i: {@link #syncAll()} ile aynı paketleri indirir, ancak paketlerin sabit
+     * adla yazdığı dosyalar (örn. {@code default_transformers/eDekont_Base.xslt}) hedefte zaten
+     * varsa üzerine yazmaz.
+     * <p>
+     * Açılıştaki otomatik sync bunu kullanır: servisi çalıştıranın kendi koyduğu ya da seed ile
+     * getirdiği şablonlar, kimse sync istemeden GİB'in kopyasıyla değiştirilmemelidir.
+     * {@code validator/} altındaki paket dizinleri her zaman yenilenir.
+     *
+     * @return Her paket için sync sonucu
+     */
+    List<PackageSyncResult> syncAllPreservingExistingFiles();
+
+    /**
      * Belirli bir GİB paketini sync eder.
      *
      * @param packageId Paket kimliği (örn: "efatura", "ubltr-xsd", "earsiv", "edefter")

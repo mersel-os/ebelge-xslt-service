@@ -595,6 +595,13 @@ GİB otomatik ilk sync'i yalnızca GİB paketlerinin yazıldığı `validator/` 
 konan özel dosyalar ilk sync'i engellemez. Özel XSD'leri `validator/` altına koymayın: hem ilk sync
 kararını etkiler hem de ilgili paketin sync'i o dizini silip yeniden yazar.
 
+Bazı paketler `default_transformers/` altına sabit adla şablon yazar (`eDovizAlim_Base.xslt`,
+`eDovizSatim_Base.xslt`, `eDekont_Base.xslt`, `eGiderPusulasi_Base.xslt`). Otomatik ilk sync bu
+dosyalar zaten varsa (kendi koyduğunuz ya da seed ile gelen) üzerine yazmaz; elle tetiklenen sync
+(`POST /v1/admin/packages/sync`) GİB'in kopyasını yazar. Ağ erişimi olmayan ve `validator/` dizini boş
+kurulumlarda (örn. yalnız dönüşüm için kullanılanlar) her açılıştaki sync denemesini kapatmak için
+`VALIDATION_ASSETS_GIB_AUTO_SYNC=false` verin.
+
 ## Konfigürasyon
 
 ### Temel Ayarlar

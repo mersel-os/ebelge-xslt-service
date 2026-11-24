@@ -70,7 +70,8 @@ public class GibAutoSyncStartupListener {
 
     private void performAutoSync() {
         try {
-            List<PackageSyncResult> results = syncService.syncAll();
+            // Asset dizinine önceden konmuş şablonlar (default_transformers/) korunur.
+            List<PackageSyncResult> results = syncService.syncAllPreservingExistingFiles();
 
             long successCount = results.stream().filter(PackageSyncResult::success).count();
             long failCount = results.size() - successCount;

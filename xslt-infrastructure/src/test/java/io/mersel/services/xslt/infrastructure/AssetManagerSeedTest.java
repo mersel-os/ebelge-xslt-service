@@ -83,6 +83,65 @@ class AssetManagerSeedTest {
         assertThat(manager.isEmpty(GibAutoSyncStartupListener.GIB_PACKAGE_ROOT)).isFalse();
     }
 
+    @Test
+    @DisplayName("sembolik_bagli_paket_dizini_dolu_sayilir — validator/ bağlantısı izlenir")
+    void sembolik_bagli_paket_dizini_dolu_sayilir() throws Exception {
+        write(seedDir, "eledger/schema/edefter.xsd", "<gib/>");
+        Files.createSymbolicLink(assetDir.resolve(GibAutoSyncStartupListener.GIB_PACKAGE_ROOT), seedDir);
+        AssetManager manager = start(assetDir, assetDir.resolve("seed-yok"));
+
+        assertThat(manager.isEmpty(GibAutoSyncStartupListener.GIB_PACKAGE_ROOT))
+                .as("bağlantının arkasındaki paketler ilk kurulum sayılmamalı").isFalse();
+    }
+
+    @Test
+    @DisplayName("sembolik_bagli_bos_paket_dizini_bos_sayilir")
+    void sembolik_bagli_bos_paket_dizini_bos_sayilir() throws Exception {
+        Files.createSymbolicLink(assetDir.resolve(GibAutoSyncStartupListener.GIB_PACKAGE_ROOT), seedDir);
+        AssetManager manager = start(assetDir, assetDir.resolve("seed-yok"));
+
+        assertThat(manager.isEmpty(GibAutoSyncStartupListener.GIB_PACKAGE_ROOT)).isTrue();
+    }
+
+    @Test
+    @DisplayName("seed_baglanti_dongusu_acilisi_durdurmaz — döngü atlanır, diğer dosyalar kopyalanır")
+    void seed_baglanti_dongusu_acilisi_durdurmaz() throws Exception {
+        write(seedDir, "custom-document-types.yml", "document-types: []");
+        write(seedDir, "custom/sample/Sample.xsd", "<seed/>");
+        Files.createSymbolicLink(seedDir.resolve("custom/sample/dongu"), seedDir);
+
+        start(assetDir, seedDir);
+
+        assertThat(assetDir.resolve("custom-document-types.yml")).exists();
+        assertThat(assetDir.resolve("custom/sample/Sample.xsd")).hasContent("<seed/>");
+        assertThat(assetDir.resolve("custom/sample/dongu")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("seed_asset_dizinini_iceremez — üst dizin seed olursa kopyalama yapılmaz")
+    void seed_asset_dizinini_iceremez() throws Exception {
+        Path nestedAssets = seedDir.resolve("assets");
+        write(seedDir, "custom-document-types.yml", "document-types: []");
+        Files.createDirectories(nestedAssets);
+
+        AssetManager manager = start(nestedAssets, seedDir);
+
+        assertThat(manager.isConfigured()).isTrue();
+        assertThat(nestedAssets.resolve("assets")).as("iç içe kopya oluşmamalı").doesNotExist();
+        assertThat(nestedAssets.resolve("custom-document-types.yml")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("seed_asset_dizininin_kendisi_olamaz")
+    void seed_asset_dizininin_kendisi_olamaz() throws Exception {
+        write(assetDir, "validation-profiles.yml", "profiles: {}");
+
+        AssetManager manager = start(assetDir, assetDir);
+
+        assertThat(manager.seedFrom(assetDir)).isZero();
+        assertThat(assetDir.resolve("validation-profiles.yml")).hasContent("profiles: {}");
+    }
+
     private static AssetManager start(Path assetDir, Path seedDir) throws Exception {
         AssetManager manager = new AssetManager();
         set(manager, "externalPath", assetDir.toString());

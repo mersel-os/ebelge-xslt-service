@@ -25,11 +25,11 @@ class GibAutoSyncStartupListenerTest {
         // Seed/volume ile gelen custom-document-types.yml, default_transformers vb. ilk sync'i engellememeli.
         when(assetManager.isEmpty()).thenReturn(false);
         when(assetManager.isEmpty(GibAutoSyncStartupListener.GIB_PACKAGE_ROOT)).thenReturn(true);
-        when(syncService.syncAll()).thenReturn(List.of());
+        when(syncService.syncAllPreservingExistingFiles()).thenReturn(List.of());
 
         listener(true).onApplicationReady();
 
-        verify(syncService, timeout(5000)).syncAll();
+        verify(syncService, timeout(5000)).syncAllPreservingExistingFiles();
     }
 
     @Test
@@ -39,7 +39,7 @@ class GibAutoSyncStartupListenerTest {
 
         listener(true).onApplicationReady();
 
-        verify(syncService, never()).syncAll();
+        verify(syncService, never()).syncAllPreservingExistingFiles();
     }
 
     @Test
@@ -47,7 +47,7 @@ class GibAutoSyncStartupListenerTest {
     void otomatik_sync_kapaliysa_hic_bakilmaz() {
         listener(false).onApplicationReady();
 
-        verify(syncService, never()).syncAll();
+        verify(syncService, never()).syncAllPreservingExistingFiles();
         verify(assetManager, never()).isEmpty(GibAutoSyncStartupListener.GIB_PACKAGE_ROOT);
     }
 

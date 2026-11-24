@@ -9,9 +9,16 @@ import jakarta.annotation.PostConstruct;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.FileVisitOption;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -92,28 +99,72 @@ public class AssetManager {
             log.error("Seed dizini bulunamadı: {} (xslt.assets.seed-path) — seed atlandı", seedDir);
             return 0;
         }
-        int copied = 0;
+        try {
+            if (externalDir.toRealPath().startsWith(seedDir.toRealPath())) {
+                // Asset dizini seed'in içindeyse her açılışta bir kat daha iç içe kopyalanırdı.
+                log.error("Seed dizini asset dizininin kendisi ya da üst dizini olamaz: {} (asset dizini: {}) "
+                        + "— seed atlandı", seedDir, externalDir);
+                return 0;
+            }
+        } catch (IOException e) {
+            log.error("Seed dizini çözümlenemedi: {} — {} — seed atlandı", seedDir, e.getMessage());
+            return 0;
+        }
+
+        int[] copied = {0};
+        int[] skipped = {0};
         // Bağlantılar izlenir: ConfigMap/Secret'ta alt dizinler ..data üzerinden symlink olarak gelir.
-        try (var stream = Files.walk(seedDir, java.nio.file.FileVisitOption.FOLLOW_LINKS)) {
-            for (Path source : stream.filter(Files::isRegularFile).toList()) {
+        // Okunamayan girdi (izin, bağlantı döngüsü) atlanır; açılışı durdurmaz.
+        var visitor = new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                return isHiddenOrGenerated(seedDir.relativize(dir))
+                        ? FileVisitResult.SKIP_SUBTREE
+                        : FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path source, BasicFileAttributes attrs) {
                 Path relative = seedDir.relativize(source);
-                if (isHiddenOrGenerated(relative)) {
-                    continue;
+                if (!attrs.isRegularFile() || isHiddenOrGenerated(relative)) {
+                    return FileVisitResult.CONTINUE;
                 }
                 Path target = externalDir.resolve(relative.toString()).normalize();
                 if (!target.startsWith(externalDir)) {
                     log.warn("Seed dosyası asset dizininin dışına çıkıyor, atlandı: {}", relative);
-                    continue;
+                    return FileVisitResult.CONTINUE;
                 }
-                Files.createDirectories(target.getParent());
-                Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                copied++;
+                try {
+                    Files.createDirectories(target.getParent());
+                    Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+                    copied[0]++;
+                } catch (IOException e) {
+                    skipped[0]++;
+                    log.warn("Seed dosyası kopyalanamadı, atlandı: {} — {}", relative, e.getMessage());
+                }
+                return FileVisitResult.CONTINUE;
             }
-            log.info("Seed dizininden {} dosya asset dizinine kopyalandı: {} → {}", copied, seedDir, externalDir);
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException e) {
+                skipped[0]++;
+                log.warn("Seed girdisi okunamadı, atlandı: {} — {}", seedDir.relativize(file), e.toString());
+                return FileVisitResult.CONTINUE;
+            }
+        };
+        try {
+            Files.walkFileTree(seedDir, EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE, visitor);
         } catch (IOException e) {
-            log.error("Seed kopyalama başarısız ({} dosya kopyalandı): {} — {}", copied, seedDir, e.getMessage());
+            log.error("Seed kopyalama yarıda kaldı ({} dosya kopyalandı): {} — {}", copied[0], seedDir, e.getMessage());
+            return copied[0];
         }
-        return copied;
+        if (skipped[0] > 0) {
+            log.warn("Seed dizininden {} dosya kopyalandı, {} girdi atlandı: {} → {}",
+                    copied[0], skipped[0], seedDir, externalDir);
+        } else {
+            log.info("Seed dizininden {} dosya asset dizinine kopyalandı: {} → {}", copied[0], seedDir, externalDir);
+        }
+        return copied[0];
     }
 
     private static boolean isHiddenOrGenerated(Path relative) {
@@ -503,6 +554,11 @@ public class AssetManager {
 
     /**
      * Asset dizinindeki alt dizinin dosya içerip içermediğini döndürür.
+     * <p>
+     * Dizin ya da altındaki dizinler sembolik bağlantı olabilir (paket dizinini başka bir diske
+     * bağlayan kurulumlar); bağlantılar izlenir. Dizin taranamazsa (izin, bağlantı döngüsü) dolu
+     * kabul edilir: bu yöntem GİB ilk sync kararını verir ve emin olunamayan durumda paketleri
+     * indirip dizinleri yeniden yazmak, sync'i atlamaktan daha zararlıdır.
      *
      * @param relativeDir asset dizinine göreli alt dizin (örn. {@code validator})
      * @return alt dizin yoksa, dosya içermiyorsa veya asset dizini yapılandırılmamışsa {@code true}
@@ -515,10 +571,11 @@ public class AssetManager {
         if (!dir.startsWith(externalDir) || !Files.isDirectory(dir)) {
             return true;
         }
-        try (var stream = Files.walk(dir)) {
+        try (var stream = Files.walk(dir, FileVisitOption.FOLLOW_LINKS)) {
             return stream.noneMatch(Files::isRegularFile);
-        } catch (IOException e) {
-            return true;
+        } catch (IOException | UncheckedIOException e) {
+            log.warn("Dizin taranamadı, dolu kabul ediliyor: {} — {}", dir, e.getMessage());
+            return false;
         }
     }
 
