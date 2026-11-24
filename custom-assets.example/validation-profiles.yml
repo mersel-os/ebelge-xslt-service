@@ -93,6 +93,19 @@ schematron-rules:
 
 profiles:
 
+  # ── İmzasız belge profili — imza kontrollerini bastırır ─────────
+  unsigned:
+    description: "Imzasiz belge dogrulama"
+    suppressions:
+      - match: ruleId
+        pattern: "XadesSignatureCheck"
+        description: "XAdES imza kontrolu"
+      - match: ruleId
+        pattern: "SignatureCheck"
+      - match: text
+        pattern: ".*[Ii]mza.*"
+        description: "Text fallback"
+
   # ── Özel firma profili — unsigned'dan miras alır ────────────────
   my-company:
     extends: unsigned
