@@ -28,9 +28,11 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -1024,5 +1026,150 @@ class ValidationProfileRegistryTest {
         verify(schemaValidator).precompileOverrides(SchemaValidationType.INVOICE, invoiceOverrides, "ozel");
         verify(schemaValidator).precompileCustomOverrides("SAMPLE_VOUCHER", customOverrides, "ozel");
         verify(schemaValidator, never()).precompileCustomOverrides(eq("INVOICE"), anyList(), eq("ozel"));
+    }
+
+    // ── Bozuk ya da eksik dosya ────────────────────────────────────────
+
+    @Nested
+    @DisplayName("Bozuk ya da eksik validation-profiles.yml")
+    class BrokenProfilesFile {
+
+        private static final String VALID = """
+            profiles:
+              ornek:
+                description: "Örnek profil"
+                suppressions:
+                  - match: ruleId
+                    pattern: "OrnekKural"
+            schematron-rules:
+              UBLTR_MAIN:
+                - context: "/"
+                  test: "true()"
+                  message: "Örnek global kural"
+            """;
+
+        /** Kapanmamış tırnak: SnakeYAML "while scanning a quoted scalar" hatası verir. */
+        private static final String UNTERMINATED_QUOTE = """
+            profiles:
+              ornek:
+                description: "Kapanmayan tırnak
+                suppressions:
+                  - match: ruleId
+            """;
+
+        @Test
+        @DisplayName("Dosya yoksa reload başarılı, profil yok")
+        void missingFileIsNotAnError() {
+            var registry = new ValidationProfileRegistry(assetManager, schemaValidator, schematronValidator);
+
+            ReloadResult result = registry.reload();
+
+            assertThat(result.status()).isEqualTo(ReloadResult.Status.OK);
+            assertThat(result.loadedCount()).isZero();
+            assertThat(registry.getAvailableProfiles()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Boş 'profiles:' anahtarı hata değil")
+        void emptyProfilesKeyIsNotAnError() throws IOException {
+            writeProfiles("profiles:\n");
+            var registry = new ValidationProfileRegistry(assetManager, schemaValidator, schematronValidator);
+
+            ReloadResult result = registry.reload();
+
+            assertThat(result.status()).isEqualTo(ReloadResult.Status.OK);
+            assertThat(registry.getAvailableProfiles()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("YAML sözdizimi hatası FAILED döner, hata satır ve sütun içerir")
+        void syntaxErrorFailsWithLineAndColumn() throws IOException {
+            writeProfiles(UNTERMINATED_QUOTE);
+            var registry = new ValidationProfileRegistry(assetManager, schemaValidator, schematronValidator);
+
+            ReloadResult result = registry.reload();
+
+            assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
+            assertThat(result.errors()).singleElement().asString()
+                    .startsWith("validation-profiles.yml okunamadı, önceki 0 profil korunuyor: satır 3, sütun 18: ")
+                    .contains("while scanning a quoted scalar")
+                    .doesNotContain("\n");
+            assertThat(registry.getAvailableProfiles()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Geçerli dosya bozulursa önceki profiller ve global kurallar korunur")
+        void keepsPreviousProfilesWhenFileBreaks() throws IOException {
+            writeProfiles(VALID);
+            var registry = new ValidationProfileRegistry(assetManager, schemaValidator, schematronValidator);
+            assertThat(registry.reload().status()).isEqualTo(ReloadResult.Status.OK);
+
+            writeProfiles(UNTERMINATED_QUOTE);
+            ReloadResult result = registry.reload();
+
+            assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
+            assertThat(result.errors()).singleElement().asString().contains("önceki 1 profil korunuyor");
+            assertThat(registry.getProfile("ornek")).isPresent();
+            // Global kurallar yalnız ilk (geçerli) yüklemede ayarlandı; bozuk dosya onları sıfırlamadı
+            verify(schematronValidator, times(1)).setGlobalCustomRules(any());
+        }
+
+        @Test
+        @DisplayName("Dosya düzeltilince reload yeniden başarılı olur")
+        void recoversAfterFix() throws IOException {
+            writeProfiles(UNTERMINATED_QUOTE);
+            var registry = new ValidationProfileRegistry(assetManager, schemaValidator, schematronValidator);
+            assertThat(registry.reload().status()).isEqualTo(ReloadResult.Status.FAILED);
+
+            writeProfiles(VALID);
+            ReloadResult result = registry.reload();
+
+            assertThat(result.status()).isEqualTo(ReloadResult.Status.OK);
+            assertThat(result.loadedCount()).isEqualTo(1);
+            assertThat(registry.getProfile("ornek")).isPresent();
+        }
+
+        @Test
+        @DisplayName("'profiles' eşleme değilse FAILED ve anlaşılır mesaj")
+        void profilesMustBeAMapping() throws IOException {
+            writeProfiles("""
+                profiles:
+                  - ornek
+                """);
+            var registry = new ValidationProfileRegistry(assetManager, schemaValidator, schematronValidator);
+
+            ReloadResult result = registry.reload();
+
+            assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
+            assertThat(result.errors()).singleElement().asString().endsWith("'profiles' bir eşleme (profil adı: tanım) olmalı");
+            verify(schematronValidator, never()).setGlobalCustomRules(any());
+        }
+
+        @Test
+        @DisplayName("Profil tanımı eşleme değilse FAILED ve profil adı mesajda")
+        void profileBodyMustBeAMapping() throws IOException {
+            writeProfiles("""
+                profiles:
+                  ornek: "yalnız metin"
+                """);
+            var registry = new ValidationProfileRegistry(assetManager, schemaValidator, schematronValidator);
+
+            ReloadResult result = registry.reload();
+
+            assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
+            assertThat(result.errors()).singleElement().asString().endsWith("'ornek' profili bir eşleme olmalı");
+        }
+
+        @Test
+        @DisplayName("Kök eşleme değilse FAILED")
+        void rootMustBeAMapping() throws IOException {
+            writeProfiles("- yalnız bir liste\n");
+            var registry = new ValidationProfileRegistry(assetManager, schemaValidator, schematronValidator);
+
+            ReloadResult result = registry.reload();
+
+            assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
+            assertThat(result.errors()).singleElement().asString().endsWith("dosyanın kökü bir eşleme (anahtar: değer) olmalı");
+        }
     }
 }

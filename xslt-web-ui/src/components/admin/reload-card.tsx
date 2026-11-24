@@ -2,7 +2,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RefreshCw, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { useReloadAssets } from "@/api/hooks";
+import type { ReloadComponent } from "@/api/types";
 import { toast } from "sonner";
+
+const isOk = (comp: ReloadComponent) => comp.status === "OK" || comp.status === "SUCCESS";
 
 export function ReloadCard() {
   const reloadMutation = useReloadAssets();
@@ -10,6 +13,13 @@ export function ReloadCard() {
   const handleReload = () => {
     reloadMutation.mutate(undefined, {
       onSuccess: (data) => {
+        const failed = data.components.filter((comp) => !isOk(comp)).length;
+        if (failed > 0) {
+          toast.warning("Bazı bileşenler yüklenemedi", {
+            description: `${failed} / ${data.components.length} bileşende hata var, ayrıntılar kartta`,
+          });
+          return;
+        }
         toast.success("Asset'ler yeniden yüklendi", {
           description: `${data.components.length} bileşen, ${data.durationMs} ms`,
         });
@@ -35,7 +45,7 @@ export function ReloadCard() {
             <div>
               <h3 className="text-sm font-semibold">Asset Reload</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                XSD, Schematron, XSLT ve profilleri yeniden yükle
+                Asset dizinindeki değişiklikleri servisi yeniden başlatmadan yükle
               </p>
             </div>
           </div>
@@ -68,26 +78,39 @@ export function ReloadCard() {
             {result.components.map((comp) => (
               <div
                 key={comp.name}
-                className="flex items-center justify-between rounded-lg bg-card border px-4 py-2.5 transition-colors hover:bg-muted/30"
+                className="rounded-lg bg-card border px-4 py-2.5 transition-colors hover:bg-muted/30"
               >
-                <div className="flex items-center gap-3">
-                  {comp.status === "OK" || comp.status === "SUCCESS" ? (
-                    <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
-                  ) : comp.status === "PARTIAL" ? (
-                    <CheckCircle2 className="h-4 w-4 text-warning shrink-0" />
-                  ) : (
-                    <XCircle className="h-4 w-4 text-destructive shrink-0" />
-                  )}
-                  <span className="text-sm font-medium">{comp.name}</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {isOk(comp) ? (
+                      <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+                    ) : comp.status === "PARTIAL" ? (
+                      <CheckCircle2 className="h-4 w-4 text-warning shrink-0" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-destructive shrink-0" />
+                    )}
+                    <span className="text-sm font-medium">{comp.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-[10px] font-mono rounded-md">
+                      {comp.count}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
+                      {comp.durationMs}ms
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="text-[10px] font-mono rounded-md">
-                    {comp.count}
-                  </Badge>
-                  <span className="text-[10px] text-muted-foreground font-mono tabular-nums">
-                    {comp.durationMs}ms
-                  </span>
-                </div>
+                {comp.errors?.length > 0 && (
+                  <ul
+                    className={`mt-2 ml-7 space-y-1 text-xs break-words ${
+                      comp.status === "PARTIAL" ? "text-warning" : "text-destructive"
+                    }`}
+                  >
+                    {comp.errors.map((error, i) => (
+                      <li key={i}>{error}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ))}
           </div>

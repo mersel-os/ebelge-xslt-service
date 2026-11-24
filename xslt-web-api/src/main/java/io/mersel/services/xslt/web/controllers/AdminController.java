@@ -108,7 +108,8 @@ public class AdminController {
     @PostMapping("/assets/reload")
     @Operation(
             summary = "Asset'leri yeniden yükle",
-            description = "Tüm XSD şemalarını, Schematron kurallarını, XSLT şablonlarını ve doğrulama profillerini yeniden derler ve yükler. "
+            description = "Tüm XSD şemalarını, Schematron kurallarını, XSLT şablonlarını, doğrulama profillerini ve "
+                    + "filigran stilini (watermark.css) yeniden derler ve yükler. "
                     + "Yeniden yükleme sırasında mevcut istekler eski cache ile çalışmaya devam eder (zero-downtime)."
     )
     public ResponseEntity<ReloadAssetsResponse> reloadAssets() {

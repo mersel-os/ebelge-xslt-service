@@ -30,7 +30,7 @@ E-Fatura, E-İrsaliye, E-Arşiv ve diğer e-dönüşüm belgeleri için XML doğ
 - **Monitoring** — Prometheus metrikleri + Grafana dashboard (30+ panel)
 - **Kimlik Doğrulama** — Token tabanlı admin auth, env'den yapılandırılabilir
 - **Güvenlik Başlıkları** — CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
-- **Filigran** — Dönüştürülmüş HTML'e otomatik filigran ekleme
+- **Filigran** — Dönüştürülmüş HTML'e her basılan sayfada görünen filigran; görünüm `watermark.css` ile özelleştirilebilir ([kılavuz](docs/filigran.md))
 
 ### Teknoloji
 
@@ -227,6 +227,8 @@ curl -v -X POST http://localhost:8080/v1/transform \
   -F "transformer=@ozel-sablon.xslt" \
   -F "watermarkText=TASLAK"
 ```
+
+Filigranın görünümü ve ayarları için [Filigran](#filigran) bölümüne bakın.
 
 **Response Header'ları:**
 
@@ -538,7 +540,8 @@ custom-assets/
 │   └── eledger/                       # e-Defter dosyaları
 ├── custom/                            # Özel belge türlerinin XSD'leri (GİB sync dokunmaz)
 ├── custom-document-types.yml          # Özel belge türü tanımları
-└── validation-profiles.yml            # Özel doğrulama profilleri
+├── validation-profiles.yml            # Özel doğrulama profilleri
+└── watermark.css                      # Filigran görünümü (opsiyonel, bkz. Filigran)
 ```
 
 Örnek yapı için `custom-assets.example/` dizinine bakın.
@@ -579,9 +582,9 @@ Schematron adımı için UBL-TR paketi (GİB sync) yüklü olmalıdır.
 
 ### Özel Asset'leri Dağıtma
 
-Özel belge türleri, kendi varsayılan XSLT şablonlarınız (`default_transformers/`) ve profiller
-servis imajının parçası değildir; servisi çalıştıran taraf sağlar. Bu dosyalar asset dizinine
-şu yollarla gelebilir:
+Özel belge türleri, kendi varsayılan XSLT şablonlarınız (`default_transformers/`), profiller ve
+filigran stili (`watermark.css`) servis imajının parçası değildir; servisi çalıştıran taraf sağlar.
+Bu dosyalar asset dizinine şu yollarla gelebilir:
 
 | Ne zaman | Yöntem | Not |
 |---|---|---|
@@ -603,6 +606,27 @@ dosyalar zaten varsa (kendi koyduğunuz ya da seed ile gelen) üzerine yazmaz; e
 (`POST /v1/admin/packages/sync`) GİB'in kopyasını yazar. Ağ erişimi olmayan ve `validator/` dizini boş
 kurulumlarda (örn. yalnız dönüşüm için kullanılanlar) her açılıştaki sync denemesini kapatmak için
 `VALIDATION_ASSETS_GIB_AUTO_SYNC=false` verin.
+
+## Filigran
+
+`watermarkText` verilen dönüşümlerde HTML'e belgenin tamamını kaplayan bir filigran katmanı eklenir. Katman ekranda belgeyle birlikte kayar; yazdırmada ve Chromium tabanlı PDF motorlarında her sayfaya basılır.
+
+| Parametre | Env Variable | Varsayılan | Açıklama |
+|-----------|-------------|------------|----------|
+| `xslt.watermark.count` | `XSLT_WATERMARK_COUNT` | `3` | Satır başına filigran metni |
+| `xslt.watermark.rows` | `XSLT_WATERMARK_ROWS` | `200` | Satır sayısı (1–1000, 300 px arayla) |
+
+**Görünümü özelleştirme:** asset dizininin köküne `watermark.css` koyun. Dosya dahili stilden sonra eklenir; aynı seçicileri `!important` ile yazarak renk, boyut, açı ve aralığı değiştirirsiniz. Dosya açılışta okunur. Servis çalışırken eklenen ya da değiştirilen dosya; dosya izleyiciyle, yönetim panelindeki *Asset Reload* kartıyla veya `POST /v1/admin/assets/reload` ile uygulanır.
+
+```css
+/* custom-assets/watermark.css */
+#watermark > div > div {
+    color: rgba(0, 0, 160, 0.25) !important;
+    font-size: 40px !important;
+}
+```
+
+Seçiciler, tarifler, kurallar ve sorun giderme için: **[Filigran Kullanım Kılavuzu](docs/filigran.md)**. Yorumlu örnek dosya: [`custom-assets.example/watermark.css.example`](custom-assets.example/watermark.css.example).
 
 ## Konfigürasyon
 
@@ -788,6 +812,7 @@ MERSEL.Services.XsltService/
 ├── xslt-web-ui/                   # React + TailwindCSS + shadcn/ui
 ├── clients/dotnet-client/         # .NET İstemci SDK (NuGet)
 ├── custom-assets.example/         # External override örnek yapısı
+├── docs/                          # Kılavuzlar (filigran) ve ekran görüntüleri
 ├── monitoring/                    # Prometheus + Grafana
 ├── .github/workflows/             # CI/CD
 ├── Dockerfile
