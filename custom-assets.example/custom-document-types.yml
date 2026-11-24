@@ -24,14 +24,19 @@
 # tanımlar yeniden yüklenir. Hatalı tanımlar reload sonucunda raporlanır ve atlanır;
 # dosya okunamazsa önceki tanımlar korunur.
 #
-# Örnek:
+# Aşağıdaki SAMPLE_VOUCHER tanımı mekanizmayı göstermek için yazılmış uydurma bir
+# belge türüdür; herhangi bir resmi standarda karşılık gelmez. XSD'leri
+# custom/sample/ altındadır, örnek belge custom/sample/ornek/Sample-Voucher.xml
+# dosyasıdır. Kendi tanımlarınızı ekleyin, bu örneği silin.
 #
-# document-types:
-#   - id: SAMPLE_VOUCHER
-#     description: "Örnek belge"
-#     root-namespace: "urn:example:sample:voucher-1"
-#     root-element: Voucher
-#     xsd: custom/sample/maindoc/Sample-Voucher-1.0.xsd
-#     schematron: UBLTR_MAIN
+# schematron: UBLTR_MAIN için GİB UBL-TR paketi (GİB sync) yüklü olmalıdır. Bu kökte
+# UBL-TR Main Schematron'un yalnız //@currencyID gibi genel kuralları tetiklenir.
+# Schematron istemiyorsanız satırı silin; adım atlanır ve validSchematron=true döner.
 
-document-types: []
+document-types:
+  - id: SAMPLE_VOUCHER
+    description: "Örnek belge"
+    root-namespace: "urn:example:sample:voucher-1"
+    root-element: Voucher
+    xsd: custom/sample/maindoc/Sample-Voucher-1.0.xsd
+    schematron: UBLTR_MAIN

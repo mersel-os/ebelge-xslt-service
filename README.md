@@ -560,6 +560,12 @@ document-types:
 - Tanımlar ve XSD'ler hot-reload ile yüklenir. Hatalı tanımlar reload sonucunda
   (`Custom Document Types` bileşeni) raporlanır ve atlanır; dosya okunamazsa önceki tanımlar korunur.
 
+**Çalışan örnek:** `custom-assets.example/` içinde `SAMPLE_VOUCHER` tanımı, ortak tiplerini göreli
+yolla import eden küçük bir XSD seti (`custom/sample/`) ve uydurma verili bir örnek belge bulunur.
+Bunlar mekanizmayı göstermek için yazılmıştır, herhangi bir resmi standarda karşılık gelmez.
+Dizin asset dizini olarak verildiğinde örnek belge doğrudan doğrulanır; tanımdaki `UBLTR_MAIN`
+Schematron adımı için UBL-TR paketi (GİB sync) yüklü olmalıdır.
+
 ### Özel Asset'leri Dağıtma
 
 Özel belge türleri, kendi varsayılan XSLT şablonlarınız (`default_transformers/`) ve profiller

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Örnek özel belge türü (SAMPLE_VOUCHER) için ortak şema; gerçek bir belge standardı değildir. -->
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+            xmlns="urn:example:sample:common-1"
+            targetNamespace="urn:example:sample:common-1"
+            elementFormDefault="qualified">
+    <xsd:element name="Party" type="PartyType"/>
+    <xsd:element name="Name" type="xsd:string"/>
+    <xsd:element name="Amount" type="AmountType"/>
+
+    <xsd:complexType name="PartyType">
+        <xsd:sequence>
+            <xsd:element ref="Name"/>
+        </xsd:sequence>
+    </xsd:complexType>
+
+    <xsd:complexType name="AmountType">
+        <xsd:simpleContent>
+            <xsd:extension base="xsd:decimal">
+                <xsd:attribute name="currencyID" type="xsd:string" use="required"/>
+            </xsd:extension>
+        </xsd:simpleContent>
+    </xsd:complexType>
+</xsd:schema>

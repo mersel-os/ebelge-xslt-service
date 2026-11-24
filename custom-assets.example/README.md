@@ -31,6 +31,10 @@ custom-assets/
 ├── validation-profiles.yml            # Doğrulama profilleri (bastırma kuralları)
 ├── custom-document-types.yml          # Özel belge türleri (kök → XSD + opsiyonel Schematron)
 ├── custom/                            # Özel belge türlerinin XSD'leri (GİB sync dokunmaz)
+│   └── sample/                        # Uydurma örnek belge türü (SAMPLE_VOUCHER)
+│       ├── common/                    # Göreli yolla import edilen ortak tipler
+│       ├── maindoc/                   # Sample-Voucher-1.0.xsd
+│       └── ornek/                     # Uydurma verili örnek belge
 ├── default_transformers/              # Varsayılan HTML dönüşüm XSLT'leri
 │   ├── eInvoice_Base.xslt
 │   ├── eArchive_Base.xslt
@@ -99,6 +103,20 @@ cp -r /yol/sema-seti/* custom-assets/custom/sample/
 cp custom-assets.example/custom-document-types.yml custom-assets/custom-document-types.yml
 # document-types listesine tanımı ekleyin
 ```
+
+**Örnek:** `custom-document-types.yml` içindeki `SAMPLE_VOUCHER` tanımı ve `custom/sample/`
+altındaki XSD'ler mekanizmayı göstermek için yazılmış uydurma bir belge türüdür; herhangi bir resmi
+standarda karşılık gelmez. Ana XSD ortak tipleri `../common/` altından göreli yolla import eder;
+Schematron olarak `UBLTR_MAIN` uygulanır (bu kökte yalnız `//@currencyID` gibi genel kurallar tetiklenir).
+`SCREENSHOTS.md`'deki özel belge türü görüntüleri bu örnekle aynı şemayla alınmıştır.
+Bu dizini asset dizini (ya da seed) olarak verdiğinizde örnek belge doğrudan doğrulanır:
+```bash
+curl -F "source=@custom-assets.example/custom/sample/ornek/Sample-Voucher.xml" \
+     localhost:8080/v1/validate
+# → detectedDocumentType: SAMPLE_VOUCHER, validSchema: true, validSchematron: true
+```
+Schematron adımı için UBL-TR paketi (GİB sync) yüklü olmalıdır; istemiyorsanız tanımdaki
+`schematron` satırını silin. Kendi belge türünüzü eklerken örnek tanımı ve `custom/sample/` dizinini silin.
 
 ## Önemli Notlar
 
