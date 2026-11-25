@@ -90,8 +90,8 @@ class SaxonXsltTransformerTest {
         assertThat(html).contains("TASLAK");
         assertThat(html).contains("watermark");
         // HtmlSanitizer filigran katmanını ve stilini silmemeli
-        assertThat(html).contains("id=\"watermark\"");
-        assertThat(html).contains("html { position: relative !important; }");
+        assertThat(html).contains("id=\"xslt-watermark\"");
+        assertThat(html).contains("@media screen {\n    html { position: relative !important; }\n}");
     }
 
     @Test

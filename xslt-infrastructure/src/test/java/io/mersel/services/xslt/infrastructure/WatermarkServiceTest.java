@@ -20,7 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("WatermarkService")
 class WatermarkServiceTest {
 
-    private static final String LAYER_OPEN = "<div id=\"watermark\">";
+    private static final String LAYER_OPEN = "<div id=\"xslt-watermark\">";
+
+    private static final String SCREEN_HTML_RULE = "@media screen {\n    html { position: relative !important; }\n}";
 
     @TempDir
     Path assetDir;
@@ -47,6 +49,11 @@ class WatermarkServiceTest {
     private String apply(String html, String watermarkText) {
         byte[] result = watermarkService.addWatermark(html.getBytes(StandardCharsets.UTF_8), watermarkText);
         return new String(result, StandardCharsets.UTF_8);
+    }
+
+    private static String styleBlock(String html) {
+        int start = html.indexOf("<style");
+        return html.substring(start, html.indexOf("</style>", start) + "</style>".length());
     }
 
     private static int occurrences(String text, String token) {
@@ -80,9 +87,55 @@ class WatermarkServiceTest {
     void shouldAnchorLayerToWholeDocument() {
         String resultHtml = apply("<html><head></head><body></body></html>", "TASLAK");
 
-        assertThat(resultHtml).contains("html { position: relative !important; }");
+        assertThat(resultHtml).contains(SCREEN_HTML_RULE);
         assertThat(resultHtml).contains("position: absolute !important; top: 0 !important; right: 0 !important; bottom: 0 !important; left: 0 !important;");
         assertThat(resultHtml).contains("overflow: hidden !important");
+    }
+
+    @Test
+    @DisplayName("html konumlandırması yalnız ekranda olmalı ki baskıda şablonun absolute öğeleri yer değiştirmesin")
+    void shouldPositionHtmlOnlyForScreen() {
+        String style = styleBlock(apply("<html><head></head><body></body></html>", "TASLAK"));
+
+        // Tek html kuralı var ve o da @media screen bloğunun tek içeriği
+        assertThat(occurrences(style, "html {")).isEqualTo(1);
+        assertThat(occurrences(style, SCREEN_HTML_RULE)).isEqualTo(1);
+        assertThat(occurrences(style, "position: relative !important; }")).isEqualTo(1);
+        // Baskı bloğu yalnız katmanı fixed yapar, html'e dokunmaz
+        String printBlock = style.substring(style.indexOf("@media print {"));
+        printBlock = printBlock.substring(0, printBlock.indexOf("\n}") + 2);
+        assertThat(printBlock).isEqualTo("@media print {\n    #xslt-watermark { position: fixed !important; }\n}");
+        assertThat(occurrences(style, "@media print")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Katman id'si xslt-watermark olmalı, hiçbir kural #watermark'ı hedeflememeli")
+    void shouldUseDedicatedLayerId() {
+        String resultHtml = apply("<html><head></head><body></body></html>", "TASLAK");
+        String style = styleBlock(resultHtml);
+
+        assertThat(resultHtml).contains("<div id=\"xslt-watermark\"><div><div>TASLAK</div>");
+        assertThat(resultHtml).doesNotContainPattern("id=\"watermark\"");
+        assertThat(style).doesNotContainPattern("#watermark\\b");
+        assertThat(style).contains("#xslt-watermark, #xslt-watermark > div, #xslt-watermark > div > div {");
+    }
+
+    @Test
+    @DisplayName("Şablonun kendi id=\"watermark\" öğesi bayt bayt korunmalı, katman ayrıca eklenmeli")
+    void shouldLeaveTemplateOwnWatermarkElementAlone() {
+        String own = "<div id=\"watermark\" style=\"border:1px solid black\">X<div>a</div></div>";
+        String html = "<html><head></head><body><p>İçerik</p>" + own + "</body></html>";
+
+        String resultHtml = apply(html, "TASLAK");
+
+        assertThat(resultHtml).contains("</style></head><body><p>İçerik</p>" + own + LAYER_OPEN);
+        assertThat(occurrences(resultHtml, own)).isEqualTo(1);
+        assertThat(occurrences(resultHtml, "id=\"watermark\"")).isEqualTo(1);
+        assertThat(occurrences(resultHtml, LAYER_OPEN)).isEqualTo(1);
+        assertThat(styleBlock(resultHtml)).doesNotContainPattern("#watermark\\b");
+        // Stil ve katman çıkarılınca girdi aynen kalmalı
+        String layer = resultHtml.substring(resultHtml.indexOf(LAYER_OPEN), resultHtml.lastIndexOf("</body>"));
+        assertThat(resultHtml.replace(styleBlock(resultHtml), "").replace(layer, "")).isEqualTo(html);
     }
 
     @Test
@@ -90,11 +143,11 @@ class WatermarkServiceTest {
     void shouldRepeatLayerOnEveryPrintedPage() {
         String resultHtml = apply("<html><head></head><body></body></html>", "TASLAK");
 
-        String printRule = "@media print {\n    #watermark { position: fixed !important; }\n}";
+        String printRule = "@media print {\n    #xslt-watermark { position: fixed !important; }\n}";
         assertThat(resultHtml).contains(printRule);
         // Baskı kuralı ekran kuralından sonra gelmeli ki eşit özgüllükte onu ezsin
         assertThat(resultHtml.indexOf(printRule))
-                .isGreaterThan(resultHtml.indexOf("#watermark {\n    position: absolute !important;"));
+                .isGreaterThan(resultHtml.indexOf("#xslt-watermark {\n    position: absolute !important;"));
         assertThat(occurrences(resultHtml, "position: fixed")).isEqualTo(1);
     }
 
@@ -103,13 +156,13 @@ class WatermarkServiceTest {
     void shouldProtectStylesWithIdSelectorAndImportant() {
         String resultHtml = apply("<html><head></head><body></body></html>", "TASLAK");
 
-        assertThat(resultHtml).contains("#watermark > div > div {");
+        assertThat(resultHtml).contains("#xslt-watermark > div > div {");
         assertThat(resultHtml).contains("-webkit-transform: rotate(-45deg) !important; transform: rotate(-45deg) !important;");
         assertThat(resultHtml).contains("color: rgba(255, 0, 0, 0.3) !important");
         assertThat(resultHtml).contains("opacity: 1 !important");
-        assertThat(resultHtml).contains("#watermark > div > div:nth-child(1) { left: 10% !important; }");
-        assertThat(resultHtml).contains("#watermark > div > div:nth-child(2) { left: 39% !important; }");
-        assertThat(resultHtml).contains("#watermark > div > div:nth-child(3) { left: 68% !important; }");
+        assertThat(resultHtml).contains("#xslt-watermark > div > div:nth-child(1) { left: 10% !important; }");
+        assertThat(resultHtml).contains("#xslt-watermark > div > div:nth-child(2) { left: 39% !important; }");
+        assertThat(resultHtml).contains("#xslt-watermark > div > div:nth-child(3) { left: 68% !important; }");
         assertThat(resultHtml).doesNotContain("nth-child(4)");
     }
 
@@ -267,7 +320,7 @@ class WatermarkServiceTest {
     @Test
     @DisplayName("watermark.css dahili stilden sonra, </style>'dan önce eklenmeli")
     void shouldAppendCustomStyleAfterBuiltInStyle() throws IOException {
-        String custom = "#watermark > div > div { color: rgba(0, 0, 255, 0.2) !important; font-size: 48px !important; }";
+        String custom = "#xslt-watermark > div > div { color: rgba(0, 0, 255, 0.2) !important; font-size: 48px !important; }";
         writeCustomStyle(custom);
 
         ReloadResult result = watermarkService.reload();
@@ -288,11 +341,11 @@ class WatermarkServiceTest {
         String html = "<html><head></head><body></body></html>";
         assertThat(apply(html, "TASLAK")).doesNotContain("font-size: 48px");
 
-        writeCustomStyle("#watermark > div > div { font-size: 48px !important; }");
+        writeCustomStyle("#xslt-watermark > div > div { font-size: 48px !important; }");
         watermarkService.reload();
         assertThat(apply(html, "TASLAK")).contains("font-size: 48px !important;");
 
-        writeCustomStyle("#watermark > div > div { font-size: 20px !important; }");
+        writeCustomStyle("#xslt-watermark > div > div { font-size: 20px !important; }");
         watermarkService.reload();
         assertThat(apply(html, "TASLAK")).contains("font-size: 20px !important;").doesNotContain("font-size: 48px");
 
@@ -304,7 +357,7 @@ class WatermarkServiceTest {
     @Test
     @DisplayName("</style> içeren watermark.css reddedilmeli (HTML enjeksiyonu)")
     void shouldRejectCustomStyleThatClosesStyleElement() throws IOException {
-        writeCustomStyle("#watermark { color: red; }</STYLE ><script>alert(1)</script><style>");
+        writeCustomStyle("#xslt-watermark { color: red; }</STYLE ><script>alert(1)</script><style>");
 
         ReloadResult result = watermarkService.reload();
         String resultHtml = apply("<html><head></head><body></body></html>", "TASLAK");
@@ -318,7 +371,7 @@ class WatermarkServiceTest {
     @Test
     @DisplayName("Geçersiz watermark.css önceki özel stili de kaldırmalı")
     void shouldDropPreviousCustomStyleWhenNewOneIsInvalid() throws IOException {
-        writeCustomStyle("#watermark > div > div { font-size: 48px !important; }");
+        writeCustomStyle("#xslt-watermark > div > div { font-size: 48px !important; }");
         watermarkService.reload();
 
         writeCustomStyle("</style>");
@@ -350,11 +403,11 @@ class WatermarkServiceTest {
     @Test
     @DisplayName("watermark.css başındaki BOM atılmalı, Türkçe karakterler korunmalı")
     void shouldStripBomFromCustomStyle() throws IOException {
-        writeCustomStyle("﻿#watermark > div > div::after { content: \" — ÖRNEK\" !important; }");
+        writeCustomStyle("﻿#xslt-watermark > div > div::after { content: \" — ÖRNEK\" !important; }");
 
         assertThat(watermarkService.reload().status()).isEqualTo(ReloadResult.Status.OK);
         String resultHtml = apply("<html><head></head><body></body></html>", "TASLAK");
-        assertThat(resultHtml).contains("*/\n#watermark > div > div::after { content: \" — ÖRNEK\" !important; }\n</style>");
+        assertThat(resultHtml).contains("*/\n#xslt-watermark > div > div::after { content: \" — ÖRNEK\" !important; }\n</style>");
         assertThat(resultHtml).doesNotContain("﻿");
     }
 
