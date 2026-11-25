@@ -216,4 +216,55 @@ class AssetFileWatcherTest {
             watcher.shutdown();
         }
     }
+
+    @Test
+    @DisplayName("tasinip_yerinde_yeniden_olusan_dizin_izlenir — mv ile değiştirilen dizindeki değişiklik reload tetikler")
+    void tasinip_yerinde_yeniden_olusan_dizin_izlenir() throws Exception {
+        // Dizin başka ada taşınınca eski kaydı geçerli kalır; aynı yolda oluşan yeni dizin ayrıca izlenmeli.
+        Path watchDir = tempDir.resolve("watch");
+        Path sample = Files.createDirectories(watchDir.resolve("custom").resolve("sample"));
+        Files.writeString(sample.resolve("Sample-1.0.xsd"), "<xsd/>");
+
+        AssetFileWatcher watcher = new AssetFileWatcher(assetRegistry, 100, watchDir.toString());
+        watcher.init();
+
+        try {
+            await().pollDelay(Duration.ofMillis(150)).until(() -> true);
+            Files.move(sample, sample.resolveSibling("sample-old"));
+            Files.createDirectories(sample);
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    verify(assetRegistry, atLeastOnce()).reload());
+            await().pollDelay(Duration.ofMillis(300)).until(() -> true);
+            clearInvocations(assetRegistry);
+
+            Files.writeString(sample.resolve("Sample-1.0.xsd"), "<xsd/>");
+
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    verify(assetRegistry, atLeastOnce()).reload());
+        } finally {
+            watcher.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("olay_tasmasinda_yerinde_yeniden_olusan_dizin_kaydedilir")
+    void olay_tasmasinda_yerinde_yeniden_olusan_dizin_kaydedilir() throws Exception {
+        // Taşıma ve yeniden oluşturma olayları taşmada kaybolursa tarama yeni dizini kaydetmeli.
+        Path watchDir = Files.createDirectories(tempDir.resolve("watch"));
+        Path sample = Files.createDirectories(watchDir.resolve("custom/sample"));
+
+        AssetFileWatcher watcher = new AssetFileWatcher(assetRegistry, 100, watchDir.toString());
+        watcher.openWatchService(watchDir);
+
+        try {
+            Files.move(sample, sample.resolveSibling("sample-old"));
+            Files.createDirectories(sample);
+
+            assertThat(watcher.registerMissingDirectories())
+                    .as("yeniden oluşan custom/sample ve taşınan custom/sample-old").isEqualTo(2);
+            assertThat(watcher.registerMissingDirectories()).as("ikinci taramada yeni kayıt yok").isZero();
+        } finally {
+            watcher.shutdown();
+        }
+    }
 }
