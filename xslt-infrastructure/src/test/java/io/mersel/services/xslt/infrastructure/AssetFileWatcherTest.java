@@ -178,4 +178,42 @@ class AssetFileWatcherTest {
             watcher.shutdown();
         }
     }
+
+    @Test
+    @DisplayName("olay_tasmasinda_kacan_dizinler_izlemeye_alinir")
+    void olay_tasmasinda_kacan_dizinler_izlemeye_alinir() throws Exception {
+        // OVERFLOW'da ENTRY_CREATE olayları kaybolur: o sırada oluşan dizinler tarama ile kaydedilmeli.
+        // Olay döngüsü başlatılmaz; kaybolan olaylar dizinlerin döngü olmadan oluşturulmasıyla canlandırılır.
+        Path watchDir = Files.createDirectories(tempDir.resolve("watch"));
+        Files.createDirectories(watchDir.resolve("validator"));
+
+        AssetFileWatcher watcher = new AssetFileWatcher(assetRegistry, 100, watchDir.toString());
+        watcher.openWatchService(watchDir);
+
+        try {
+            assertThat(watcher.isRegistered(watchDir)).isTrue();
+            assertThat(watcher.isRegistered(watchDir.resolve("validator"))).isTrue();
+
+            Path missed = Files.createDirectories(watchDir.resolve("validator/eledger/schema"));
+            Path missedSibling = Files.createDirectories(watchDir.resolve("custom/sample"));
+            Files.createDirectories(watchDir.resolve("staging/efatura"));
+            Files.createDirectories(watchDir.resolve("history/v1"));
+            Files.createDirectories(watchDir.resolve("custom/auto-generated/x"));
+            assertThat(watcher.isRegistered(missed)).isFalse();
+
+            int added = watcher.registerMissingDirectories();
+
+            assertThat(added).as("validator/eledger, validator/eledger/schema, custom, custom/sample").isEqualTo(4);
+            assertThat(watcher.isRegistered(missed)).isTrue();
+            assertThat(watcher.isRegistered(missed.getParent())).isTrue();
+            assertThat(watcher.isRegistered(missedSibling)).isTrue();
+            assertThat(watcher.isRegistered(watchDir.resolve("staging"))).isFalse();
+            assertThat(watcher.isRegistered(watchDir.resolve("staging/efatura"))).isFalse();
+            assertThat(watcher.isRegistered(watchDir.resolve("history/v1"))).isFalse();
+            assertThat(watcher.isRegistered(watchDir.resolve("custom/auto-generated"))).isFalse();
+            assertThat(watcher.registerMissingDirectories()).as("kayıtlı dizinler tekrar kaydedilmez").isZero();
+        } finally {
+            watcher.shutdown();
+        }
+    }
 }

@@ -833,10 +833,11 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
      * pre-compiled XSL'lerde bulunmayabilir (bu durumda {@code null} döner).
      * <p>
      * GİB'in ön-derlenmiş XSL'leri (ör. e-Arşiv {@code earsiv_schematron.xsl}) hataları
-     * {@code <Error>} elemanı yerine düz metin yazar ve her mesajı satır sonuyla bitirir.
-     * Serializer'ın eklediği XML bildirimi hata değildir: yalnızca bildirimden oluşan çıktı
-     * "hiç kural tetiklenmedi" demektir. XML olarak okunamayan çıktıda her dolu satır ayrı
-     * bir hata sayılır.
+     * {@code <Error>} elemanı yerine düz metin yazar. Serializer'ın eklediği XML bildirimi hata
+     * değildir: yalnızca bildirimden oluşan çıktı "hiç kural tetiklenmedi" demektir. XML olarak
+     * okunamayan çıktıda her dolu satır ayrı bir hata sayılır. Ayrım satır sonuna dayanır:
+     * XSL'in satır sonu yazmadan bıraktığı mesajlar (e-Döviz paketinde bazı kurallar böyledir)
+     * bir sonraki mesajla tek hata olarak gelir.
      */
     private List<SchematronError> extractSchematronErrors(String schematronOutput) {
         String content = stripXmlDeclaration(schematronOutput);
@@ -881,7 +882,9 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
 
     /**
      * Düz metin Schematron çıktısında her dolu satırı ayrı bir hata olarak döndürür;
-     * satır içindeki boşluk dizilerini tek boşluğa indirir.
+     * satır içindeki boşluk dizilerini tek boşluğa indirir. Aralarında satır sonu olmayan
+     * mesajlar ayrılamaz, tek hata olarak döner; {@code text} bastırma kuralı bu durumda
+     * birleşik metinle eşleşir.
      */
     static List<SchematronError> plainTextErrors(String content) {
         return content.lines()

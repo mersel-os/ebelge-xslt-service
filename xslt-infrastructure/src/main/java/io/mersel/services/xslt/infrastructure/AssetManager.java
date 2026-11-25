@@ -91,6 +91,9 @@ public class AssetManager {
      * açılışta yazılabilir asset dizinine taşımak isteyen dağıtımlar içindir. Seed'de olmayan
      * dosyalara (GİB sync çıktıları, admin API ile yazılanlar) dokunulmaz. Nokta ile başlayan
      * yollar (Kubernetes ConfigMap'in {@code ..data} bağlantıları) ve {@code auto-generated/} atlanır.
+     * <p>
+     * Seed dosyası kaynak kabul edilir: asset dizinindeki kopya (örneğin admin API/UI ile
+     * düzenlenmiş) farklıysa üzerine yazılır ve bu bir uyarıyla loglanır.
      *
      * @return kopyalanan dosya sayısı
      */
@@ -136,6 +139,11 @@ public class AssetManager {
                 }
                 try {
                     Files.createDirectories(target.getParent());
+                    if (Files.isRegularFile(target) && Files.mismatch(source, target) != -1) {
+                        // Admin API/UI ile yapılan düzenleme her açılışta sessizce geri alınmasın: görünür olsun.
+                        log.warn("Asset dizinindeki {} seed'deki sürümden farklıydı; yerel sürüm seed ile "
+                                + "değiştirildi. Seed ile gelen dosyaları seed kaynağında değiştirin.", relative);
+                    }
                     Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
                     copied[0]++;
                 } catch (IOException e) {

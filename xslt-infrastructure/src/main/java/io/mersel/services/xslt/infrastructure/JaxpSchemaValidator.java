@@ -38,6 +38,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * JAXP tabanlı XML Schema (XSD) doğrulama implementasyonu.
@@ -143,11 +144,10 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
     );
 
     /**
-     * Derlenmiş XSD cache — volatile ile atomic swap.
-     * Anahtar: yerleşik tiplerde {@link SchemaValidationType#name()}, özel belge türlerinde
-     * tanımın adı (yerleşik adlarla çakışması {@link CustomDocumentTypeRegistry} tarafından engellenir).
+     * Son XSD reload'unun anlık görüntüsü — volatile ile tek referans olarak değiştirilir; okuyan
+     * taraf derlenmiş şemalarla bunları üreten özel tür tanımlarını hiçbir zaman karışık görmez.
      */
-    private volatile Map<String, Schema> compiledSchemas = Map.of();
+    private volatile SchemaSnapshot snapshot = SchemaSnapshot.EMPTY;
 
     /**
      * Override'lı XSD cache — lazy compile, TTL ve max-size ile.
@@ -182,7 +182,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * Derlenmiş XSD şema sayısını döndürür.
      */
     public int getLoadedCount() {
-        return compiledSchemas.size();
+        return snapshot.schemas().size();
     }
 
     // ── Reloadable ──────────────────────────────────────────────────
@@ -196,6 +196,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
     public ReloadResult reload() {
         long startTime = System.currentTimeMillis();
         var newCache = new HashMap<String, Schema>();
+        var attemptedCustom = new HashMap<String, CustomDocumentType>();
         var errors = new ArrayList<String>();
 
         // Override cache'i temizle — base şemalar değiştiğinde override'lar da geçersiz
@@ -211,28 +212,32 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
                 var schema = compileSchema(builtInSpec(type));
                 newCache.put(type.name(), schema);
                 log.debug("  {} XSD şeması yüklendi", type);
-            } catch (Exception e) {
-                String error = type + " XSD şeması yüklenemedi: " + e.getMessage();
+            } catch (Exception | StackOverflowError e) {
+                // StackOverflowError: aşırı derin iç içe bir şema yalnız kendisini düşürür.
+                String error = type + " XSD şeması yüklenemedi: " + describe(e);
                 errors.add(error);
                 log.warn("  {}", error);
             }
         }
 
         // Özel belge türleri: tanımlar CustomDocumentTypeRegistry tarafından bu bileşenden önce yüklenir.
+        // Derlenemeyen tanım da anlık görüntüye girer: doğrulama gerçek derleme hatasını raporlar,
+        // her istekte yeniden derlemez.
         for (CustomDocumentType definition : customDocumentTypes.getAll()) {
+            attemptedCustom.put(definition.id(), definition);
             try {
                 newCache.put(definition.id(), compileSchema(customSpec(definition)));
                 log.info("  {} özel belge türü XSD şeması yüklendi: {}", definition.id(), definition.xsdPath());
-            } catch (Exception e) {
+            } catch (Exception | StackOverflowError e) {
                 String error = definition.id() + " özel belge türü XSD şeması yüklenemedi ("
-                        + definition.xsdPath() + "): " + e.getMessage();
+                        + definition.xsdPath() + "): " + describe(e);
                 errors.add(error);
                 log.warn("  {}", error);
             }
         }
 
-        // Atomic swap
-        compiledSchemas = Map.copyOf(newCache);
+        // Atomic swap — isteğe bağlı derlemeler önceki görüntüyle birlikte bırakılır
+        snapshot = new SchemaSnapshot(Map.copyOf(newCache), Map.copyOf(attemptedCustom));
 
         long elapsed = System.currentTimeMillis() - startTime;
 
@@ -284,6 +289,37 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         return validate(source, customSpec(definition), overrides, profileName);
     }
 
+    /**
+     * Override'sız doğrulamada kullanılacak derlenmiş şema; yüklenemediyse {@code null}.
+     * <p>
+     * Özel belge türünde kayıt defterindeki güncel tanım son XSD reload'unun derlediği (veya
+     * derlemeyi denediği) tanımla aynıysa onun sonucu kullanılır. Değilse tanım o reload'dan sonra
+     * eklenmiş ya da değişmiştir ({@link AssetRegistry} bileşenleri sırayla yükler; aradaki kısa
+     * sürede eski şemayla doğrulama yapılmamalı): tanım bir kez, istek anında derlenir ve sonucu
+     * — başarısızlık dahil — bir sonraki XSD reload'una kadar saklanır.
+     */
+    private Schema baseSchema(SchemaSpec spec) {
+        SchemaSnapshot current = snapshot;
+        CustomDocumentType definition = spec.customDefinition();
+        if (definition == null || definition.equals(current.customDefinitions().get(definition.id()))) {
+            return current.schemas().get(spec.key());
+        }
+        return current.onDemand().computeIfAbsent(definition, this::compileOnDemand).orElse(null);
+    }
+
+    private Optional<Schema> compileOnDemand(CustomDocumentType definition) {
+        try {
+            Schema schema = compileSchema(customSpec(definition));
+            log.info("{} özel belge türü XSD şeması istek anında derlendi (tanım son reload'dan sonra "
+                    + "eklendi veya değişti): {}", definition.id(), definition.xsdPath());
+            return Optional.of(schema);
+        } catch (Exception | StackOverflowError e) {
+            log.warn("{} özel belge türü XSD şeması yüklenemedi ({}): {}", definition.id(),
+                    definition.xsdPath(), describe(e));
+            return Optional.empty();
+        }
+    }
+
     private List<String> validate(byte[] source, SchemaSpec spec, List<XsdOverride> overrides, String profileName) {
         long startTime = System.currentTimeMillis();
         List<String> errors = new ArrayList<>();
@@ -294,7 +330,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
 
             if (overrides == null || overrides.isEmpty()) {
                 // Override yok — base şemayı kullan
-                schema = compiledSchemas.get(key);
+                schema = baseSchema(spec);
             } else {
                 // Override var — cache'den al veya derle
                 schema = getOrCompileOverriddenSchema(spec, overrides, profileName);
@@ -412,7 +448,10 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * @throws SchemaOverrideCompilationException derleme başarısız olursa
      */
     private Schema getOrCompileOverriddenSchema(SchemaSpec spec, List<XsdOverride> overrides, String profileName) {
-        String cacheKey = buildOverrideCacheKey(spec.key(), overrides, profileName);
+        // Özel türde XSD yolu anahtara girer: tanım değiştiyse eski tanımdan derlenmiş şema kullanılmaz.
+        String cacheKey = buildOverrideCacheKey(
+                spec.customDefinition() != null ? spec.key() + "#" + spec.mainXsd() : spec.key(),
+                overrides, profileName);
 
         Schema cached = overrideCache.getIfPresent(cacheKey);
         if (cached != null) {
@@ -703,7 +742,30 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * @param builtInType yerleşik tiplerde tip; özel belge türlerinde {@code null}
      */
     private record SchemaSpec(String key, String mainXsd, List<String> preloadXsds,
-                              SchemaValidationType builtInType) {
+                              SchemaValidationType builtInType, CustomDocumentType customDefinition) {
+    }
+
+    /**
+     * Bir XSD reload'unun sonucu.
+     *
+     * @param schemas           derlenen şemalar; anahtar yerleşik tiplerde {@link SchemaValidationType#name()},
+     *                          özel belge türlerinde tanımın adı (yerleşik adlarla çakışması
+     *                          {@link CustomDocumentTypeRegistry} tarafından engellenir)
+     * @param customDefinitions bu reload'un derlediği veya derlemeyi denediği özel tür tanımları (ada göre)
+     * @param onDemand          bu reload'dan sonra eklenen/değişen tanımlar için istek anında derlenen
+     *                          şemalar; derlenemeyenler boş {@link Optional} olarak saklanır.
+     *                          Görüntüyle birlikte değiştirildiği için bir sonraki reload'da kendiliğinden boşalır.
+     *                          Test edilebilirlik için package-private.
+     */
+    record SchemaSnapshot(Map<String, Schema> schemas,
+                                  Map<String, CustomDocumentType> customDefinitions,
+                                  Map<CustomDocumentType, Optional<Schema>> onDemand) {
+
+        static final SchemaSnapshot EMPTY = new SchemaSnapshot(Map.of(), Map.of());
+
+        SchemaSnapshot(Map<String, Schema> schemas, Map<String, CustomDocumentType> customDefinitions) {
+            this(schemas, customDefinitions, new ConcurrentHashMap<>());
+        }
     }
 
     private static SchemaSpec builtInSpec(SchemaValidationType type) {
@@ -714,7 +776,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         // Ortak UBL XSD'leri sadece UBL belge türleri için eklenir.
         // EARCHIVE ve EDEFTER gibi bağımsız XSD'ler kendi import'larını kendi dizinlerinden çözer.
         List<String> preload = UBL_TYPES.contains(type) ? List.of(COMMON_XSD_FILES) : List.of();
-        return new SchemaSpec(type.name(), mainXsd, preload, type);
+        return new SchemaSpec(type.name(), mainXsd, preload, type, null);
     }
 
     /**
@@ -722,7 +784,7 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
      * ortak dosyalar ayrıca kaynak olarak eklenmez.
      */
     private static SchemaSpec customSpec(CustomDocumentType definition) {
-        return new SchemaSpec(definition.id(), definition.xsdPath(), List.of(), null);
+        return new SchemaSpec(definition.id(), definition.xsdPath(), List.of(), null, definition);
     }
 
     private static SchemaFactory newSchemaFactory() {
@@ -803,6 +865,11 @@ public class JaxpSchemaValidator implements ISchemaValidator, Reloadable {
         }
         Path sharedDir = externalDir.resolve(EARCHIVE_SHARED_SCHEMA_DIR).normalize();
         return Files.isDirectory(sharedDir) ? sharedDir : null;
+    }
+
+    /** Hata mesajı; mesajsız hatalarda (örn. {@link StackOverflowError}) hata sınıfı. */
+    private static String describe(Throwable e) {
+        return e.getMessage() != null ? e.getMessage() : e.toString();
     }
 
     private String formatError(org.xml.sax.SAXParseException e) {

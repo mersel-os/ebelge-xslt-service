@@ -5,7 +5,9 @@
 # Servisin yerleşik olarak tanımadığı bir kök elementi kod değiştirmeden
 # doğrulatmak için kullanılır. Kök elementi yerleşik kurallarla tanınmayan
 # belge, namespace + yerel adı bir tanımla eşleşirse o tanımın XSD'si ve
-# (varsa) Schematron tipi ile doğrulanır. Yerleşik türler her zaman önceliklidir.
+# (varsa) Schematron tipi ile doğrulanır. Yerleşik türler her zaman önceliklidir;
+# kökü yerleşik tespitin zaten tanıdığı tanımlar (ör. UBL-TR Invoice ya da
+# http://earsiv.efatura.gov.tr namespace'indeki herhangi bir kök) reddedilir.
 #
 # Alanlar:
 #   id              Zorunlu. ^[A-Z][A-Z0-9_]{0,63}$; yerleşik tip adlarıyla çakışamaz.
@@ -22,7 +24,8 @@
 #
 # Dosya ve XSD'ler değiştiğinde (dosya izleyici veya POST /v1/admin/assets/reload)
 # tanımlar yeniden yüklenir. Hatalı tanımlar reload sonucunda raporlanır ve atlanır;
-# dosya okunamazsa önceki tanımlar korunur.
+# dosya okunamazsa ya da yapısı hatalıysa (kök eşleme değil, document-types liste
+# değil) önceki tanımlar korunur.
 #
 # Aşağıdaki SAMPLE_VOUCHER tanımı mekanizmayı göstermek için yazılmış uydurma bir
 # belge türüdür; herhangi bir resmi standarda karşılık gelmez. XSD'leri

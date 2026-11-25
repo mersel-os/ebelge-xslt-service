@@ -39,7 +39,9 @@ import java.util.stream.Stream;
  * {@code POST /v1/admin/assets/reload} ile çalışırken eklenebilir.
  * <p>
  * XSD derlemesi {@link JaxpSchemaValidator} tarafından yapılır; bu yüzden bu bileşen
- * reload sırasında ondan önce çalışır. Dosya bozuksa önceki tanımlar korunur.
+ * reload sırasında ondan önce çalışır. Dosya okunamıyorsa ya da yapısı hatalıysa (kök eşleme değil,
+ * {@code document-types} liste değil) önceki tanımlar korunur; tek tek hatalı girdiler raporlanıp atlanır.
+ * Kökü yerleşik tespit kurallarınca zaten tanınan tanımlar hiç uygulanmayacağı için reddedilir.
  */
 @Service
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -115,11 +117,18 @@ public class CustomDocumentTypeRegistry implements ICustomDocumentTypeRegistry, 
                     ASSET_PATH + " okunamadı, önceki tanımlar korunuyor: " + e.getMessage());
         }
 
+        String structureError = structureError(root);
+        if (structureError != null) {
+            // Sözdizimi hatası gibi: dosyanın tamamı yorumlanamıyor, çalışan doğrulama bozulmasın.
+            return ReloadResult.failed(getName(), System.currentTimeMillis() - startTime,
+                    ASSET_PATH + ": " + structureError + "; önceki tanımlar korunuyor");
+        }
+
         var errors = new ArrayList<String>();
         var loaded = new LinkedHashMap<String, CustomDocumentType>();
         var roots = new HashSet<String>();
 
-        List<?> entries = documentTypeEntries(root, errors);
+        List<?> entries = documentTypeEntries(root);
         for (int i = 0; i < entries.size(); i++) {
             String label = "document-types[" + i + "]";
             CustomDocumentType def = parseEntry(entries.get(i), label, errors);
@@ -155,23 +164,30 @@ public class CustomDocumentTypeRegistry implements ICustomDocumentTypeRegistry, 
 
     // ── Ayrıştırma ──────────────────────────────────────────────────
 
-    private static List<?> documentTypeEntries(Object root, List<String> errors) {
+    /**
+     * Dosya düzeyindeki yapı hatası; yoksa {@code null}. Boş dosya ve {@code document-types}
+     * anahtarı olmayan eşleme hata değildir (tanım yok).
+     */
+    private static String structureError(Object root) {
         if (root == null) {
-            return List.of();
+            return null;
         }
         if (!(root instanceof Map<?, ?> map)) {
-            errors.add(ASSET_PATH + ": kök bir eşleme (map) olmalı");
-            return List.of();
+            return "kök bir eşleme (map) olmalı";
         }
         Object list = map.get("document-types");
-        if (list == null) {
-            return List.of();
+        if (list != null && !(list instanceof List<?>)) {
+            return "'document-types' bir liste olmalı";
         }
-        if (!(list instanceof List<?> entries)) {
-            errors.add(ASSET_PATH + ": 'document-types' bir liste olmalı");
-            return List.of();
+        return null;
+    }
+
+    /** Yapısı {@link #structureError(Object)} ile doğrulanmış kökten girdiler. */
+    private static List<?> documentTypeEntries(Object root) {
+        if (root instanceof Map<?, ?> map && map.get("document-types") instanceof List<?> entries) {
+            return entries;
         }
-        return entries;
+        return List.of();
     }
 
     private static CustomDocumentType parseEntry(Object entry, String label, List<String> errors) {
@@ -213,6 +229,12 @@ public class CustomDocumentTypeRegistry implements ICustomDocumentTypeRegistry, 
         }
         if (rootElement == null || rootElement.isBlank() || rootElement.contains(":")) {
             errors.add(named + ": 'root-element' zorunlu ve önek (prefix) içermemeli");
+            return null;
+        }
+        if (DocumentTypeDetector.isBuiltInRoot(rootNamespace, rootElement.strip())) {
+            // Yerleşik tespit önce çalışır: bu kökteki belgeler hiçbir zaman bu tanıma ulaşmaz.
+            errors.add(named + ": {" + rootNamespace + "}" + rootElement.strip()
+                    + " kökü yerleşik belge türü tespitiyle işleniyor; bu tanım hiç uygulanmaz");
             return null;
         }
         String xsdError = validateXsdPath(xsd);

@@ -9,7 +9,6 @@ import java.util.List;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,7 +28,7 @@ class GibAutoSyncStartupListenerTest {
 
         listener(true).onApplicationReady();
 
-        verify(syncService, timeout(5000)).syncAllPreservingExistingFiles();
+        verify(syncService).syncAllPreservingExistingFiles();
     }
 
     @Test
@@ -51,10 +50,11 @@ class GibAutoSyncStartupListenerTest {
         verify(assetManager, never()).isEmpty(GibAutoSyncStartupListener.GIB_PACKAGE_ROOT);
     }
 
+    /** Sync aynı thread'de çalışır: "çalışmadı" doğrulaması arka plan thread'ini beklemeden kesindir. */
     private GibAutoSyncStartupListener listener(boolean autoSync) {
         var properties = new GibSyncProperties();
         properties.setEnabled(true);
         properties.setAutoSyncOnStartup(autoSync);
-        return new GibAutoSyncStartupListener(syncService, assetManager, properties);
+        return new GibAutoSyncStartupListener(syncService, assetManager, properties, Runnable::run);
     }
 }

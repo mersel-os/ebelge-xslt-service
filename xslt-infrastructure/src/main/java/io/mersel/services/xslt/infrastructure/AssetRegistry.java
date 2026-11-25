@@ -29,6 +29,9 @@ public class AssetRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(AssetRegistry.class);
 
+    /** Reload bileşen döngüsü bir hatayla yarıda kesildiğinde dönen sonucun bileşen adı. */
+    static final String INTERRUPTED_COMPONENT = "Asset Reload";
+
     private final List<Reloadable> reloadables;
     private final XsltMetrics xsltMetrics;
     private final ReentrantLock reloadLock = new ReentrantLock();
@@ -63,7 +66,10 @@ public class AssetRegistry {
      * tamamlanmışsa onun sonucunu döndürür, yoksa yeni bir reload çalıştırır. Böylece
      * örneğin GİB sync dosyaları süren bir reload'dan sonra yazıp reload istediğinde istek
      * kaybolmaz; aynı anda bekleyen çağrılar tek bir reload'da birleşir.
-     * Bir bileşenin hatası diğerlerini engellemez.
+     * Bir bileşenin hatası (aşırı derin bir şemadan gelen {@link StackOverflowError} dahil)
+     * diğerlerini engellemez. Reload başka bir {@link Error} ile yarıda kesilirse son sonuç
+     * FAILED olarak işaretlenir ve hata yeniden fırlatılır; bu reload'a bağlanan bekleyen
+     * çağrılar önceki başarılı sonucu değil bu FAILED sonucu alır.
      *
      * @return Bu çağrıdan sonra başlamış reload'un bileşen sonuçları
      */
@@ -80,7 +86,15 @@ public class AssetRegistry {
                 return lastResults;
             }
             coveredSequence = requestSequence.get();
-            lastResults = reloadAll();
+            try {
+                lastResults = reloadAll();
+            } catch (Throwable t) {
+                // coveredSequence bu reload'a bağlanan çağrıları karşılanmış sayıyor: onlara eski
+                // sonuç değil, yarıda kalmayı bildiren bir sonuç dönmeli.
+                lastResults = List.of(ReloadResult.failed(INTERRUPTED_COMPONENT, 0,
+                        "Reload yarıda kesildi, bileşenler kısmen yüklenmiş olabilir: " + describe(t)));
+                throw t;
+            }
             return lastResults;
         } finally {
             reloadLock.unlock();
@@ -115,9 +129,9 @@ public class AssetRegistry {
                         result.errors().forEach(e -> log.error("      {}", e));
                     }
                 }
-            } catch (Exception e) {
-                log.error("    ✗ {} — beklenmeyen hata: {}", reloadable.getName(), e.getMessage(), e);
-                results.add(ReloadResult.failed(reloadable.getName(), 0, e.getMessage()));
+            } catch (Exception | StackOverflowError e) {
+                log.error("    ✗ {} — beklenmeyen hata: {}", reloadable.getName(), describe(e), e);
+                results.add(ReloadResult.failed(reloadable.getName(), 0, describe(e)));
             }
         }
 
@@ -128,5 +142,10 @@ public class AssetRegistry {
         xsltMetrics.recordReload(success, totalElapsed);
 
         return List.copyOf(results);
+    }
+
+    /** Hata mesajı; mesajsız hatalarda (örn. {@link StackOverflowError}) hata sınıfı. */
+    private static String describe(Throwable t) {
+        return t.getMessage() != null ? t.getMessage() : t.toString();
     }
 }

@@ -126,6 +126,36 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
         }
     }
 
+    /**
+     * Kökü, belgenin geri kalanına ve namespace önekine bakılmadan yerleşik bir türe çözülen
+     * belgeleri tanır: UBL-TR namespace'inde tanınan kök adları ve e-Arşiv namespace'indeki tüm
+     * kökler. Özel belge türü tanımlarının bu köklerle çakışmasını engellemek için kullanılır
+     * (yerleşik tespit önce çalıştığı için böyle bir tanım hiç uygulanmaz). Önek veya bağlama göre
+     * çözülen e-Defter kökleri dahil değildir.
+     */
+    static boolean isBuiltInRoot(String namespace, String localName) {
+        return resolveRootOnly(namespace, localName) != null;
+    }
+
+    /**
+     * Yalnız namespace ve yerel addan çözülen yerleşik tür; e-Arşiv raporlarında içerik
+     * elementine bakılmadan önceki genel rapor türü.
+     */
+    private static DocumentType resolveRootOnly(String namespace, String localName) {
+        // UBL-TR namespace
+        if (namespace != null && namespace.startsWith(NS_UBL_PREFIX)) {
+            return UBL_ROOT_MAP.get(localName);
+        }
+
+        // e-Arşiv namespace: eArsivVeri ayrı bir kök ve şemadır; diğer kökler rapor ailesidir.
+        if (NS_EARCHIVE.equals(namespace)) {
+            return EARCHIVE_DATA_ROOT.equals(localName)
+                    ? DocumentType.EARCHIVE_DATA
+                    : DocumentType.EARCHIVE_REPORT;
+        }
+        return null;
+    }
+
     // ── SAX Handler ─────────────────────────────────────────────────
 
     /**
@@ -263,16 +293,9 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
          * e-Defter "defter" root'u hariç — o context id gerektirir.
          */
         private DocumentType resolveFromRoot(String namespace, String prefix, String localName) {
-            // UBL-TR namespace
-            if (namespace != null && namespace.startsWith(NS_UBL_PREFIX)) {
-                return UBL_ROOT_MAP.get(localName);
-            }
-
-            // e-Arşiv namespace: eArsivVeri ayrı bir kök ve şemadır; diğer kökler rapor ailesidir.
-            if (NS_EARCHIVE.equals(namespace)) {
-                return EARCHIVE_DATA_ROOT.equals(localName)
-                        ? DocumentType.EARCHIVE_DATA
-                        : DocumentType.EARCHIVE_REPORT;
+            // UBL-TR ve e-Arşiv namespace'leri: önekten bağımsız
+            if ((namespace != null && namespace.startsWith(NS_UBL_PREFIX)) || NS_EARCHIVE.equals(namespace)) {
+                return resolveRootOnly(namespace, localName);
             }
 
             // e-Defter / e-Envanter namespace

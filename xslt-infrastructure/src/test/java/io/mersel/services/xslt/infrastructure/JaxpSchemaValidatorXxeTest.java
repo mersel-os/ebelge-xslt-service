@@ -173,7 +173,7 @@ class JaxpSchemaValidatorXxeTest {
         init.setAccessible(true);
         init.invoke(validator);
         // Önbellek anahtarı şema tipinin adıdır (özel belge türleri de aynı önbellekte tutulur).
-        setField(validator, "compiledSchemas", Map.of(TYPE.name(), schema));
+        setField(validator, "snapshot", new JaxpSchemaValidator.SchemaSnapshot(Map.of(TYPE.name(), schema), Map.of()));
         return validator;
     }
 

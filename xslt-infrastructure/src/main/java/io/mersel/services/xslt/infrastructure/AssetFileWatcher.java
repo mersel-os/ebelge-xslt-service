@@ -11,6 +11,7 @@ import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.*;
 
@@ -44,9 +45,13 @@ public class AssetFileWatcher {
     private final String externalPath;
 
     private WatchService watchService;
+    /** İzlenen dizinler ve kayıt anahtarları; silinen dizinin anahtarı geçersizleşir. */
+    private final Map<Path, WatchKey> registeredDirs = new ConcurrentHashMap<>();
     private ExecutorService watchExecutor;
     private ScheduledExecutorService debounceExecutor;
     private ScheduledFuture<?> pendingReload;
+    /** Olay kuyruğu taştı; planlanan reload'dan önce dizinler yeniden taranmalı. */
+    private volatile boolean rescanPending;
 
     public AssetFileWatcher(
             AssetRegistry assetRegistry,
@@ -71,8 +76,7 @@ public class AssetFileWatcher {
         }
 
         try {
-            watchService = FileSystems.getDefault().newWatchService();
-            registerRecursive(watchDir);
+            openWatchService(watchDir);
 
             debounceExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "asset-watcher-debounce");
@@ -91,6 +95,15 @@ public class AssetFileWatcher {
         } catch (IOException e) {
             log.error("AssetFileWatcher başlatılamadı: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * WatchService'i açar ve asset dizinini alt dizinleriyle kaydeder (olay döngüsü başlatılmaz).
+     * Test edilebilirlik için package-private.
+     */
+    void openWatchService(Path watchDir) throws IOException {
+        watchService = FileSystems.getDefault().newWatchService();
+        registerRecursive(watchDir);
     }
 
     @PreDestroy
@@ -127,7 +140,12 @@ public class AssetFileWatcher {
                 for (WatchEvent<?> event : key.pollEvents()) {
                     if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
                         // Olay kuyruğu taştı: neyin değiştiği bilinmiyor, tam reload güvenli taraftır.
-                        log.debug("WatchService olay taşması — reload planlanıyor");
+                        // Kaybolan ENTRY_CREATE olaylarının dizinleri de kayda alınmalı; yoksa o
+                        // dizinlerdeki sonraki değişiklikler hiç algılanmaz.
+                        // Linux taşmayı her kayıtlı anahtara bildirir; tarama planlanan reload'dan önce
+                        // bir kez yapılır.
+                        rescanPending = true;
+                        log.debug("WatchService olay taşması — dizinler yeniden taranacak, reload planlanıyor");
                         hasRelevantChange = true;
                         continue;
                     }
@@ -165,6 +183,7 @@ public class AssetFileWatcher {
 
                 boolean valid = key.reset();
                 if (!valid) {
+                    registeredDirs.remove(watchable, key);
                     // Alt dizin silindiyse (örn. GİB sync hedef dizinini temizledi) yalnız onun kaydı
                     // düşer; izleme ancak kök asset dizini kaybolursa durur.
                     if (watchable.equals(rootDir)) {
@@ -193,9 +212,15 @@ public class AssetFileWatcher {
         pendingReload = debounceExecutor.schedule(() -> {
             log.info("Dosya değişikliği algılandı — asset reload tetikleniyor");
             try {
+                if (rescanPending) {
+                    rescanPending = false;
+                    int added = registerMissingDirectories();
+                    log.debug("Olay taşması sonrası {} yeni dizin izlemeye alındı", added);
+                }
                 assetRegistry.reload();
-            } catch (Exception e) {
-                log.error("File watcher reload hatası: {}", e.getMessage(), e);
+            } catch (Throwable t) {
+                // Planlanmış görevin Future'ı hatayı sessizce saklar; en azından loglanmalı.
+                log.error("File watcher reload hatası: {}", t.getMessage(), t);
             }
         }, debounceMs, TimeUnit.MILLISECONDS);
     }
@@ -213,11 +238,36 @@ public class AssetFileWatcher {
     }
 
     /**
-     * Dizin ve tüm alt dizinlerini WatchService'e kaydeder.
-     * {@code auto-generated/} dizinleri ile kökteki {@code staging/} ve {@code history/} kayıt dışı bırakılır.
+     * Asset dizininin tamamını tarar ve henüz izlenmeyen dizinleri (ilk kayıttaki istisnalarla)
+     * kaydeder. Olay kuyruğu taştığında ({@code OVERFLOW}) oluşturma olayı kaybolan dizinler
+     * için kullanılır. Test edilebilirlik için package-private.
+     *
+     * @return yeni kaydedilen dizin sayısı
      */
-    private void registerRecursive(Path root) throws IOException {
+    int registerMissingDirectories() {
+        try {
+            return registerRecursive(Path.of(externalPath));
+        } catch (IOException e) {
+            log.warn("Olay taşması sonrası dizinler izlemeye alınamadı: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /** Dizin izleniyor mu (geçerli bir kaydı var mı). Test edilebilirlik için package-private. */
+    boolean isRegistered(Path dir) {
+        WatchKey key = registeredDirs.get(dir);
+        return key != null && key.isValid();
+    }
+
+    /**
+     * Dizin ve tüm alt dizinlerini WatchService'e kaydeder; geçerli kaydı olan dizinler atlanır.
+     * {@code auto-generated/} dizinleri ile kökteki {@code staging/} ve {@code history/} kayıt dışı bırakılır.
+     *
+     * @return yeni kaydedilen dizin sayısı
+     */
+    private int registerRecursive(Path root) throws IOException {
         Path assetRoot = Path.of(externalPath);
+        int[] added = {0};
         Files.walkFileTree(root, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
@@ -228,12 +278,37 @@ public class AssetFileWatcher {
                     return FileVisitResult.SKIP_SUBTREE;
                 }
 
-                dir.register(watchService,
-                        StandardWatchEventKinds.ENTRY_CREATE,
-                        StandardWatchEventKinds.ENTRY_MODIFY,
-                        StandardWatchEventKinds.ENTRY_DELETE);
+                if (!isRegistered(dir)) {
+                    try {
+                        WatchKey key = dir.register(watchService,
+                                StandardWatchEventKinds.ENTRY_CREATE,
+                                StandardWatchEventKinds.ENTRY_MODIFY,
+                                StandardWatchEventKinds.ENTRY_DELETE);
+                        registeredDirs.put(dir, key);
+                        added[0]++;
+                    } catch (NoSuchFileException e) {
+                        // Tarama sırasında silindi (örn. GİB sync dizini yeniden yazıyor): taramayı durdurma.
+                        log.debug("Dizin kayıttan önce silindi: {}", dir);
+                        return FileVisitResult.SKIP_SUBTREE;
+                    } catch (IOException e) {
+                        if (dir.equals(root)) {
+                            throw e;
+                        }
+                        // Tek bir dizin (örn. izleme sınırı) taramanın geri kalanını engellemesin.
+                        log.warn("Dizin izlemeye alınamadı: {} — {}", dir, e.getMessage());
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException e) {
+                // Tarama sırasında silinen dizin taramayı durdurmamalı.
+                log.debug("Dizin taranamadı: {} — {}", file, e.getMessage());
                 return FileVisitResult.CONTINUE;
             }
         });
+        return added[0];
     }
 }

@@ -7,6 +7,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.lang.reflect.Field;
 import java.nio.file.Files;
@@ -162,6 +164,89 @@ class CustomDocumentTypeRegistryTest {
         assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
         assertThat(result.errors()).singleElement().asString().contains("önceki tanımlar korunuyor");
         assertThat(registry.getAll()).extracting(CustomDocumentType::id).containsExactly("KEPT");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {
+            "document-types: foo",
+            "document-types: { id: X }",
+            "- id: LIST_ROOT",
+            "sadece-metin"
+    })
+    @DisplayName("yapisi_hatali_dosya_onceki_tanimlari_korur")
+    void yapisi_hatali_dosya_onceki_tanimlari_korur(String content) throws Exception {
+        write("""
+                document-types:
+                  - id: KEPT
+                    root-namespace: "urn:example:kept"
+                    root-element: Kept
+                    xsd: custom/kept/Kept.xsd
+                """);
+        registry.reload();
+
+        write(content);
+        ReloadResult result = registry.reload();
+
+        assertThat(result.status()).isEqualTo(ReloadResult.Status.FAILED);
+        assertThat(result.errors()).singleElement().asString()
+                .contains(CustomDocumentTypeRegistry.ASSET_PATH)
+                .contains("önceki tanımlar korunuyor");
+        assertThat(registry.getAll()).extracting(CustomDocumentType::id).containsExactly("KEPT");
+    }
+
+    @Test
+    @DisplayName("bos_dosya_ve_anahtarsiz_esleme_tanimsiz_basarili")
+    void bos_dosya_ve_anahtarsiz_esleme_tanimsiz_basarili() throws Exception {
+        write("""
+                document-types:
+                  - id: DROPPED
+                    root-namespace: "urn:example:dropped"
+                    root-element: Dropped
+                    xsd: custom/dropped/Dropped.xsd
+                """);
+        registry.reload();
+
+        write("");
+        ReloadResult empty = registry.reload();
+        assertThat(empty.status()).isEqualTo(ReloadResult.Status.OK);
+        assertThat(registry.getAll()).isEmpty();
+
+        write("baska-anahtar: 1");
+        ReloadResult noKey = registry.reload();
+        assertThat(noKey.status()).isEqualTo(ReloadResult.Status.OK);
+        assertThat(noKey.loadedCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("yerlesik_tespitin_tanidigi_kok_reddedilir")
+    void yerlesik_tespitin_tanidigi_kok_reddedilir() throws Exception {
+        write("""
+                document-types:
+                  - id: UBL_INVOICE_ROOT
+                    root-namespace: "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+                    root-element: Invoice
+                    xsd: custom/x/X.xsd
+                  - id: EARCHIVE_ANY_ROOT
+                    root-namespace: "http://earsiv.efatura.gov.tr"
+                    root-element: BaskaKok
+                    xsd: custom/y/Y.xsd
+                  - id: UBL_UNKNOWN_ROOT
+                    root-namespace: "urn:oasis:names:specification:ubl:schema:xsd:Order-2"
+                    root-element: Order
+                    xsd: custom/z/Z.xsd
+                """);
+
+        ReloadResult result = registry.reload();
+
+        assertThat(result.status()).isEqualTo(ReloadResult.Status.PARTIAL);
+        assertThat(registry.getAll()).extracting(CustomDocumentType::id)
+                .as("yerleşik tespitin tanımadığı UBL kökü kabul edilir").containsExactly("UBL_UNKNOWN_ROOT");
+        assertThat(String.join("\n", result.errors()))
+                .contains("(UBL_INVOICE_ROOT): {urn:oasis:names:specification:ubl:schema:xsd:Invoice-2}Invoice "
+                        + "kökü yerleşik belge türü tespitiyle işleniyor")
+                .contains("(EARCHIVE_ANY_ROOT): {http://earsiv.efatura.gov.tr}BaskaKok kökü yerleşik belge türü "
+                        + "tespitiyle işleniyor");
+        assertThat(result.errors()).hasSize(2);
     }
 
     @Test

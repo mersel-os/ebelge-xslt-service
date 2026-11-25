@@ -5,11 +5,13 @@ import io.mersel.services.xslt.application.models.PackageSyncResult;
 import io.mersel.services.xslt.infrastructure.config.GibSyncProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.concurrent.Executor;
 
 /**
  * İlk kurulumda GİB paketlerini otomatik indirir.
@@ -33,13 +35,26 @@ public class GibAutoSyncStartupListener {
     private final IGibPackageSyncService syncService;
     private final AssetManager assetManager;
     private final GibSyncProperties syncProperties;
+    /** Arka plan sync'ini başlatan yürütücü; testler eşzamanlı bir yürütücü verebilir. */
+    private final Executor syncStarter;
 
+    @Autowired
     public GibAutoSyncStartupListener(IGibPackageSyncService syncService,
                                        AssetManager assetManager,
                                        GibSyncProperties syncProperties) {
+        this(syncService, assetManager, syncProperties,
+                task -> Thread.ofVirtual().name("gib-auto-sync").start(task));
+    }
+
+    /** Test edilebilirlik için package-private. */
+    GibAutoSyncStartupListener(IGibPackageSyncService syncService,
+                               AssetManager assetManager,
+                               GibSyncProperties syncProperties,
+                               Executor syncStarter) {
         this.syncService = syncService;
         this.assetManager = assetManager;
         this.syncProperties = syncProperties;
+        this.syncStarter = syncStarter;
     }
 
     public boolean isInitialSyncInProgress() {
@@ -63,9 +78,7 @@ public class GibAutoSyncStartupListener {
                 GIB_PACKAGE_ROOT);
         initialSyncInProgress = true;
 
-        Thread.ofVirtual()
-                .name("gib-auto-sync")
-                .start(this::performAutoSync);
+        syncStarter.execute(this::performAutoSync);
     }
 
     private void performAutoSync() {

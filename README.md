@@ -518,7 +518,7 @@ Servisin kullandığı XSD, XSLT ve Schematron dosyaları dışarıdan beslenebi
 | `xslt.assets.external-path` | `XSLT_ASSETS_EXTERNAL_PATH` | (boş) | External asset dizini |
 | `xslt.assets.watch-enabled` | `XSLT_ASSETS_WATCH_ENABLED` | `true` | Dosya değişikliği izleme |
 | `xslt.assets.watch-debounce-ms` | `XSLT_ASSETS_WATCH_DEBOUNCE_MS` | `500` | Debounce süresi (ms) |
-| `xslt.assets.seed-path` | `XSLT_ASSETS_SEED_PATH` | (boş) | Açılışta içeriği asset dizinine kopyalanan (üzerine yazılan) dizin |
+| `xslt.assets.seed-path` | `XSLT_ASSETS_SEED_PATH` | (boş) | Açılışta içeriği asset dizinine kopyalanan (üzerine yazılan) dizin; seed'deki dosyalara admin API/UI ile yapılan düzenlemeler sonraki açılışta geri alınır |
 
 ### Override Edilebilir Dosya Yapısı
 
@@ -567,6 +567,8 @@ document-types:
 
 - Kök elementi yerleşik kurallarla tanınmayan belge, namespace + yerel adı bir tanımla eşleşirse
   o tanımla doğrulanır; yerleşik türler her zaman önceliklidir. Eşleşme yoksa yanıt yine `400`'dür.
+  Kökü yerleşik tespitin zaten tanıdığı tanımlar (ör. UBL-TR namespace'inde `Invoice`, ya da
+  `http://earsiv.efatura.gov.tr` namespace'indeki herhangi bir kök) hiç uygulanmayacağı için reddedilir.
 - Yanıtta `detectedDocumentType` tanımın `id` değeridir. Aynı değer profillerdeki `scope` ve
   `xsd-overrides` anahtarlarında kullanılabilir. Yönetim arayüzünün profil düzenleyicisi yüklü
   türleri `GET /v1/admin/custom-document-types` ile alır; bastırma kuralı **Kapsam** listesinde
@@ -576,7 +578,10 @@ document-types:
   ortak XSD'lerini getiren setler GİB'in ortak XSD'leriyle karışmaz.
 - `schematron` verilmezse Schematron adımı atlanır ve `validSchematron=true` döner.
 - Tanımlar ve XSD'ler hot-reload ile yüklenir. Hatalı tanımlar reload sonucunda
-  (`Custom Document Types` bileşeni) raporlanır ve atlanır; dosya okunamazsa önceki tanımlar korunur.
+  (`Custom Document Types` bileşeni) raporlanır ve atlanır. Dosya okunamazsa ya da yapısı hatalıysa
+  (kök eşleme değil, `document-types` liste değil) reload `FAILED` döner ve önceki tanımlar korunur.
+  Yeni eklenen ya da XSD yolu değişen bir tanım, XSD reload'u tamamlanmadan gelen ilk istekte
+  derlenir; doğrulama hiçbir zaman eski şemayla yapılmaz.
 
 **Çalışan örnek:** `custom-assets.example/` içinde `SAMPLE_VOUCHER` tanımı, ortak tiplerini göreli
 yolla import eden küçük bir XSD seti (`custom/sample/`) ve uydurma verili bir örnek belge bulunur.
@@ -600,6 +605,10 @@ Bu dosyalar asset dizinine şu yollarla gelebilir:
 | Sonradan | `POST /v1/admin/assets/reload` | İzleyici kapalıysa veya dosyalar başka yoldan güncellendiyse |
 | Sonradan | `PUT /v1/admin/default-xslt/{transformType}` | Yalnız varsayılan XSLT şablonları için |
 
+Seed ile gelen dosyalar seed kaynağında değiştirilmelidir. Bu dosyalara (ör. `validation-profiles.yml`
+ya da bir varsayılan şablon) admin API veya yönetim arayüzüyle yapılan düzenlemeler kaydedilir ama
+sonraki açılışta seed'deki sürümle değiştirilir; servis bunu değişen her dosya için bir uyarı loguyla bildirir.
+
 GİB otomatik ilk sync'i yalnızca GİB paketlerinin yazıldığı `validator/` dizini boşken çalışır; açılışta
 konan özel dosyalar ilk sync'i engellemez. Özel XSD'leri `validator/` altına koymayın: hem ilk sync
 kararını etkiler hem de ilgili paketin sync'i o dizini silip yeniden yazar.
@@ -609,7 +618,8 @@ Bazı paketler `default_transformers/` altına sabit adla şablon yazar (`eDoviz
 dosyalar zaten varsa (kendi koyduğunuz ya da seed ile gelen) üzerine yazmaz; elle tetiklenen sync
 (`POST /v1/admin/packages/sync`) GİB'in kopyasını yazar. Ağ erişimi olmayan ve `validator/` dizini boş
 kurulumlarda (örn. yalnız dönüşüm için kullanılanlar) her açılıştaki sync denemesini kapatmak için
-`VALIDATION_ASSETS_GIB_AUTO_SYNC=false` verin.
+`VALIDATION_ASSETS_GIB_AUTO_SYNC=false` verin. `validator/` dizini boş, asset dizini salt-okunur ve ağ
+erişimi olan kurulumlarda ise paketler her açılışta indirilir, yazma başarısız olur; çözüm aynıdır.
 
 ## Filigran
 

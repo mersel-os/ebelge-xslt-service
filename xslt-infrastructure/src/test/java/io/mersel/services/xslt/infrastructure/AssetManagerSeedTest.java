@@ -1,8 +1,13 @@
 package io.mersel.services.xslt.infrastructure;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.nio.file.Files;
@@ -140,6 +145,35 @@ class AssetManagerSeedTest {
 
         assertThat(manager.seedFrom(assetDir)).isZero();
         assertThat(assetDir.resolve("validation-profiles.yml")).hasContent("profiles: {}");
+    }
+
+    @Test
+    @DisplayName("farkli_yerel_dosya_seed_ile_degisirken_uyari_loglanir")
+    void farkli_yerel_dosya_seed_ile_degisirken_uyari_loglanir() throws Exception {
+        // Admin API ile düzenlenen seed dosyası her açılışta geri alınır; bu sessiz olmamalı.
+        write(seedDir, "validation-profiles.yml", "profiles: {}");
+        write(seedDir, "default_transformers/eInvoice_Base.xslt", "<ayni/>");
+        write(assetDir, "validation-profiles.yml", "profiles: { duzenlendi: {} }");
+        write(assetDir, "default_transformers/eInvoice_Base.xslt", "<ayni/>");
+
+        Logger logger = (Logger) LoggerFactory.getLogger(AssetManager.class);
+        var appender = new ListAppender<ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            start(assetDir, seedDir);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(assetDir.resolve("validation-profiles.yml")).hasContent("profiles: {}");
+        var warnings = appender.list.stream()
+                .filter(e -> e.getLevel() == Level.WARN)
+                .map(ILoggingEvent::getFormattedMessage)
+                .filter(m -> m.contains("seed ile değiştirildi"))
+                .toList();
+        assertThat(warnings).as("yalnız içeriği farklı olan dosya için uyarı")
+                .singleElement().asString().contains("validation-profiles.yml");
     }
 
     private static AssetManager start(Path assetDir, Path seedDir) throws Exception {
