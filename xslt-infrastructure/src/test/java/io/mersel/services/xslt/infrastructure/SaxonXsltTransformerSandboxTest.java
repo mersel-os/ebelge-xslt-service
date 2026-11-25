@@ -449,6 +449,71 @@ class SaxonXsltTransformerSandboxTest {
                 "CATCH=[H1 ornek aciklama]");
     }
 
+    // ── Java sınıfı yükleme ────────────────────────────────────────
+
+    private static final String PROBE_CLASS = SandboxInstantiationProbe.class.getName();
+    private static final String PROBE_COLLATION = "http://saxon.sf.net/collation?class=" + PROBE_CLASS;
+
+    /**
+     * Saxon'a sınıf adı veren ifadeler; her biri sandbox'sız Saxon'da {@link SandboxInstantiationProbe}'u
+     * örnekler (bkz. {@link WithoutSandbox#classIsInstantiated}).
+     */
+    static Stream<Arguments> classLoadingCalls() {
+        return Stream.of(
+                Arguments.of("compare() collation", stylesheet(
+                        "<p>OUT=[<xsl:value-of select=\"compare('a', 'b', '" + PROBE_COLLATION + "')\"/>]</p>")),
+                Arguments.of("xsl:sort collation", stylesheet(
+                        "<p>OUT=[<xsl:for-each select=\"('b', 'a')\"><xsl:sort select=\".\" collation=\""
+                                + PROBE_COLLATION + "\"/><xsl:value-of select=\".\"/></xsl:for-each>]</p>")),
+                Arguments.of("default-collation", stylesheet(
+                        "<p xsl:default-collation=\"" + PROBE_COLLATION + "\">OUT=[<xsl:value-of select=\"compare('a', 'b')\"/>]</p>")),
+                Arguments.of("serialize() çıktı yöntemi", stylesheet(
+                        "<p>OUT=[<xsl:value-of select=\"serialize(parse-xml('&lt;x/&gt;'), parse-xml('"
+                                + "&lt;output:serialization-parameters xmlns:output=&quot;http://www.w3.org/2010/xslt-xquery-serialization&quot;&gt;"
+                                + "&lt;output:method xmlns:j=&quot;urn:example:sandbox&quot; value=&quot;j:" + PROBE_CLASS + "&quot;/&gt;"
+                                + "&lt;/output:serialization-parameters&gt;')/*)\"/>]</p>")));
+    }
+
+    static Stream<Arguments> classLoadingCallsOnAllPaths() {
+        return classLoadingCalls().flatMap(args -> Stream.of(TemplatePath.values())
+                .map(path -> Arguments.of(path, args.get()[0], args.get()[1])));
+    }
+
+    @ParameterizedTest(name = "{0} / {1}")
+    @MethodSource("classLoadingCallsOnAllPaths")
+    @DisplayName("Saxon adıyla verilen Java sınıfını örneklemez")
+    void classIsNotInstantiated(TemplatePath path, String name, String xslt) {
+        int before = SandboxInstantiationProbe.CREATED.get();
+
+        assertBlocked(path, xslt, "OUT=[", null);
+
+        assertThat(SandboxInstantiationProbe.CREATED.get()).as("sınıf örneklenmemeli").isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("Sınıf yükleme engeli X-Xslt-Custom-Error'a yazılır")
+    void classLoadingReasonIsReported() throws Exception {
+        var result = transform(TemplatePath.CUSTOM, classLoadingCalls().findFirst().orElseThrow().get()[1].toString());
+
+        assertThat(result.isDefaultXslUsed()).isTrue();
+        assertThat(result.getCustomXsltError()).contains("Java class yükleme engellendi");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(TemplatePath.class)
+    @DisplayName("Standart collation'lar, dile göre sıralama ve serialize() çalışır")
+    void standardCollationsStillWork(TemplatePath path) throws Exception {
+        var result = transform(path, stylesheet("""
+                <p>HTML=[<xsl:value-of select="compare('a', 'A', 'http://www.w3.org/2005/xpath-functions/collation/html-ascii-case-insensitive')"/>]</p>
+                <p>UCA=[<xsl:value-of select="compare('a', 'b', 'http://www.w3.org/2013/collation/UCA?lang=tr')"/>]</p>
+                <p>SAXON=[<xsl:value-of select="compare('a', 'A', 'http://saxon.sf.net/collation?ignore-case=yes')"/>]</p>
+                <p>SORT=[<xsl:for-each select="('d', 'c', 'b')"><xsl:sort select="." lang="tr"/><xsl:value-of select="."/></xsl:for-each>]</p>
+                <p>SER=[<xsl:value-of select="serialize(parse-xml('&lt;x&gt;metin&lt;/x&gt;'), map{'method': 'text'})"/>]</p>"""));
+
+        assertOwnTemplateUsed(path, result);
+        assertThat(html(result)).contains("HTML=[0]", "UCA=[-1]", "SAXON=[0]", "SORT=[bcd]", "SER=[metin]");
+    }
+
     // ── Kontrol: sandbox olmadan aynı girdiler gerçekten sızdırıyor ─────
 
     /**
@@ -536,6 +601,18 @@ class SaxonXsltTransformerSandboxTest {
 
                 assertThat(listener.awaitConnection()).isTrue();
             }
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("io.mersel.services.xslt.infrastructure.SaxonXsltTransformerSandboxTest#classLoadingCalls")
+        @DisplayName("Saxon adıyla verilen Java sınıfını örnekler")
+        void classIsInstantiated(String name, String xslt) {
+            int before = SandboxInstantiationProbe.CREATED.get();
+
+            // Sınıf collation ya da çıktı yöntemi olmadığı için dönüşüm hatayla biter; önemli olan örneklenmesi.
+            catchThrowable(() -> transformWithoutSandbox(xslt, invoice("")));
+
+            assertThat(SandboxInstantiationProbe.CREATED.get()).isGreaterThan(before);
         }
 
         private String transformWithoutSandbox(String xslt, String xml) throws Exception {
