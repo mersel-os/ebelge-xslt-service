@@ -238,11 +238,11 @@ public class AssetFileWatcher {
     }
 
     /**
-     * Asset dizininin tamamını tarar ve henüz izlenmeyen dizinleri (ilk kayıttaki istisnalarla)
-     * kaydeder. Olay kuyruğu taştığında ({@code OVERFLOW}) oluşturma olayı kaybolan dizinler
-     * için kullanılır. Test edilebilirlik için package-private.
+     * Asset dizininin tamamını tarar ve dizinleri (ilk kayıttaki istisnalarla) yeniden kaydeder;
+     * zaten izlenen dizinler aynı anahtarla kalır. Olay kuyruğu taştığında ({@code OVERFLOW})
+     * oluşturma olayı kaybolan dizinler için kullanılır. Test edilebilirlik için package-private.
      *
-     * @return yeni kaydedilen dizin sayısı
+     * @return kaydı yeni ya da değişen dizin sayısı (bkz. {@link #registerRecursive})
      */
     int registerMissingDirectories() {
         try {
@@ -260,10 +260,13 @@ public class AssetFileWatcher {
     }
 
     /**
-     * Dizin ve tüm alt dizinlerini WatchService'e kaydeder; geçerli kaydı olan dizinler atlanır.
+     * Dizin ve tüm alt dizinlerini WatchService'e kaydeder.
      * {@code auto-generated/} dizinleri ile kökteki {@code staging/} ve {@code history/} kayıt dışı bırakılır.
      *
-     * @return yeni kaydedilen dizin sayısı
+     * @return kaydı yeni ya da değişen dizin sayısı: yolu ilk kez kaydedilen ya da kayıtlı anahtarından
+     *         farklı bir anahtar alan dizinler (zaten izlenen dizin yeniden kaydedilince aynı anahtar döner,
+     *         sayılmaz; yerinde yeniden oluşturulan dizin yeni anahtar alır, sayılır; başka ada taşınan dizin
+     *         eski anahtarıyla yeni yolunda ilk kez kaydedildiği için o da sayılır)
      */
     private int registerRecursive(Path root) throws IOException {
         Path assetRoot = Path.of(externalPath);
@@ -278,26 +281,28 @@ public class AssetFileWatcher {
                     return FileVisitResult.SKIP_SUBTREE;
                 }
 
-                if (!isRegistered(dir)) {
-                    try {
-                        WatchKey key = dir.register(watchService,
-                                StandardWatchEventKinds.ENTRY_CREATE,
-                                StandardWatchEventKinds.ENTRY_MODIFY,
-                                StandardWatchEventKinds.ENTRY_DELETE);
-                        registeredDirs.put(dir, key);
+                try {
+                    // Kayıt her zaman yapılır: aynı dizin için WatchService aynı anahtarı döner. Yolun
+                    // kayıtlı anahtarına bakıp atlamak yetmez; dizin başka ada taşınınca anahtarı geçerli
+                    // kalır ve aynı yolda yeniden oluşturulan dizin hiç izlenmez.
+                    WatchKey key = dir.register(watchService,
+                            StandardWatchEventKinds.ENTRY_CREATE,
+                            StandardWatchEventKinds.ENTRY_MODIFY,
+                            StandardWatchEventKinds.ENTRY_DELETE);
+                    if (registeredDirs.put(dir, key) != key) {
                         added[0]++;
-                    } catch (NoSuchFileException e) {
-                        // Tarama sırasında silindi (örn. GİB sync dizini yeniden yazıyor): taramayı durdurma.
-                        log.debug("Dizin kayıttan önce silindi: {}", dir);
-                        return FileVisitResult.SKIP_SUBTREE;
-                    } catch (IOException e) {
-                        if (dir.equals(root)) {
-                            throw e;
-                        }
-                        // Tek bir dizin (örn. izleme sınırı) taramanın geri kalanını engellemesin.
-                        log.warn("Dizin izlemeye alınamadı: {} — {}", dir, e.getMessage());
-                        return FileVisitResult.SKIP_SUBTREE;
                     }
+                } catch (NoSuchFileException e) {
+                    // Tarama sırasında silindi (örn. GİB sync dizini yeniden yazıyor): taramayı durdurma.
+                    log.debug("Dizin kayıttan önce silindi: {}", dir);
+                    return FileVisitResult.SKIP_SUBTREE;
+                } catch (IOException e) {
+                    if (dir.equals(root)) {
+                        throw e;
+                    }
+                    // Tek bir dizin (örn. izleme sınırı) taramanın geri kalanını engellemesin.
+                    log.warn("Dizin izlemeye alınamadı: {} — {}", dir, e.getMessage());
+                    return FileVisitResult.SKIP_SUBTREE;
                 }
                 return FileVisitResult.CONTINUE;
             }
