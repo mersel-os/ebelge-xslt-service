@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Uydurma verili örnek belge; gerçek bir kişi ya da kurumla ilgisi yoktur. -->
+<v:Voucher xmlns:v="urn:example:sample:voucher-1" xmlns:cmn="urn:example:sample:common-1">
+    <v:ID>SMP-0001</v:ID>
+    <v:IssueDate>2026-01-15</v:IssueDate>
+    <cmn:Party>
+        <cmn:Name>Example Party</cmn:Name>
+    </cmn:Party>
+    <v:Line>
+        <cmn:Amount currencyID="TRY">100.00</cmn:Amount>
+    </v:Line>
+</v:Voucher>

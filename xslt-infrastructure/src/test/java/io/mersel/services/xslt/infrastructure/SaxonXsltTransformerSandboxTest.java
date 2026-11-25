@@ -22,14 +22,19 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -354,6 +359,96 @@ class SaxonXsltTransformerSandboxTest {
         assertBlocked(path, xslt, SECRET, null);
     }
 
+    // ── saxon:doc() ────────────────────────────────────────────────
+
+    /**
+     * {@code saxon:doc()} çağrısının farklı yolları; her biri sandbox'sız Saxon'da gizli dosyayı okur
+     * (bkz. {@link WithoutSandbox#saxonDocLeaks}). {@code {URI}} hedefle değiştirilir.
+     */
+    static Stream<Arguments> saxonDocCalls() {
+        return Stream.of(
+                Arguments.of("doğrudan çağrı", stylesheet(
+                        "<p xmlns:saxon=\"http://saxon.sf.net/\">OUT=[<xsl:value-of select=\"saxon:doc('{URI}', map{})\"/>]</p>")),
+                Arguments.of("EQName", stylesheet(
+                        "<p>OUT=[<xsl:value-of select=\"Q{http://saxon.sf.net/}doc('{URI}', map{})\"/>]</p>")),
+                Arguments.of("function-lookup", stylesheet(
+                        "<p>OUT=[<xsl:value-of select=\"function-lookup(QName('http://saxon.sf.net/', 'doc'), 2)('{URI}', map{})\"/>]</p>")),
+                Arguments.of("xsl:evaluate", stylesheet(
+                        "<p>OUT=[<xsl:evaluate xpath=\"'string(Q{http://saxon.sf.net/}doc(&quot;{URI}&quot;, map{}))'\"/>]</p>")),
+                Arguments.of("static xsl:param", """
+                        <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                            <xsl:param name="leak" static="yes" select="string(Q{http://saxon.sf.net/}doc('{URI}', map{}))"/>
+                            <xsl:template match="/"><html><head></head><body><p>OUT=[<xsl:value-of select="$leak"/>]</p></body></html></xsl:template>
+                        </xsl:stylesheet>"""),
+                Arguments.of("use-when", stylesheet(
+                        "<p>OUT=[<xsl:value-of use-when=\"exists(Q{http://saxon.sf.net/}doc('{URI}', map{}))\" "
+                                + "select=\"'" + USE_WHEN_MARKER + "'\"/>]</p>")));
+    }
+
+    static Stream<Arguments> saxonDocCallsOnAllPaths() {
+        return saxonDocCalls().flatMap(args -> Stream.of(TemplatePath.values())
+                .map(path -> Arguments.of(path, args.get()[0], args.get()[1])));
+    }
+
+    @ParameterizedTest(name = "{0} / {1}")
+    @MethodSource("saxonDocCallsOnAllPaths")
+    @DisplayName("saxon:doc() dosya okuyamaz")
+    void saxonDocCannotReadFiles(TemplatePath path, String name, String xslt) {
+        assertBlocked(path, xslt.replace("{URI}", secretXmlUri), forbiddenFor(name), null);
+    }
+
+    @ParameterizedTest(name = "{0} / {1}")
+    @MethodSource("saxonDocCallsOnAllPaths")
+    @DisplayName("saxon:doc() ağa istek göndermez")
+    void saxonDocSendsNoRequest(TemplatePath path, String name, String xslt) throws Exception {
+        try (var listener = new ConnectionCounter()) {
+            assertBlocked(path, xslt.replace("{URI}", listener.uri()), USE_WHEN_MARKER, null);
+
+            listener.assertNoConnection();
+        }
+    }
+
+    @Test
+    @DisplayName("saxon:doc() çağıran XSLT derlenmez, neden X-Xslt-Custom-Error'a yazılır")
+    void saxonDocReasonIsReported() throws Exception {
+        var result = transform(TemplatePath.CUSTOM, saxonDocCalls().findFirst().orElseThrow().get()[1]
+                .toString().replace("{URI}", secretXmlUri));
+
+        assertThat(result.isDefaultXslUsed()).isTrue();
+        // Fonksiyon yok: XSLT derleme hatasıyla reddedilir (çalışma zamanında sandbox engeli değil).
+        assertThat(result.getCustomXsltError()).contains("stylesheet compilation").doesNotContain(SECRET);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(TemplatePath.class)
+    @DisplayName("saxon:doc() adla bulunamaz, diğer Saxon fonksiyonları bulunur")
+    void saxonDocIsNotFoundByName(TemplatePath path) throws Exception {
+        var result = transform(path, stylesheet("""
+                <p xmlns:saxon="http://saxon.sf.net/">FA=[<xsl:value-of select="function-available('saxon:doc', 2)"/>]</p>
+                <p>LOOKUP=[<xsl:value-of select="exists(function-lookup(QName('http://saxon.sf.net/', 'doc'), 2))"/>]</p>
+                <p>USE-WHEN=[<xsl:value-of use-when="function-available('Q{http://saxon.sf.net/}doc', 2)" select="'VAR'"/>]</p>
+                <p xmlns:saxon="http://saxon.sf.net/">CONTROL=[<xsl:value-of select="function-available('saxon:is-whole-number', 1), exists(function-lookup(QName('http://saxon.sf.net/', 'is-whole-number'), 1))"/>]</p>"""));
+
+        assertOwnTemplateUsed(path, result);
+        assertThat(html(result)).contains("FA=[false]", "LOOKUP=[false]", "USE-WHEN=[]", "CONTROL=[true true]");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(TemplatePath.class)
+    @DisplayName("Diğer Saxon, map, array ve math fonksiyonları ile xsl:try/xsl:catch çalışır")
+    void otherExtensionFunctionsStillWork(TemplatePath path) throws Exception {
+        var result = transform(path, stylesheet("""
+                <p xmlns:saxon="http://saxon.sf.net/">WHOLE=[<xsl:value-of select="saxon:is-whole-number(4), saxon:is-whole-number(4.5)"/>]</p>
+                <p xmlns:map="http://www.w3.org/2005/xpath-functions/map">MAP=[<xsl:value-of select="map:size(map{'a': 1, 'b': 2})"/>]</p>
+                <p xmlns:array="http://www.w3.org/2005/xpath-functions/array">ARRAY=[<xsl:value-of select="array:size([1, 2, 3])"/>]</p>
+                <p xmlns:math="http://www.w3.org/2005/xpath-functions/math">MATH=[<xsl:value-of select="math:sqrt(16)"/>]</p>
+                <p xmlns:err="http://www.w3.org/2005/xqt-errors">CATCH=[<xsl:try><xsl:sequence select="error(QName('urn:example:hata', 'H1'), 'ornek aciklama')"/><xsl:catch><xsl:value-of select="local-name-from-QName($err:code), $err:description"/></xsl:catch></xsl:try>]</p>"""));
+
+        assertOwnTemplateUsed(path, result);
+        assertThat(html(result)).contains("WHOLE=[true false]", "MAP=[2]", "ARRAY=[3]", "MATH=[4]",
+                "CATCH=[H1 ornek aciklama]");
+    }
+
     // ── Kontrol: sandbox olmadan aynı girdiler gerçekten sızdırıyor ─────
 
     /**
@@ -422,6 +517,27 @@ class SaxonXsltTransformerSandboxTest {
             assertThat(transformWithoutSandbox(xslt, invoice(""))).contains(SECRET);
         }
 
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("io.mersel.services.xslt.infrastructure.SaxonXsltTransformerSandboxTest#saxonDocCalls")
+        @DisplayName("saxon:doc() dosya okur")
+        void saxonDocLeaks(String name, String xslt) throws Exception {
+            String output = transformWithoutSandbox(xslt.replace("{URI}", secretXmlUri), invoice(""));
+
+            assertThat(output).contains(forbiddenFor(name));
+        }
+
+        @Test
+        @DisplayName("saxon:doc() ağa istek gönderir")
+        void saxonDocSendsRequest() throws Exception {
+            String xslt = saxonDocCalls().findFirst().orElseThrow().get()[1].toString();
+            try (var listener = new ConnectionCounter()) {
+                // Dinleyici yanıt vermeden kapattığı için dönüşüm hatayla biter; önemli olan isteğin gitmesi.
+                catchThrowable(() -> transformWithoutSandbox(xslt.replace("{URI}", listener.uri()), invoice("")));
+
+                assertThat(listener.awaitConnection()).isTrue();
+            }
+        }
+
         private String transformWithoutSandbox(String xslt, String xml) throws Exception {
             var processor = new Processor(false);
             var executable = processor.newXsltCompiler().compile(new StreamSource(new StringReader(xslt)));
@@ -432,6 +548,59 @@ class SaxonXsltTransformerSandboxTest {
     }
 
     // ── Yardımcılar ────────────────────────────────────────────────
+
+    /** {@code use-when} ifadesi dosyayı okuyabildiğinde çıktıya yazılan değer. */
+    private static final String USE_WHEN_MARKER = "USE-WHEN-OKUDU";
+
+    /** {@link #saxonDocCalls()} içindeki çağrı okumayı başarırsa çıktıda görünecek değer. */
+    private static String forbiddenFor(String saxonDocCall) {
+        return saxonDocCall.equals("use-when") ? USE_WHEN_MARKER : SECRET;
+    }
+
+    /**
+     * Yerel döngüde gelen bağlantıları sayıp yanıt vermeden kapatan dinleyici. Hedef yalnızca
+     * {@code 127.0.0.1} üzerinde bu testin açtığı porttur.
+     */
+    static final class ConnectionCounter implements AutoCloseable {
+        private final ServerSocket server;
+        private final AtomicInteger connections = new AtomicInteger();
+
+        ConnectionCounter() throws IOException {
+            server = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
+            var thread = new Thread(() -> {
+                while (!server.isClosed()) {
+                    try (Socket ignored = server.accept()) {
+                        connections.incrementAndGet();
+                    } catch (IOException e) {
+                        return;
+                    }
+                }
+            }, "sandbox-connection-counter");
+            thread.setDaemon(true);
+            thread.start();
+        }
+
+        String uri() {
+            return "http://127.0.0.1:" + server.getLocalPort() + "/sandbox.xml";
+        }
+
+        /** Bağlantı kuyruğunda bekleyen olabileceği için kısa bir süre daha bakar. */
+        boolean awaitConnection() throws InterruptedException {
+            for (int i = 0; i < 20 && connections.get() == 0; i++) {
+                Thread.sleep(25);
+            }
+            return connections.get() > 0;
+        }
+
+        void assertNoConnection() throws InterruptedException {
+            assertThat(awaitConnection()).as("sandbox ağa bağlanmamalı").isFalse();
+        }
+
+        @Override
+        public void close() throws IOException {
+            server.close();
+        }
+    }
 
     private static final String ECHO_DOCUMENT = """
             <xsl:stylesheet version="3.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"

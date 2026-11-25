@@ -285,6 +285,57 @@ class SaxonSchematronValidatorTest {
         }
     }
 
+    // ── Düz metin üreten ön-derlenmiş XSL'ler (GİB e-Arşiv / e-Döviz) ────
+
+    @Test
+    @DisplayName("extractSchematronErrors_yalniz_xml_bildirimi_hata_degildir — hiç kural tetiklenmedi")
+    void extractSchematronErrors_yalniz_xml_bildirimi_hata_degildir() throws Exception {
+        assertThat(extract("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")).isEmpty();
+        assertThat(extract("﻿<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\t\t\n")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("extractSchematronErrors_duz_metin_her_mesaj_ayri_hata — GİB earsiv_schematron.xsl çıktısı")
+    void extractSchematronErrors_duz_metin_her_mesaj_ayri_hata() throws Exception {
+        // earsiv_schematron.xsl her assert mesajını girintili bir metin düğümü ve string('&#xA;') ile yazar.
+        String output = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                + "            Dokümanda fatura , faturaIptal ya da mRapor bulunmalıdır.\n\t\t\t\n"
+                + "\n            Geçersiz   para birimi.\n\t\t\t\n";
+
+        List<SchematronError> errors = extract(output);
+
+        assertThat(errors).extracting(SchematronError::message).containsExactly(
+                "Dokümanda fatura , faturaIptal ya da mRapor bulunmalıdır.",
+                "Geçersiz para birimi.");
+        assertThat(errors).allSatisfy(e -> {
+            assertThat(e.ruleId()).isNull();
+            assertThat(e.test()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("extractSchematronErrors_error_elemanlari_okunmaya_devam_eder — runtime derlenen Schematron")
+    void extractSchematronErrors_error_elemanlari_okunmaya_devam_eder() throws Exception {
+        String output = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Errors>
+                    <Error ruleId="InvoiceIDCheck" test="matches(cbc:ID, '...')">Geçersiz cbc:ID</Error>
+                    <Error>  </Error>
+                </Errors>
+                """;
+
+        assertThat(extract(output)).containsExactly(
+                new SchematronError("InvoiceIDCheck", "matches(cbc:ID, '...')", "Geçersiz cbc:ID"));
+        assertThat(extract("<?xml version=\"1.0\"?><Errors/>")).isEmpty();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<SchematronError> extract(String output) throws Exception {
+        Method method = SaxonSchematronValidator.class.getDeclaredMethod("extractSchematronErrors", String.class);
+        method.setAccessible(true);
+        return (List<SchematronError>) method.invoke(validator, output);
+    }
+
     // ── Test 8 ──────────────────────────────────────────────────────────
 
     @Test

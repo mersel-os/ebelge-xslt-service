@@ -63,4 +63,14 @@ class DocumentTypeMappingTest {
                 .containsEntry(DocumentType.EARCHIVE_REPORT_EDOVIZ,
                         SchematronValidationType.EARCHIVE_REPORT_EDOVIZ);
     }
+
+    @Test
+    @DisplayName("eArsivVeri genel paketteki kendi şemasıyla, Schematron'suz doğrulanmalı")
+    void earchiveDataShouldUseItsOwnSchemaWithoutSchematron() {
+        assertThat(DocumentTypeMapping.SCHEMA_MAP)
+                .containsEntry(DocumentType.EARCHIVE_DATA, SchemaValidationType.EARCHIVE_DATA);
+        assertThat(DocumentTypeMapping.XSD_PATH_MAP)
+                .containsEntry(DocumentType.EARCHIVE_DATA, "validator/earchive/schema/eArsivVeri.xsd");
+        assertThat(DocumentTypeMapping.SCHEMATRON_MAP).doesNotContainKey(DocumentType.EARCHIVE_DATA);
+    }
 }

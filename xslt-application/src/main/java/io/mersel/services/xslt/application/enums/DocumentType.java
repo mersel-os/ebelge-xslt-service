@@ -24,6 +24,9 @@ public enum DocumentType {
     EARCHIVE_REPORT_EDOVIZ,
     EARCHIVE_REPORT_EDEKONT,
     EARCHIVE_REPORT_EGIDER_PUSULASI,
+    // Genel e-Arşiv paketindeki eArsivVeri.xsd: aynı namespace'te ayrı bir kök (eArsivVeri),
+    // serbest meslek makbuzu verisini taşır. EArsiv.xsd ile birleştirilemez (aynı tip adları).
+    EARCHIVE_DATA,
 
     // ── e-Defter ──
     EDEFTER_YEVMIYE,

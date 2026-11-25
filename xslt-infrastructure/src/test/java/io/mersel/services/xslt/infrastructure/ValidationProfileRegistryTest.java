@@ -1,5 +1,6 @@
 package io.mersel.services.xslt.infrastructure;
 
+import io.mersel.services.xslt.application.enums.SchemaValidationType;
 import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
 import io.mersel.services.xslt.application.interfaces.ISchematronValidator;
 import io.mersel.services.xslt.application.interfaces.ReloadResult;
@@ -25,8 +26,10 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -1007,6 +1010,22 @@ class ValidationProfileRegistryTest {
 
         assertThat(result.suppressedErrors()).hasSize(1);
         assertThat(result.activeErrors()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("profil kaydedilince ozel turun xsd override'i da on derlenir")
+    void kayitta_ozel_tur_override_on_derlenir() throws IOException {
+        writeProfiles("profiles: {}\n");
+        ValidationProfileRegistry registry = createAndReload();
+        var invoiceOverrides = List.of(new XsdOverride("cac:Signature", "0", null));
+        var customOverrides = List.of(new XsdOverride("cmn:Party", "0", null));
+
+        registry.saveProfile(new ValidationProfile("ozel", null, null, List.of(),
+                Map.of("INVOICE", invoiceOverrides, "SAMPLE_VOUCHER", customOverrides), Map.of()));
+
+        verify(schemaValidator).precompileOverrides(SchemaValidationType.INVOICE, invoiceOverrides, "ozel");
+        verify(schemaValidator).precompileCustomOverrides("SAMPLE_VOUCHER", customOverrides, "ozel");
+        verify(schemaValidator, never()).precompileCustomOverrides(eq("INVOICE"), anyList(), eq("ozel"));
     }
 
     // ── Bozuk ya da eksik dosya ────────────────────────────────────────

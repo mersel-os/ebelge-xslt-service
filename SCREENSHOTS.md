@@ -1,5 +1,46 @@
 # Ekran Görüntüleri
 
+## Yayınlanmamış
+
+### Özel Belge Türü — Geçerli Belge
+
+`custom-document-types.yml` ile tanımlanan `SAMPLE_VOUCHER` türü (`urn:example:sample:voucher-1` namespace'li `Voucher` kökü). Servisin yerleşik olarak tanımadığı kök, tanımla eşleşti; tanımdaki XSD (`Sample-Voucher-1.0.xsd`, ortak şemayı göreceli yolla içe aktarır) ve Schematron (`UBLTR_MAIN`) uygulandı.
+
+![Özel Belge Türü — Geçerli](docs/screenshots/ozel-belge-turu-gecerli.png)
+
+### Özel Belge Türü — XSD Hatası
+
+Zorunlu `cmn:Party` elementi çıkarılmış belge. Hata, tanımdaki XSD'den satır ve sütun bilgisiyle döner.
+
+![Özel Belge Türü — XSD Hatası](docs/screenshots/ozel-belge-turu-xsd-hatasi.png)
+
+### Özel Belge Türü — Schematron Hatası
+
+`currencyID="XYZ"` içeren belge. XSD geçerli; tanımdaki `UBLTR_MAIN` Schematron'unun genel `//@currencyID` kuralı özel türde de çalışır.
+
+![Özel Belge Türü — Schematron Hatası](docs/screenshots/ozel-belge-turu-schematron-hatasi.png)
+
+### Özel Belge Türü — Profil Bastırma Kapsamı
+
+Profil düzenleyicide bastırma kuralının **Kapsam** listesi. Asset dizininde tanımlı özel türler
+`GET /v1/admin/custom-document-types` ile alınır ve "Özel belge türleri" grubunda listelenir.
+Görüntüdeki `ornek-ozel-tur` profili `GeneralCurrencyIDCheck` kuralını yalnız `SAMPLE_VOUCHER`
+belgelerinde bastırıyor: `currencyID="XYZ"` içeren örnek bu profille `validSchematron=true` döner,
+bastırılan hata `suppressionInfo` içinde görünür. Uzun tip adları alt çizgilerden kırılır.
+
+![Özel Belge Türü — Kapsam](docs/screenshots/ozel-belge-turu-kapsam.png)
+
+### Özel Belge Türü — XSD Override Tipi
+
+XSD override **Schema Tipi** seçicisinde aynı türler. Aynı profilde `SAMPLE_VOUCHER` için
+`cmn:Party` `minOccurs=0` yapıldı; profil kaydedilince override şeması hemen derlenir
+(`auto-generated/schema-overrides/SAMPLE_VOUCHER_ornek-ozel-tur_override.xsd`) ve `Party`'si
+olmayan örnek bu profille XSD'den geçer.
+
+![Özel Belge Türü — XSD Override Tipi](docs/screenshots/ozel-belge-turu-xsd-override-tipi.png)
+
+---
+
 ## v1.1.0
 
 ### Özel Schematron Kuralları

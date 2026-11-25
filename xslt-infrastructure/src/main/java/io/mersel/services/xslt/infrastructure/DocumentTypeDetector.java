@@ -25,8 +25,9 @@ import java.util.Map;
  * Tespit kuralları:
  * <ul>
  *   <li>UBL-TR namespace ({@code urn:oasis:...:*-2}) → root element adına göre belge türü</li>
- *   <li>e-Arşiv namespace ({@code http://earsiv.efatura.gov.tr}) → {@code baslik}'tan sonraki
- *       içerik elementine göre rapor ailesi; tanınmayan içerikte EARCHIVE_REPORT</li>
+ *   <li>e-Arşiv namespace ({@code http://earsiv.efatura.gov.tr}) → {@code eArsivVeri} kökü
+ *       EARCHIVE_DATA; diğer köklerde {@code baslik}'tan sonraki içerik elementine göre rapor
+ *       ailesi, tanınmayan içerikte EARCHIVE_REPORT</li>
  *   <li>e-Defter namespace ({@code http://www.edefter.gov.tr}) + prefix "edefter" → root element ve context id'ye göre</li>
  *   <li>e-Envanter namespace ({@code http://www.edefter.gov.tr}) + prefix "envanter" → root element'e göre</li>
  * </ul>
@@ -39,6 +40,8 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
     // ── Namespace sabitleri ──
     private static final String NS_EDEFTER = "http://www.edefter.gov.tr";
     private static final String NS_EARCHIVE = "http://earsiv.efatura.gov.tr";
+    /** Genel e-Arşiv paketindeki {@code eArsivVeri.xsd} kökü (serbest meslek makbuzu verisi). */
+    private static final String EARCHIVE_DATA_ROOT = "eArsivVeri";
     private static final String NS_UBL_PREFIX = "urn:oasis:names:specification:ubl:schema:xsd:";
 
     // ── UBL-TR root element → DocumentType eşlemesi ──
@@ -108,7 +111,8 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
                         "Belge türü tespit edilemedi. Tanınmayan namespace veya root element: "
                                 + "namespace=" + handler.getRootNamespace()
                                 + ", prefix=" + handler.getRootPrefix()
-                                + ", localName=" + handler.getRootLocalName());
+                                + ", localName=" + handler.getRootLocalName(),
+                        handler.getRootNamespace(), handler.getRootLocalName());
             }
 
             log.debug("Belge türü tespit edildi: {} (namespace={}, root={})",
@@ -120,6 +124,36 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
         } catch (Exception e) {
             throw new DocumentTypeDetectionException("XML parse hatası: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Kökü, belgenin geri kalanına ve namespace önekine bakılmadan yerleşik bir türe çözülen
+     * belgeleri tanır: UBL-TR namespace'inde tanınan kök adları ve e-Arşiv namespace'indeki tüm
+     * kökler. Özel belge türü tanımlarının bu köklerle çakışmasını engellemek için kullanılır
+     * (yerleşik tespit önce çalıştığı için böyle bir tanım hiç uygulanmaz). Önek veya bağlama göre
+     * çözülen e-Defter kökleri dahil değildir.
+     */
+    static boolean isBuiltInRoot(String namespace, String localName) {
+        return resolveRootOnly(namespace, localName) != null;
+    }
+
+    /**
+     * Yalnız namespace ve yerel addan çözülen yerleşik tür; e-Arşiv raporlarında içerik
+     * elementine bakılmadan önceki genel rapor türü.
+     */
+    private static DocumentType resolveRootOnly(String namespace, String localName) {
+        // UBL-TR namespace
+        if (namespace != null && namespace.startsWith(NS_UBL_PREFIX)) {
+            return UBL_ROOT_MAP.get(localName);
+        }
+
+        // e-Arşiv namespace: eArsivVeri ayrı bir kök ve şemadır; diğer kökler rapor ailesidir.
+        if (NS_EARCHIVE.equals(namespace)) {
+            return EARCHIVE_DATA_ROOT.equals(localName)
+                    ? DocumentType.EARCHIVE_DATA
+                    : DocumentType.EARCHIVE_REPORT;
+        }
+        return null;
     }
 
     // ── SAX Handler ─────────────────────────────────────────────────
@@ -259,14 +293,9 @@ public class DocumentTypeDetector implements IDocumentTypeDetector {
          * e-Defter "defter" root'u hariç — o context id gerektirir.
          */
         private DocumentType resolveFromRoot(String namespace, String prefix, String localName) {
-            // UBL-TR namespace
-            if (namespace != null && namespace.startsWith(NS_UBL_PREFIX)) {
-                return UBL_ROOT_MAP.get(localName);
-            }
-
-            // e-Arşiv namespace
-            if (NS_EARCHIVE.equals(namespace)) {
-                return DocumentType.EARCHIVE_REPORT;
+            // UBL-TR ve e-Arşiv namespace'leri: önekten bağımsız
+            if ((namespace != null && namespace.startsWith(NS_UBL_PREFIX)) || NS_EARCHIVE.equals(namespace)) {
+                return resolveRootOnly(namespace, localName);
             }
 
             // e-Defter / e-Envanter namespace

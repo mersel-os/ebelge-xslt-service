@@ -221,6 +221,15 @@ public class GibPackageSyncService implements IGibPackageSyncService {
 
     @Override
     public List<PackageSyncResult> syncAll() {
+        return syncAll(false);
+    }
+
+    @Override
+    public List<PackageSyncResult> syncAllPreservingExistingFiles() {
+        return syncAll(true);
+    }
+
+    private List<PackageSyncResult> syncAll(boolean preserveExistingNamedFiles) {
         if (!isEnabled()) {
             log.info("GİB paket sync devre dışı — atlanıyor");
             return List.of();
@@ -228,7 +237,7 @@ public class GibPackageSyncService implements IGibPackageSyncService {
         log.info("Tüm GİB paketleri sync ediliyor...");
         var results = new ArrayList<PackageSyncResult>();
         for (var pkg : getAvailablePackages()) {
-            results.add(doSyncPackage(pkg));
+            results.add(doSyncPackage(pkg, preserveExistingNamedFiles));
         }
 
         // Sync sonrası asset'leri yeniden yükle
@@ -261,7 +270,7 @@ public class GibPackageSyncService implements IGibPackageSyncService {
                             PACKAGE_DEFINITIONS.stream().map(GibPackageDefinition::id).toList());
         }
 
-        var result = doSyncPackage(pkg);
+        var result = doSyncPackage(pkg, false);
 
         if (result.success()) {
             log.info("Paket sync tamamlandı, asset'ler yeniden yükleniyor...");
@@ -311,7 +320,7 @@ public class GibPackageSyncService implements IGibPackageSyncService {
             }
 
             List<String> extractedFiles = extractAndMap(
-                    archiveBytes, archiveFormat, pkg.fileMapping(), targetDir);
+                    archiveBytes, archiveFormat, pkg.fileMapping(), targetDir, false);
 
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("  {} staging sync tamamlandı: {} dosya, {}ms", pkg.id(), extractedFiles.size(), elapsed);
@@ -337,8 +346,10 @@ public class GibPackageSyncService implements IGibPackageSyncService {
 
     /**
      * Tek bir paketi indir, çıkart ve hedef dizine yerleştir.
+     *
+     * @param preserveExistingNamedFiles sabit adla yazılan dosyalar hedefte varsa korunur
      */
-    private PackageSyncResult doSyncPackage(GibPackageDefinition pkg) {
+    private PackageSyncResult doSyncPackage(GibPackageDefinition pkg, boolean preserveExistingNamedFiles) {
         long startTime = System.currentTimeMillis();
         log.info("  Sync: {} — {}", pkg.id(), pkg.downloadUrl());
 
@@ -359,7 +370,7 @@ public class GibPackageSyncService implements IGibPackageSyncService {
 
             // 4. Geçici dizine çıkart ve eşleştir
             List<String> extractedFiles = extractAndMap(
-                    archiveBytes, archiveFormat, pkg.fileMapping(), targetBase);
+                    archiveBytes, archiveFormat, pkg.fileMapping(), targetBase, preserveExistingNamedFiles);
 
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("  {} sync tamamlandı: {} dosya, {}ms", pkg.id(), extractedFiles.size(), elapsed);
@@ -489,7 +500,8 @@ public class GibPackageSyncService implements IGibPackageSyncService {
      * {@code ZipInputStream} ise yalnızca UTF-8 destekler ve "malformed input" hatası verir.
      */
     private List<String> extractAndMap(byte[] archiveBytes, ArchiveFormat archiveFormat,
-                                       List<FileExtraction> fileMappings, Path targetBase)
+                                       List<FileExtraction> fileMappings, Path targetBase,
+                                       boolean preserveExistingNamedFiles)
             throws IOException, RarException {
 
         var extractedFiles = new ArrayList<String>();
@@ -554,6 +566,14 @@ public class GibPackageSyncService implements IGibPackageSyncService {
             for (var resolved : resolvedExtractions) {
                 FileExtraction mapping = resolved.mapping();
                 Path targetDir = targetBase.resolve(mapping.targetDir());
+
+                if (preserveExistingNamedFiles && mapping.targetFileName() != null
+                        && Files.exists(targetDir.resolve(mapping.targetFileName()))) {
+                    // İlk kurulum sync'i: servisi çalıştıranın koyduğu şablon korunur.
+                    log.info("  Mevcut dosya korunuyor (ilk kurulum sync'i üzerine yazmaz): {}",
+                            assetPath(mapping.targetDir(), mapping.targetFileName()));
+                    continue;
+                }
 
                 if (mapping.extractionMode() == ExtractionMode.EMBEDDED_XSLT) {
                     writeEmbeddedXslt(mapping, resolved.embeddedXslt(),

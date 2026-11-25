@@ -349,13 +349,24 @@ public class ValidationProfileRegistry implements IValidationProfileService, Rel
 
         for (var entry : resolved.xsdOverrides().entrySet()) {
             try {
-                SchemaValidationType schemaType = SchemaValidationType.valueOf(entry.getKey());
-                schemaValidator.precompileOverrides(schemaType, entry.getValue(), profileName);
-            } catch (IllegalArgumentException e) {
-                log.warn("Bilinmeyen şema tipi, pre-derleme atlanıyor: {} (profil: {})", entry.getKey(), profileName);
+                SchemaValidationType schemaType = builtInSchemaType(entry.getKey());
+                if (schemaType != null) {
+                    schemaValidator.precompileOverrides(schemaType, entry.getValue(), profileName);
+                } else {
+                    // Yerleşik olmayan anahtar: custom-document-types.yml'deki bir tür olabilir.
+                    schemaValidator.precompileCustomOverrides(entry.getKey(), entry.getValue(), profileName);
+                }
             } catch (Exception e) {
                 log.warn("Override pre-derleme başarısız: {} (profil: {}) — {}", entry.getKey(), profileName, e.getMessage());
             }
+        }
+    }
+
+    private static SchemaValidationType builtInSchemaType(String key) {
+        try {
+            return SchemaValidationType.valueOf(key);
+        } catch (IllegalArgumentException e) {
+            return null;
         }
     }
 

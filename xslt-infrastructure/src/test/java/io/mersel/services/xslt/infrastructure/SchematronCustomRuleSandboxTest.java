@@ -52,6 +52,11 @@ class SchematronCustomRuleSandboxTest {
     private static final String PROBE_VAR = "XSLT_SANDBOX_PROBE";
     private static final String LEAK_MARKER = "SIZINTI";
     private static final String BLOCKED_PREFIX = "Schematron doğrulama hatası";
+    /** Gizli XML dosyasını doğrudan {@code saxon:doc()} çağrısıyla okumaya çalışan kural mesajı. */
+    private static final String SAXON_DOC_MESSAGE = "OUT=[{{string(Q{http://saxon.sf.net/}doc('{XML}', map{}))}}]";
+    /** Aynı okuma, fonksiyonu çalışma zamanında {@code function-lookup()} ile bularak. */
+    private static final String SAXON_DOC_LOOKUP_MESSAGE =
+            "OUT=[{{string(function-lookup(QName('http://saxon.sf.net/', 'doc'), 2)('{XML}', map{}))}}]";
 
     private static final String MAIN_PATH = "validator/ubl-tr-package/schematron/UBL-TR_Main_Schematron.xml";
     private static final String COMMON_FILE = "Test_Common_Schematron.xml";
@@ -190,7 +195,9 @@ class SchematronCustomRuleSandboxTest {
                 Arguments.of("system-property", "system-property('user.home') = ''"),
                 Arguments.of("transform", "not(function-available('transform', 1))"),
                 Arguments.of("function-lookup transform",
-                        "empty(function-lookup(QName('http://www.w3.org/2005/xpath-functions', 'transform'), 1))"));
+                        "empty(function-lookup(QName('http://www.w3.org/2005/xpath-functions', 'transform'), 1))"),
+                Arguments.of("function-lookup saxon:doc",
+                        "empty(function-lookup(QName('http://saxon.sf.net/', 'doc'), 2))"));
     }
 
     static Stream<Arguments> oracleTestsOnBothPaths() {
@@ -238,6 +245,26 @@ class SchematronCustomRuleSandboxTest {
         var errors = validate(path, rule("/Invoice", "false()", "OUT=[{{" + withUris(expression) + "}}]"));
 
         assertBlocked(errors, forbidden);
+    }
+
+    static Stream<Arguments> saxonDocMessagesOnBothPaths() {
+        return Stream.of(SAXON_DOC_MESSAGE, SAXON_DOC_LOOKUP_MESSAGE).flatMap(message -> Stream.of(RulePath.values())
+                .map(path -> Arguments.of(path, message)));
+    }
+
+    @ParameterizedTest(name = "{0} / {1}")
+    @MethodSource("saxonDocMessagesOnBothPaths")
+    @DisplayName("Mesajdaki saxon:doc() dosya okuyamaz, kural çalışmaz")
+    void saxonDocInMessageIsBlocked(RulePath path, String message) {
+        var errors = validate(path, rule("/Invoice", "false()", message.replace("{XML}", secretXmlUri)));
+
+        assertThat(errors).isNotEmpty();
+        assertThat(messages(errors)).noneMatch(text -> text.startsWith("OUT=["));
+        assertThat(errors).allSatisfy(error -> {
+            assertThat(error.message()).doesNotContain(SECRET);
+            assertThat(String.valueOf(error.ruleId())).doesNotContain(SECRET);
+            assertThat(String.valueOf(error.test())).doesNotContain(SECRET);
+        });
     }
 
     @ParameterizedTest(name = "{0}")
@@ -357,6 +384,17 @@ class SchematronCustomRuleSandboxTest {
                     "OUT=[{{" + withUris(expression) + "}}]"));
 
             assertThat(output).contains(forbidden);
+        }
+
+        @Test
+        @DisplayName("Mesajdaki saxon:doc() dosya okur")
+        void saxonDocLeaks() throws Exception {
+            // Pipeline son XSLT'yi sandbox'ta derlediği için doğrudan çağrı burada derlenmez;
+            // fonksiyonu çalışma zamanında bulan biçim aynı okumayı yapar.
+            String output = runWithoutSandbox(rule("/Invoice", "false()",
+                    SAXON_DOC_LOOKUP_MESSAGE.replace("{XML}", secretXmlUri)));
+
+            assertThat(output).contains(SECRET);
         }
 
         @Test

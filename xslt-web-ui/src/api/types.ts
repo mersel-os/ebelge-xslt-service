@@ -14,6 +14,7 @@ export const SCHEMA_VALIDATION_TYPES = [
   "EARCHIVE_REPORT_EDOVIZ",
   "EARCHIVE_REPORT_EDEKONT",
   "EARCHIVE_REPORT_EGIDER_PUSULASI",
+  "EARCHIVE_DATA",
   "EDEFTER",
 ] as const;
 
@@ -167,6 +168,21 @@ export interface ProfileInfo {
 export interface ProfilesResponse {
   profileCount: number;
   profiles: Record<string, ProfileInfo>;
+}
+
+/** custom-document-types.yml ile asset dizininden yüklenen özel belge türü */
+export interface CustomDocumentTypeInfo {
+  id: string;
+  description?: string | null;
+  rootNamespace: string;
+  rootElement: string;
+  xsd: string;
+  /** Uygulanan yerleşik Schematron tipi; yoksa Schematron atlanır */
+  schematron?: string | null;
+}
+
+export interface CustomDocumentTypesResponse {
+  types: CustomDocumentTypeInfo[];
 }
 
 export interface FileMapping {

@@ -2,6 +2,7 @@ package io.mersel.services.xslt.infrastructure;
 
 import com.sun.net.httpserver.HttpServer;
 import io.mersel.services.xslt.application.enums.SchemaValidationType;
+import io.mersel.services.xslt.application.interfaces.ICustomDocumentTypeRegistry;
 import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -164,13 +165,15 @@ class JaxpSchemaValidatorXxeTest {
     }
 
     private static JaxpSchemaValidator newValidator(Schema schema) throws Exception {
-        var validator = new JaxpSchemaValidator(mock(AssetManager.class), mock(XsltMetrics.class));
+        var validator = new JaxpSchemaValidator(mock(AssetManager.class), mock(XsltMetrics.class),
+                mock(ICustomDocumentTypeRegistry.class));
         setField(validator, "xsdOverrideCacheMaxSize", 50);
         setField(validator, "xsdOverrideCacheTtlHours", 1);
         Method init = JaxpSchemaValidator.class.getDeclaredMethod("init");
         init.setAccessible(true);
         init.invoke(validator);
-        setField(validator, "compiledSchemas", Map.of(TYPE, schema));
+        // Önbellek anahtarı şema tipinin adıdır (özel belge türleri de aynı önbellekte tutulur).
+        setField(validator, "snapshot", new JaxpSchemaValidator.SchemaSnapshot(Map.of(TYPE.name(), schema), Map.of()));
         return validator;
     }
 

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Örnek özel belge türü (SAMPLE_VOUCHER) için ana şema; ortak şemayı göreli yolla içe aktarır.
+  Yalnız mekanizmayı göstermek için yazılmıştır, gerçek bir belge standardı değildir.
+  Testlerdeki fixtures/custom-document-types şemasıyla aynı yapıdadır.
+-->
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+            xmlns="urn:example:sample:voucher-1"
+            xmlns:cmn="urn:example:sample:common-1"
+            targetNamespace="urn:example:sample:voucher-1"
+            elementFormDefault="qualified">
+    <xsd:import namespace="urn:example:sample:common-1" schemaLocation="../common/Sample-Common-1.0.xsd"/>
+
+    <xsd:element name="Voucher">
+        <xsd:complexType>
+            <xsd:sequence>
+                <xsd:element name="ID" type="xsd:string"/>
+                <xsd:element name="IssueDate" type="xsd:date"/>
+                <xsd:element ref="cmn:Party"/>
+                <xsd:element name="Line" minOccurs="1" maxOccurs="unbounded">
+                    <xsd:complexType>
+                        <xsd:sequence>
+                            <xsd:element ref="cmn:Amount"/>
+                        </xsd:sequence>
+                    </xsd:complexType>
+                </xsd:element>
+            </xsd:sequence>
+        </xsd:complexType>
+    </xsd:element>
+</xsd:schema>

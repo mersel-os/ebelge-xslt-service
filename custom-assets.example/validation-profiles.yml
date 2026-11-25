@@ -23,7 +23,7 @@
 #     Schema Tipleri:     INVOICE, DESPATCH_ADVICE, RECEIPT_ADVICE,
 #                         CREDIT_NOTE, APPLICATION_RESPONSE, EARCHIVE_REPORT,
 #                         EARCHIVE_REPORT_EDOVIZ, EARCHIVE_REPORT_EDEKONT,
-#                         EARCHIVE_REPORT_EGIDER_PUSULASI, EDEFTER
+#                         EARCHIVE_REPORT_EGIDER_PUSULASI, EARCHIVE_DATA, EDEFTER
 #     Schematron Tipleri: UBLTR_MAIN, EARCHIVE_REPORT, EARCHIVE_REPORT_EDOVIZ,
 #                         EDEFTER_YEVMIYE, EDEFTER_KEBIR, EDEFTER_BERAT,
 #                         EDEFTER_RAPOR, ENVANTER_BERAT, ENVANTER_DEFTER
@@ -92,6 +92,19 @@ schematron-rules:
 # ═══════════════════════════════════════════════════════════════════
 
 profiles:
+
+  # ── İmzasız belge profili — imza kontrollerini bastırır ─────────
+  unsigned:
+    description: "Imzasiz belge dogrulama"
+    suppressions:
+      - match: ruleId
+        pattern: "XadesSignatureCheck"
+        description: "XAdES imza kontrolu"
+      - match: ruleId
+        pattern: "SignatureCheck"
+      - match: text
+        pattern: ".*[Ii]mza.*"
+        description: "Text fallback"
 
   # ── Özel firma profili — unsigned'dan miras alır ────────────────
   my-company:

@@ -5,11 +5,16 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useCustomDocumentTypes } from "@/api/hooks";
 import { SCHEMA_VALIDATION_TYPES } from "@/api/types";
+
+const BUILT_IN_SCHEMA_TYPES = new Set<string>(SCHEMA_VALIDATION_TYPES);
 
 export interface XsdOverrideFormData {
   schemaType: string;
@@ -31,6 +36,16 @@ export function XsdOverrideCard({
   onUpdate: (field: keyof XsdOverrideFormData, value: string) => void;
   onRemove: () => void;
 }) {
+  const { data: customTypes = [] } = useCustomDocumentTypes();
+  const customIds = customTypes
+    .map((type) => type.id)
+    .filter((id) => !BUILT_IN_SCHEMA_TYPES.has(id));
+  // Profilde kayıtlı ama artık tanımlı olmayan özel tür de seçili görünmeli
+  const missingCurrent =
+    !BUILT_IN_SCHEMA_TYPES.has(ovr.schemaType) && !customIds.includes(ovr.schemaType)
+      ? ovr.schemaType
+      : null;
+
   return (
     <div className="group rounded-xl border border-border bg-muted/50 p-4 space-y-3 transition-all duration-200 hover:border-border hover:bg-muted">
       <div className="flex items-start justify-between gap-3">
@@ -47,11 +62,33 @@ export function XsdOverrideCard({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SCHEMA_VALIDATION_TYPES.map((t) => (
-                  <SelectItem key={t} value={t} className="text-xs">
-                    {t}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  <SelectLabel className="text-[10px]">Yerleşik</SelectLabel>
+                  {SCHEMA_VALIDATION_TYPES.map((t) => (
+                    <SelectItem key={t} value={t} className="text-xs">
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+                {(customIds.length > 0 || missingCurrent) && (
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px]">Özel belge türleri</SelectLabel>
+                    {customIds.map((id) => (
+                      <SelectItem key={id} value={id} className="text-xs">
+                        {id}
+                      </SelectItem>
+                    ))}
+                    {missingCurrent && (
+                      <SelectItem
+                        value={missingCurrent}
+                        className="text-xs line-through"
+                        title="Bu tür asset dizininde tanımlı değil"
+                      >
+                        {missingCurrent}
+                      </SelectItem>
+                    )}
+                  </SelectGroup>
+                )}
               </SelectContent>
             </Select>
           </div>
