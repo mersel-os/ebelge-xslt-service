@@ -4,6 +4,7 @@ import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import net.sf.saxon.s9api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +37,18 @@ import java.util.List;
  * Default şablon XSLT 2.0 üretecek şekilde yapılandırılmıştır — bu sayede
  * {@code xs:date()}, {@code xs:integer()} gibi XPath 2.0 fonksiyonları
  * doğrudan desteklenir (post-processing gerekmez).
+ * <p>
+ * <b>Güvenlik:</b> İki ayrı {@link Processor} kullanılır.
+ * <ul>
+ *   <li>Pipeline adımları, uygulamayla gelen pipeline XSL'lerini GİB kaynakları üzerinde çalıştırır.
+ *       {@code sch:include} çözümlemesi dosya okumayı gerektirdiği için bu işlemci kısıtlanmaz.
+ *       Özel kurallar kaynağa DOM ile nitelik değeri olarak eklendiğinden ({@code context},
+ *       {@code test}, {@code select}) bu adımlarda yalnızca metin olarak taşınır, çalıştırılmaz.</li>
+ *   <li>Pipeline'ın ürettiği son XSLT, {@link XsltSandbox} işlemcisiyle derlenir. Özel kuralların
+ *       XPath ifadeleri bu XSLT'nin içinde çalıştığı için ortam değişkenlerine, dosyalara ve ağa
+ *       erişemez; operatörün açtığı istisnalar ({@link XsltSandboxPolicy}) bu işlemciye uygulanır.
+ *       Doğrulama sırasında transformer {@link XsltSandbox#load} ile açılmalıdır.</li>
+ * </ul>
  */
 @Component
 public class SchematronRuntimeCompiler {
@@ -53,7 +66,10 @@ public class SchematronRuntimeCompiler {
     private static final String ABSTRACT_XSL = PIPELINE_BASE + "/iso-schematron-abstract.xsl";
     private static final String MESSAGE_XSL = PIPELINE_BASE + "/iso-schematron-message.xsl";
 
+    /** Güvenilir pipeline XSL'lerini çalıştırır; {@code sch:include} için dosya okuyabilir. */
     private final Processor processor;
+    /** Pipeline çıktısını (kurallar ve özel kurallar burada çalışır) derleyen sandbox işlemcisi. */
+    private final Processor sandboxProcessor;
     private final XsltMetrics metrics;
 
     // Ön-derlenmiş pipeline XSLT'leri (startup'da bir kez derlenir)
@@ -61,8 +77,17 @@ public class SchematronRuntimeCompiler {
     private XsltExecutable abstractExecutable;
     private XsltExecutable messageExecutable;
 
+    /**
+     * Sandbox istisnası olmadan oluşturur.
+     */
     public SchematronRuntimeCompiler(XsltMetrics metrics) {
+        this(metrics, XsltSandboxPolicy.STRICT);
+    }
+
+    @Autowired
+    public SchematronRuntimeCompiler(XsltMetrics metrics, XsltSandboxPolicy sandboxPolicy) {
         this.processor = new Processor(false);
+        this.sandboxProcessor = XsltSandbox.newProcessor(sandboxPolicy);
         this.metrics = metrics;
     }
 
@@ -189,7 +214,8 @@ public class SchematronRuntimeCompiler {
 
         // ── Sonucu XSLT olarak derle ────────────────────────────────
         // ISO pipeline artık doğrudan XSLT 2.0 + xmlns:xs üretiyor (iso_schematron_skeleton.xsl)
-        var xsltCompiler = processor.newXsltCompiler();
+        // Kurallar (yönetici API'siyle eklenen özel kurallar dahil) bu XSLT'de çalışır: sandbox'ta derlenir.
+        var xsltCompiler = XsltSandbox.newCompiler(sandboxProcessor);
 
         // Saxon hatalarını detaylı yakala
         List<String> compilationErrors = new ArrayList<>();
@@ -204,8 +230,7 @@ public class SchematronRuntimeCompiler {
 
         XsltExecutable compiled;
         try {
-            compiled = xsltCompiler.compile(
-                    new StreamSource(new ByteArrayInputStream(processedXslt)));
+            compiled = xsltCompiler.compile(XsltSandbox.secureSource(processedXslt));
         } catch (SaxonApiException e) {
             // Derleme hataları varsa detaylı mesaj oluştur
             if (!compilationErrors.isEmpty()) {

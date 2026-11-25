@@ -50,3 +50,8 @@ dependencies {
     testImplementation(libs.awaitility)
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 }
+
+tasks.test {
+    // Sandbox testleri ortam değişkeni sızıntısını bu bilinen değişkenle dener; gerçek ortam okunmaz.
+    environment("XSLT_SANDBOX_PROBE", "sandbox-probe-value")
+}

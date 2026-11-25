@@ -207,6 +207,8 @@ Başarılı dönüşümde **ham HTML** döner (`text/html`). Metadata, response 
 
 > **DOCTYPE sınırı:** Gömülü XSLT içinde tanımlanan dahili entity subset'leri desteklenir. Harici DTD/entity çözümlemesi güvenlik nedeniyle kapalıdır; yalnızca harici DTD'de tanımlanan entity'lere bağımlı şablonlar kullanılmaz ve varsayılan XSLT'ye dönülür.
 
+> **XSLT sandbox:** Yüklenen XSLT, gömülü XSLT ve varsayılan şablonlar aynı kısıtlı Saxon yapılandırmasıyla çalışır. `environment-variable()` her zaman boş döner, `system-property()` JVM özelliklerini döndürmez. `doc()`/`document()`, `unparsed-text*()`, `json-doc()`, `collection()`, `uri-collection()` ve `xsl:include`/`xsl:import` hiçbir protokolle dosyaya ya da ağa erişemez. `href` içeren `xsl:result-document` derlenmez; `transform()` ve `load-xquery-module()` kullanılamaz. Girdi XML'i ve XSLT harici DTD/entity çözülmeden okunur (iç DTD alt kümesi desteklenir). Özel veya gömülü XSLT bu kısıtlara takılırsa varsayılan XSLT'ye dönülür ve neden `X-Xslt-Custom-Error` header'ında bildirilir; varsayılan şablon takılırsa `422` döner. Varsayılan şablonların okuyabileceği dizinler yapılandırmayla açılabilir; bkz. [Okunabilir Dizinler](#okunabilir-dizinler-xslt-sandbox).
+
 ```bash
 # Varsayılan XSLT ile
 curl -v -X POST http://localhost:8080/v1/transform \
@@ -463,6 +465,8 @@ Admin panelinden (`Kurallar` tab'ı) veya `PUT /v1/admin/schematron-rules` API's
 | **Mesaj** | Hata mesajı — `{{xpath}}` placeholder'ları desteklenir |
 | **Flag** | Hata seviyesi (`error`, `warning`, `info`) |
 
+> **Sandbox:** Özel kurallar, derlenen Schematron'un geri kalanıyla birlikte [XSLT dönüşümündeki](#xslt-dönüşüm) kısıtlı Saxon yapılandırmasında çalışır: `environment-variable()` boş döner, `system-property()` JVM özelliklerini döndürmez, `doc()`/`document()`, `unparsed-text*()`, `json-doc()`, `collection()` ve `uri-collection()` dosyaya ya da ağa erişemez. Kural bu yüzden reddedilmeden kaydedilir; erişim doğrulama sırasında engellenir ve yanıtta `Schematron doğrulama hatası: ...` mesajlı tek bir hata döner. Kurallar doğrulanan belgeyi, `parameters` ile geçirilen değerleri ve [Okunabilir Dizinler](#okunabilir-dizinler-xslt-sandbox) ile açılan dizinlerdeki dosyaları (ör. kod listeleri) kullanabilir.
+
 ### Dinamik Parametreler
 
 Kural test ifadelerinde `$parametre_adi` şeklinde değişkenler kullanılabilir. Bu değişkenler otomatik tanınır ve doğrulama isteğinde `parameters` alanı ile değerleri geçirilir.
@@ -596,6 +600,35 @@ Seçiciler, tarifler, kurallar ve sorun giderme için: **[Filigran Kullanım Kı
 | `xslt.admin.token-cache-max-size` | `XSLT_ADMIN_TOKEN_CACHE_MAX_SIZE` | `10000` | Eşzamanlı token limiti |
 
 > **Uyarı:** Varsayılan admin parolası `changeme`'dir. Production ortamında mutlaka `XSLT_ADMIN_PASSWORD` ile değiştirin.
+
+### Okunabilir Dizinler (XSLT Sandbox)
+
+XSLT dönüşümleri ve Schematron doğrulaması varsayılan olarak hiçbir dosyayı, ortam değişkenini ve ağ kaynağını okuyamaz. Varsayılan şablonların ya da özel Schematron kurallarının ortak dosyalara (kod listeleri, paylaşılan XSLT modülleri, logolar) ihtiyacı varsa, bunları okunabilir bir dizine koyup dizini başlangıçta açabilirsiniz:
+
+| Parametre | Env Variable | Varsayılan | Açıklama |
+|-----------|-------------|------------|----------|
+| `xslt.sandbox.resource-dirs` | `XSLT_SANDBOX_RESOURCE_DIRS` | (boş) | Okunabilir mutlak dizinler, virgülle ayrılmış |
+
+```bash
+docker run -p 8080:8080 \
+  -v $(pwd)/xslt-resources:/opt/xslt-resources:ro \
+  -e XSLT_SANDBOX_RESOURCE_DIRS=/opt/xslt-resources \
+  mersel-xslt-service
+```
+
+```xml
+<!-- Varsayılan şablonda ya da Schematron kuralında -->
+<xsl:include href="file:///opt/xslt-resources/ortak-bolumler.xsl"/>
+<xsl:value-of select="doc('file:///opt/xslt-resources/kodlar.xml')//kod[@id = $kod]"/>
+```
+
+- **Kapsam:** Yalnızca operatörün yönettiği içerik: varsayılan XSLT şablonları ve Schematron (yönetici API'si ya da profillerle eklenen özel kurallar dahil). `/v1/transform` ile gönderilen XSLT ve belgeye gömülü XSLT her zaman tam kısıtlı çalışır.
+- **Açılan:** Dizinin altındaki var olan dosyalar mutlak `file:` URI'siyle `doc()`, `document()`, `doc-available()`, `unparsed-text*()`, `json-doc()` ve `xsl:include`/`xsl:import` ile okunabilir. Yol, `..` ve sembolik bağlar çözüldükten sonra dizinin içinde kalmalıdır; dosya bu gerçek yoldan açılır. Şablonlar ve kurallar dosya konumu olmadan derlendiği için göreli URI'ler (ör. `doc('kodlar.xml')`) çalışmaz.
+- **Kapalı kalan:** Dizin dışındaki dosyalar, ağ, dizin listeleme (`collection()`, `uri-collection()`), dosya yazma (`xsl:result-document`), ortam değişkenleri ve JVM özellikleri. Okunan dosyalardaki harici DTD/entity'ler çözülmez.
+- **Ne zaman uygulanır:** Ayar yalnızca başlangıçta okunur; yönetici API'si değiştiremez. Göreli yol ya da kök dizin (köke giden sembolik bağ dahil) verilirse uygulama başlamaz. Dizine sonradan eklenen dosyalar yeniden başlatmadan okunur; dizin başlangıçta yoksa oluşturulduğunda kullanılır.
+- **Ortam değişkeni gerekiyorsa:** Değeri başlangıçta (ör. entrypoint betiğinde) bu dizine bir XML dosyası olarak yazın ve şablondan `doc()` ile okuyun.
+
+> **Güvenlik:** Dizine yalnızca gizli olmayan dosyalar koyun ve salt okunur bağlayın. Dizindeki her dosya, yönetici API'siyle yüklenen şablonlar ve kurallar tarafından okunabilir.
 
 ### GİB Paket Sync
 
