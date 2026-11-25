@@ -9,6 +9,8 @@ import io.mersel.services.xslt.application.models.TransformRequest;
 import io.mersel.services.xslt.application.models.TransformResult;
 import io.mersel.services.xslt.infrastructure.diagnostics.XsltMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import net.sf.saxon.lib.AugmentedSource;
+import net.sf.saxon.trans.XPathException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,6 +19,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import org.xml.sax.InputSource;
+
+import javax.xml.transform.Source;
+import javax.xml.transform.sax.SAXSource;
+import javax.xml.transform.stream.StreamSource;
+import java.io.ByteArrayInputStream;
+import java.io.StringReader;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -201,6 +210,121 @@ class XsltSandboxAllowlistTest {
                 "<p>FA=[<xsl:value-of select=\"function-available('transform', 1)\"/>]</p>"));
 
         assertThat(html).contains("FA=[false]");
+    }
+
+    @Test
+    @DisplayName("İstisna tanımlıyken de saxon:doc() yoktur, doc() izinli dosyayı okur")
+    void saxonDocStaysUnavailableWithAllowlist() throws Exception {
+        String html = transformWithDefault(policy, stylesheet("""
+                <p xmlns:saxon="http://saxon.sf.net/">FA=[<xsl:value-of select="function-available('saxon:doc', 2)"/>]</p>
+                <p>LOOKUP=[<xsl:value-of select="exists(function-lookup(QName('http://saxon.sf.net/', 'doc'), 2))"/>]</p>
+                <p>DOC=[<xsl:value-of select="doc('%s/codes.xml')"/>]</p>""".formatted(allowedUri())));
+
+        assertThat(html).contains("FA=[false]", "LOOKUP=[false]", "DOC=[KOD-123]");
+    }
+
+    @Test
+    @DisplayName("Varsayılan şablon izinli dosyayı da saxon:doc() ile okuyamaz")
+    void defaultTemplateCannotUseSaxonDocEvenForAllowedFile() throws Exception {
+        String xslt = stylesheet("<p>OUT=[<xsl:value-of select=\"Q{http://saxon.sf.net/}doc('"
+                + allowedUri() + "/codes.xml', map{})\"/>]</p>");
+        writeTemplate(xslt);
+
+        var transformer = newTransformer(policy);
+        var reload = transformer.reload();
+
+        assertThat(reload.errors()).isNotEmpty();
+        assertThatThrownBy(() -> transformer.transform(request()))
+                .isInstanceOf(TransformException.class)
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("KOD-123"));
+    }
+
+    @Test
+    @DisplayName("İstekle gelen XSLT izinli dosyayı saxon:doc() ile okuyamaz, varsayılana düşer")
+    void requestXsltCannotUseSaxonDocForAllowedFile() throws Exception {
+        writeTemplate(stylesheet("<p>" + DEFAULT_OUTPUT + "</p>"));
+        var request = request();
+        request.setTransformer(stylesheet("<p>OUT=[<xsl:value-of select=\"Q{http://saxon.sf.net/}doc('"
+                + allowedUri() + "/codes.xml', map{})\"/>]</p>").getBytes(StandardCharsets.UTF_8));
+
+        var result = transformer(policy).transform(request);
+
+        assertThat(result.isDefaultXslUsed()).isTrue();
+        assertThat(result.getCustomXsltError()).isNotBlank();
+        assertThat(html(result)).contains(DEFAULT_OUTPUT).doesNotContain("KOD-123");
+    }
+
+    // ── Source resolver kapısı ─────────────────────────────────────
+
+    @Test
+    @DisplayName("Source resolver URI'den açılacak kaynağı reddeder")
+    void sourceResolverRefusesUriOnlySources() throws Exception {
+        String secretUri = outside.resolve("secret.xml").toUri().toString();
+
+        for (var sandboxPolicy : List.of(XsltSandboxPolicy.STRICT, policy)) {
+            var config = XsltSandbox.newProcessor(sandboxPolicy).getUnderlyingConfiguration();
+            var resolver = config.getSourceResolver();
+
+            for (Source source : List.of(
+                    new StreamSource(secretUri),
+                    new SAXSource(new InputSource(secretUri)),
+                    AugmentedSource.makeAugmentedSource(new StreamSource(secretUri)))) {
+                assertThatThrownBy(() -> resolver.resolveSource(source, config))
+                        .isInstanceOf(XPathException.class)
+                        .hasMessageContaining("Güvenlik")
+                        .hasMessageNotContaining(SECRET);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("Source resolver ağa bağlanmaz")
+    void sourceResolverDoesNotConnect() throws Exception {
+        var config = XsltSandbox.newProcessor(policy).getUnderlyingConfiguration();
+
+        try (var listener = new SaxonXsltTransformerSandboxTest.ConnectionCounter()) {
+            assertThatThrownBy(() -> config.getSourceResolver().resolveSource(new StreamSource(listener.uri()), config))
+                    .isInstanceOf(XPathException.class)
+                    .hasMessageContaining("Güvenlik");
+
+            listener.assertNoConnection();
+        }
+    }
+
+    @Test
+    @DisplayName("Source resolver izinli dosyayı kapıdan açar")
+    void sourceResolverOpensAllowedFileThroughGate() throws Exception {
+        var processor = XsltSandbox.newProcessor(policy);
+        var config = processor.getUnderlyingConfiguration();
+
+        var resolved = config.getSourceResolver().resolveSource(
+                new StreamSource(allowed.resolve("codes.xml").toUri().toString()), config);
+
+        assertThat(processor.newDocumentBuilder().build(resolved).getStringValue()).isEqualTo("KOD-123");
+    }
+
+    @Test
+    @DisplayName("Source resolver akış taşıyan kaynağı değiştirmeden geçirir")
+    void sourceResolverPassesStreamBackedSources() throws Exception {
+        // System id dizin dışını gösterse de içerik akıştan okunur; dosya açılmaz.
+        String outsideUri = outside.resolve("secret.xml").toUri().toString();
+        byte[] content = "<x>AKIS-ICERIGI</x>".getBytes(StandardCharsets.UTF_8);
+
+        for (var sandboxPolicy : List.of(XsltSandboxPolicy.STRICT, policy)) {
+            var processor = XsltSandbox.newProcessor(sandboxPolicy);
+            var config = processor.getUnderlyingConfiguration();
+            var input = new InputSource(new ByteArrayInputStream(content));
+            input.setSystemId(outsideUri);
+
+            for (Source source : List.of(
+                    new StreamSource(new ByteArrayInputStream(content), outsideUri),
+                    new StreamSource(new StringReader("<x>AKIS-ICERIGI</x>"), outsideUri),
+                    new SAXSource(input))) {
+                var resolved = config.getSourceResolver().resolveSource(source, config);
+
+                assertThat(processor.newDocumentBuilder().build(resolved).getStringValue()).isEqualTo("AKIS-ICERIGI");
+            }
+        }
     }
 
     @Test

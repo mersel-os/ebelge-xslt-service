@@ -1,22 +1,30 @@
 package io.mersel.services.xslt.infrastructure;
 
 import net.sf.saxon.Configuration;
+import net.sf.saxon.functions.FunctionLibrary;
+import net.sf.saxon.functions.FunctionLibraryList;
 import net.sf.saxon.functions.registry.BuiltInFunctionSet;
 import net.sf.saxon.functions.registry.UseWhen30FunctionSet;
+import net.sf.saxon.functions.registry.VendorFunctionSetHE;
 import net.sf.saxon.functions.registry.XSLT30FunctionSet;
+import net.sf.saxon.lib.ActiveSource;
+import net.sf.saxon.lib.AugmentedSource;
 import net.sf.saxon.lib.EnvironmentVariableResolver;
 import net.sf.saxon.lib.Feature;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.ResourceRequest;
 import net.sf.saxon.lib.ResourceResolver;
+import net.sf.saxon.lib.SourceResolver;
 import net.sf.saxon.om.NamespaceUri;
 import net.sf.saxon.lib.StandardUnparsedTextResolver;
+import net.sf.saxon.om.StructuredQName;
 import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.SaxonApiUncheckedException;
 import net.sf.saxon.s9api.Xslt30Transformer;
 import net.sf.saxon.s9api.XsltCompiler;
 import net.sf.saxon.s9api.XsltExecutable;
+import net.sf.saxon.trans.SymbolicName;
 import net.sf.saxon.trans.XPathException;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
@@ -64,6 +72,11 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>{@code fn:transform} ve {@code fn:load-xquery-module} yoktur ({@link #UNAVAILABLE_FUNCTIONS}):
  *       çağrı sırasında sıfırdan yeni bir Saxon yapılandırması kurabildikleri için bu kısıtları taşımazlar.
  *       Derleme zamanı ifadeleri, {@code function-lookup()} ve isimli fonksiyon referansları da onları bulamaz.</li>
+ *   <li>{@code saxon:doc()} yoktur ({@link #UNAVAILABLE_VENDOR_FUNCTIONS}): belgeyi resource resolver'a
+ *       ve izinli protokol listesine uğramadan açar. {@code xsl:evaluate}, {@code use-when} ve
+ *       {@code static} parametreler de onu bulamaz. Diğer Saxon fonksiyonları çalışır.</li>
+ *   <li>Saxon'un bir URI'den kendisi açacağı kaynaklar (akışı olmayan, yalnızca system id taşıyan
+ *       {@link StreamSource}/{@link SAXSource}) source resolver düzeyinde aynı kapıdan geçer.</li>
  * </ul>
  * Bu ayarların kapsamı yalnızca {@link #newProcessor()} ile oluşturulan {@link Processor}'dür;
  * diğer Saxon kullanıcılarını etkilemez. Schematron pipeline adımları ({@code sch:include} için dosya
@@ -105,6 +118,13 @@ final class XsltSandbox {
      * hiçbir kısıtını taşımaz.
      */
     static final Set<String> UNAVAILABLE_FUNCTIONS = Set.of("transform", "load-xquery-module");
+
+    /**
+     * Sandbox'ta bulunmayan Saxon fonksiyonları ({@code http://saxon.sf.net/} ad alanı, her arity).
+     * {@code saxon:doc()} belgeyi Saxon'un source resolver'ıyla doğrudan açar; resource resolver'dan
+     * ve izinli protokol listesinden geçmediği için dosya sistemini ve ağı okuyabilir.
+     */
+    static final Set<String> UNAVAILABLE_VENDOR_FUNCTIONS = Set.of("doc");
 
     private static final EnvironmentVariableResolver NO_ENVIRONMENT = new EnvironmentVariableResolver() {
         @Override
@@ -148,6 +168,7 @@ final class XsltSandbox {
 
         var config = processor.getUnderlyingConfiguration();
         config.setResourceResolver(gate);
+        config.setSourceResolver(new GatedSourceResolver(gate, config.getSourceResolver()));
         config.setUnparsedTextURIResolver((uri, encoding, configuration) -> {
             String target = String.valueOf(uri);
             Path real = policy.allowedRealPath(target);
@@ -257,6 +278,57 @@ final class XsltSandbox {
         }
     }
 
+    /**
+     * Saxon'un bir URI'den kendisi açacağı kaynakları {@link ResourceGate}'ten geçiren source resolver.
+     * <p>
+     * Saxon bazı yollarda (ör. {@code saxon:doc()}) resource resolver'ı atlayıp yalnızca system id taşıyan
+     * bir kaynağı doğrudan bu resolver'a verir. Böyle bir kaynak, diğer okumalar gibi politikaya göre ya
+     * kapının açtığı izinli dosyaya çevrilir ya da reddedilir. Akış taşıyan kaynaklar (yüklenen belge,
+     * kapının döndürdüğü kaynaklar) ve diğer kaynak tipleri önceki resolver'a değişmeden gider.
+     */
+    private record GatedSourceResolver(ResourceGate gate, SourceResolver next) implements SourceResolver {
+        @Override
+        public ActiveSource resolveSource(Source source, Configuration config) throws XPathException {
+            return next.resolveSource(throughGate(source), config);
+        }
+
+        private Source throughGate(Source source) throws XPathException {
+            // Saxon, AugmentedSource içindeki kaynağı bu resolver'a uğramadan çözer; içi burada denetlenir.
+            if (source instanceof AugmentedSource augmented) {
+                Source contained = augmented.getContainedSource();
+                Source gated = throughGate(contained);
+                return gated == contained ? source : new AugmentedSource(gated, augmented.getParseOptions());
+            }
+            String uri = uriOnlySystemId(source);
+            if (uri == null) {
+                return source;
+            }
+            var request = new ResourceRequest();
+            request.uri = uri;
+            request.nature = ResourceRequest.XML_NATURE;
+            request.purpose = ResourceRequest.ANY_PURPOSE;
+            return gate.resolve(request);
+        }
+    }
+
+    /**
+     * Kaynak bayt ya da karakter akışı taşımıyorsa (okumak için system id'sindeki URI'yi açmak
+     * gerekiyorsa) o system id'yi, aksi halde {@code null} döner.
+     */
+    static String uriOnlySystemId(Source source) {
+        if (source instanceof StreamSource stream) {
+            return stream.getInputStream() == null && stream.getReader() == null ? stream.getSystemId() : null;
+        }
+        if (source instanceof SAXSource sax) {
+            InputSource input = sax.getInputSource();
+            if (input == null) {
+                return sax.getSystemId();
+            }
+            return input.getByteStream() == null && input.getCharacterStream() == null ? input.getSystemId() : null;
+        }
+        return null;
+    }
+
     private static InputStream open(Path real, String target) throws XPathException {
         try {
             return Files.newInputStream(real);
@@ -267,11 +339,18 @@ final class XsltSandbox {
 
     /**
      * {@link #UNAVAILABLE_FUNCTIONS} içindeki fonksiyonları XSLT, XPath ve derleme zamanı
-     * ({@code use-when}, {@code static}) fonksiyon setlerinden çıkaran Saxon HE yapılandırması.
+     * ({@code use-when}, {@code static}) fonksiyon setlerinden, {@link #UNAVAILABLE_VENDOR_FUNCTIONS}
+     * içindekileri Saxon fonksiyon setinden çıkaran Saxon HE yapılandırması.
      * Saxon'un fonksiyon çözümlemesi (çağrı, {@code function-available()}, {@code function-lookup()},
      * isimli fonksiyon referansı) bu setlerin {@code getFunctionDetails} metodundan geçer.
+     * Saxon ad alanındaki fonksiyonlar her bağlamda (stylesheet, {@code use-when}, {@code xsl:evaluate},
+     * {@code function-lookup()}) {@link #makeBuiltInExtensionLibraryList} listesinden bulunur.
      */
     private static final class SandboxConfiguration extends Configuration {
+
+        /** Saxon'un HE fonksiyon seti, {@link #UNAVAILABLE_VENDOR_FUNCTIONS} hariç. */
+        private static final BuiltInFunctionSet VENDOR_FUNCTIONS =
+                new RestrictedFunctionSet(VendorFunctionSetHE.getInstance(), UNAVAILABLE_VENDOR_FUNCTIONS);
 
         private final Map<Integer, BuiltInFunctionSet> xpathFunctionSets = new ConcurrentHashMap<>();
         private final Map<Integer, BuiltInFunctionSet> xsltFunctionSets = new ConcurrentHashMap<>();
@@ -280,22 +359,24 @@ final class XsltSandbox {
         @Override
         public BuiltInFunctionSet getXPathFunctionSet(int version) {
             BuiltInFunctionSet base = super.getXPathFunctionSet(version);
-            if (!containsUnavailableFunction(base)) {
+            if (!containsAny(base, UNAVAILABLE_FUNCTIONS)) {
                 return base;
             }
-            return xpathFunctionSets.computeIfAbsent(version, v -> new RestrictedFunctionSet(base));
+            return xpathFunctionSets.computeIfAbsent(version,
+                    v -> new RestrictedFunctionSet(base, UNAVAILABLE_FUNCTIONS));
         }
 
         @Override
         public BuiltInFunctionSet getXSLTFunctionSet(int version) {
             BuiltInFunctionSet base = super.getXSLTFunctionSet(version);
-            if (!containsUnavailableFunction(base)) {
+            if (!containsAny(base, UNAVAILABLE_FUNCTIONS)) {
                 return base;
             }
             if (base instanceof XSLT30FunctionSet) {
                 return xsltFunctionSets.computeIfAbsent(version, v -> new RestrictedXslt30FunctionSet());
             }
-            return xsltFunctionSets.computeIfAbsent(version, v -> new RestrictedFunctionSet(base));
+            return xsltFunctionSets.computeIfAbsent(version,
+                    v -> new RestrictedFunctionSet(base, UNAVAILABLE_FUNCTIONS));
         }
 
         @Override
@@ -303,12 +384,41 @@ final class XsltSandbox {
             return useWhenFunctionSets.computeIfAbsent(version, RestrictedUseWhenFunctionSet::new);
         }
 
-        private static boolean containsUnavailableFunction(BuiltInFunctionSet set) {
+        /**
+         * Saxon'un eklediği fonksiyon kütüphaneleri (Saxon, math, map, array, EXSLT); Saxon seti
+         * kısıtlı kopyasıyla değiştirilir. {@link Configuration} sonucu sürüm başına önbelleğe alır.
+         * Kısıtlı fonksiyonlardan biri listede hâlâ bulunuyorsa (ör. Saxon sürümü değişip set başka
+         * bir sınıftan gelirse) yapılandırma açık kalmak yerine hata verir.
+         */
+        @Override
+        protected FunctionLibraryList makeBuiltInExtensionLibraryList(int version) {
+            var restricted = new FunctionLibraryList();
+            for (FunctionLibrary library : super.makeBuiltInExtensionLibraryList(version).getLibraryList()) {
+                restricted.addFunctionLibrary(library instanceof VendorFunctionSetHE ? VENDOR_FUNCTIONS : library);
+            }
+            for (String name : UNAVAILABLE_VENDOR_FUNCTIONS) {
+                for (int arity = 0; arity <= MAX_CHECKED_ARITY; arity++) {
+                    var function = new SymbolicName.F(new StructuredQName("saxon", NamespaceUri.SAXON, name), arity);
+                    if (restricted.isAvailable(function, version)) {
+                        throw new IllegalStateException(
+                                "XSLT sandbox: saxon:" + name + "#" + arity + " fonksiyon listesinden çıkarılamadı");
+                    }
+                }
+            }
+            return restricted;
+        }
+
+        @Override
+        public BuiltInFunctionSet getVendorFunctionSet() {
+            return VENDOR_FUNCTIONS;
+        }
+
+        private static boolean containsAny(BuiltInFunctionSet set, Set<String> names) {
             if (set == null) {
                 return false;
             }
-            for (String name : UNAVAILABLE_FUNCTIONS) {
-                for (int arity = 0; arity <= 3; arity++) {
+            for (String name : names) {
+                for (int arity = 0; arity <= MAX_CHECKED_ARITY; arity++) {
                     if (set.getFunctionDetails(name, arity) != null) {
                         return true;
                     }
@@ -317,6 +427,9 @@ final class XsltSandbox {
             return false;
         }
     }
+
+    /** Kısıtlı fonksiyonların var olup olmadığı denetlenirken bakılan en büyük arity. */
+    private static final int MAX_CHECKED_ARITY = 3;
 
     /** Saxon'un XSLT 3.0 fonksiyon seti, {@link #UNAVAILABLE_FUNCTIONS} hariç. */
     private static final class RestrictedXslt30FunctionSet extends XSLT30FunctionSet {
@@ -338,18 +451,24 @@ final class XsltSandbox {
         }
     }
 
-    /** Verilen yerleşik fonksiyon setinin kopyası, {@link #UNAVAILABLE_FUNCTIONS} hariç. */
+    /**
+     * Verilen yerleşik fonksiyon setinin kopyası, {@code hidden} içindeki adlar (her arity) hariç.
+     * Saxon'un {@link BuiltInFunctionSet} alt sınıfları ({@link VendorFunctionSetHE} dahil) yalnızca
+     * ad alanını ve öneki değiştirir; ikisi de temel setten alınır.
+     */
     private static final class RestrictedFunctionSet extends BuiltInFunctionSet {
         private final BuiltInFunctionSet base;
+        private final Set<String> hidden;
 
-        RestrictedFunctionSet(BuiltInFunctionSet base) {
+        RestrictedFunctionSet(BuiltInFunctionSet base, Set<String> hidden) {
             this.base = base;
+            this.hidden = hidden;
             importFunctionSet(base);
         }
 
         @Override
         public Entry getFunctionDetails(String name, int arity) {
-            return UNAVAILABLE_FUNCTIONS.contains(name) ? null : super.getFunctionDetails(name, arity);
+            return hidden.contains(name) ? null : super.getFunctionDetails(name, arity);
         }
 
         @Override
