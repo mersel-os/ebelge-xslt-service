@@ -634,7 +634,7 @@ erişimi olan kurulumlarda ise paketler her açılışta indirilir, yazma başar
 
 ```css
 /* custom-assets/watermark.css */
-#watermark > div > div {
+#xslt-watermark > div > div {
     color: rgba(0, 0, 160, 0.25) !important;
     font-size: 40px !important;
 }

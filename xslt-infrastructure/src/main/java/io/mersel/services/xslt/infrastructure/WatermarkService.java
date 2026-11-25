@@ -18,14 +18,18 @@ import java.util.regex.Pattern;
 /**
  * HTML çıktısına filigran (watermark) ekler.
  * <p>
- * Filigran, belgenin tamamını kaplayan tek bir katmandır ({@code #watermark}). Katmanın içinde
+ * Filigran, belgenin tamamını kaplayan tek bir katmandır ({@code #xslt-watermark}). Katmanın içinde
  * 300 px arayla döşenmiş {@code xslt.watermark.rows} satır, her satırda da çapraz yazılmış
  * {@code xslt.watermark.count} adet metin bulunur. Böylece çok sayfalı belgeler yazdırıldığında ya da PDF'e çevrildiğinde
  * her sayfaya katmanın kendi dilimi düşer.
  * <ul>
  *   <li>Ekranda katman {@code html}'e göre {@code position: absolute} ile tüm belge yüksekliğini
  *       kaplar; önizlemede belgeyle birlikte kayar. {@code html} göreli yapılmazsa katman yalnızca
- *       ilk ekranı (ilk sayfayı) kaplar.</li>
+ *       ilk ekranı (ilk sayfayı) kaplar. {@code html { position: relative }} kuralı yalnız
+ *       {@code @media screen} içindedir: baskıda {@code html} konumlandırılmaz, böylece şablondaki
+ *       {@code absolute} öğeler (örneğin {@code bottom: 0} ile sabitlenmiş alt bilgi) filigransız
+ *       çıktıdaki kapsayıcı bloklarını korur ve baskı/PDF yerleşimi değişmez. Ekran ortamında
+ *       işlenen çıktıda bu öğeler belgenin sonuna göre konumlanır.</li>
  *   <li>Baskıda ({@code @media print}) katman {@code position: fixed} olur; Chromium sabit öğeleri
  *       her sayfaya yeniden basar, böylece her sayfa baştan sona filigranlanır. Yalnız
  *       {@code absolute} ile katman içerik yüksekliğinde biter: içeriği ~100 px'ten kısa olan son
@@ -35,7 +39,8 @@ import java.util.regex.Pattern;
  *   <li>Saydamlık {@code opacity} yerine {@code rgba} renkle verilir; {@code opacity}
  *       wkhtmltopdf'te filigranı resme çevirip PDF'i büyütüyor.</li>
  *   <li>Özellikler {@code !important} ve id seçiciyle verilir ki XSLT tasarımındaki stiller
- *       filigranı etkilemesin.</li>
+ *       filigranı etkilemesin. Id şablonların kullanması beklenmeyen bir addır; şablonun kendi
+ *       {@code id="watermark"} öğesi gibi öğeler bu kurallardan etkilenmez.</li>
  * </ul>
  * Stil {@code <head>} varsa oraya, yoksa katmanın hemen önüne eklenir. {@code </body>} yoksa
  * filigran eklenmez ve içerik değiştirilmeden döner.
@@ -49,8 +54,8 @@ import java.util.regex.Pattern;
  *       izleyicisi değişiklik gördüğünde ya da {@code POST /v1/admin/assets/reload} ile yeniden
  *       okunur. Geçersizse yok sayılır ve dahili stil kullanılır.</li>
  * </ul>
- * Stil sözleşmesi sabittir: {@code #watermark} katman, {@code #watermark > div} satır,
- * {@code #watermark > div > div} metin.
+ * Stil sözleşmesi sabittir: {@code #xslt-watermark} katman, {@code #xslt-watermark > div} satır,
+ * {@code #xslt-watermark > div > div} metin.
  */
 @Service
 public class WatermarkService implements Reloadable {
@@ -158,25 +163,27 @@ public class WatermarkService implements Reloadable {
     private static final Pattern BODY_CLOSE_PATTERN = Pattern.compile("</body\\s*>", Pattern.CASE_INSENSITIVE);
 
     private static final String WATERMARK_BASE_STYLE = """
-            #watermark, #watermark > div, #watermark > div > div {
+            #xslt-watermark, #xslt-watermark > div, #xslt-watermark > div > div {
                 margin: 0 !important; padding: 0 !important; border: 0 !important; background: none !important; float: none !important;
                 min-width: 0 !important; max-width: none !important; min-height: 0 !important; max-height: none !important;
                 visibility: visible !important; opacity: 1 !important; box-shadow: none !important; outline: 0 !important; pointer-events: none !important;
             }
-            html { position: relative !important; }
-            #watermark {
+            @media screen {
+                html { position: relative !important; }
+            }
+            #xslt-watermark {
                 position: absolute !important; top: 0 !important; right: 0 !important; bottom: 0 !important; left: 0 !important;
                 display: block !important; width: auto !important; height: auto !important; overflow: hidden !important; z-index: 2147483647 !important;
                 -webkit-transform: none !important; transform: none !important;
             }
             @media print {
-                #watermark { position: fixed !important; }
+                #xslt-watermark { position: fixed !important; }
             }
-            #watermark > div {
+            #xslt-watermark > div {
                 position: relative !important; display: block !important; width: auto !important; height: 300px !important;
                 -webkit-transform: none !important; transform: none !important;
             }
-            #watermark > div > div {
+            #xslt-watermark > div > div {
                 position: absolute !important; top: 240px !important; display: block !important; width: auto !important; height: auto !important;
                 white-space: nowrap !important; color: rgba(255, 0, 0, 0.3) !important;
                 font-family: Arial, Helvetica, sans-serif !important; font-size: 32px !important; font-style: normal !important; font-weight: normal !important;
@@ -241,7 +248,7 @@ public class WatermarkService implements Reloadable {
         int width = 100 / count;
         int left = 10;
         for (int i = 1; i <= count; i++) {
-            style.append("#watermark > div > div:nth-child(").append(i)
+            style.append("#xslt-watermark > div > div:nth-child(").append(i)
                  .append(") { left: ").append(left).append("% !important; }\n");
             left += width - 4;
         }
@@ -254,7 +261,7 @@ public class WatermarkService implements Reloadable {
     private static String buildLayer(String escapedText, int count, int rows) {
         String cell = "<div>" + escapedText + "</div>";
         String row = "<div>" + cell.repeat(count) + "</div>";
-        return "<div id=\"watermark\">" + row.repeat(rows) + "</div>";
+        return "<div id=\"xslt-watermark\">" + row.repeat(rows) + "</div>";
     }
 
     private static int lastMatchStart(Pattern pattern, String text) {

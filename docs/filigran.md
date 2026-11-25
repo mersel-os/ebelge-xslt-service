@@ -47,7 +47,7 @@ var result = await xsltClient.TransformAsync(new TransformRequest
 
 ## Nasıl görünür
 
-Filigran, belgenin tamamını kaplayan tek bir katmandır (`#watermark`):
+Filigran, belgenin tamamını kaplayan tek bir katmandır (`#xslt-watermark`):
 
 - 300 px arayla dizilmiş 200 satır vardır. Her satırda 3 metin -45° döndürülmüştür ve %10, %39, %68 konumlarında durur.
 - Renk `rgba(255, 0, 0, 0.3)`, yazı tipi 32 px Arial'dır.
@@ -104,7 +104,7 @@ custom-assets/
 Dosya dahili stilden **sonra** eklenir. Bir değeri değiştirmek için aynı seçiciyi `!important` ile yazın; dosyaya yalnız değiştirmek istediğiniz kuralları koyun:
 
 ```css
-#watermark > div > div {
+#xslt-watermark > div > div {
     color: rgba(0, 0, 160, 0.25) !important;
     font-size: 40px !important;
 }
@@ -116,10 +116,10 @@ Başlangıç için yorumlu örnek dosya: [`custom-assets.example/watermark.css.e
 
 | Seçici | Öğe | Dahili değerler |
 |--------|-----|-----------------|
-| `#watermark` | Katman | Ekranda `position: absolute`, baskıda `position: fixed`; `top/right/bottom/left: 0`, `overflow: hidden` |
-| `#watermark > div` | Satır | `height: 300px` |
-| `#watermark > div > div` | Metin | `top: 240px`, `rotate(-45deg)` (`transform-origin: left top`), 32 px Arial, `rgba(255, 0, 0, 0.3)` |
-| `#watermark > div > div:nth-child(n)` | n. metnin yatay konumu | `left: 10%`, `39%`, `68%` |
+| `#xslt-watermark` | Katman | Ekranda `position: absolute`, baskıda `position: fixed`; `top/right/bottom/left: 0`, `overflow: hidden` |
+| `#xslt-watermark > div` | Satır | `height: 300px` |
+| `#xslt-watermark > div > div` | Metin | `top: 240px`, `rotate(-45deg)` (`transform-origin: left top`), 32 px Arial, `rgba(255, 0, 0, 0.3)` |
+| `#xslt-watermark > div > div:nth-child(n)` | n. metnin yatay konumu | `left: 10%`, `39%`, `68%` |
 
 Bu yapı sabittir; HTML'in kendisi özelleştirilemez, yalnız stili değiştirilir.
 
@@ -182,7 +182,7 @@ Aşağıdaki kurallar `watermark.css`'e eklenir. Hepsi Chrome baskısıyla denen
 **Renk, boyut, kalınlık**
 
 ```css
-#watermark > div > div {
+#xslt-watermark > div > div {
     color: rgba(0, 0, 160, 0.25) !important;
     font-size: 40px !important;
     font-weight: bold !important;
@@ -192,7 +192,7 @@ Aşağıdaki kurallar `watermark.css`'e eklenir. Hepsi Chrome baskısıyla denen
 **Açı** — eski WebKit motorları için `-webkit-` önekini de yazın:
 
 ```css
-#watermark > div > div {
+#xslt-watermark > div > div {
     -webkit-transform: rotate(-30deg) !important;
     transform: rotate(-30deg) !important;
 }
@@ -201,23 +201,23 @@ Aşağıdaki kurallar `watermark.css`'e eklenir. Hepsi Chrome baskısıyla denen
 **Daha sık satır** — satır yüksekliğini düşürün, metni satır içinde yukarı alın. 200 px satırla Chrome baskısında sayfa başına filigran sayısı 9'dan 15'e çıktı. Ekranda uzun belgelerde `XSLT_WATERMARK_ROWS` değerini de artırın (200 px × 200 satır = 40.000 px).
 
 ```css
-#watermark > div { height: 200px !important; }
-#watermark > div > div { top: 160px !important; }
+#xslt-watermark > div { height: 200px !important; }
+#xslt-watermark > div > div { top: 160px !important; }
 ```
 
 **Metinlerin yatay konumu** — `XSLT_WATERMARK_COUNT` kaç ise o kadar `nth-child` kuralı yazın:
 
 ```css
-#watermark > div > div:nth-child(1) { left: 5% !important; }
-#watermark > div > div:nth-child(2) { left: 38% !important; }
-#watermark > div > div:nth-child(3) { left: 71% !important; }
+#xslt-watermark > div > div:nth-child(1) { left: 5% !important; }
+#xslt-watermark > div > div:nth-child(2) { left: 38% !important; }
+#xslt-watermark > div > div:nth-child(3) { left: 71% !important; }
 ```
 
 **Yalnız baskıda ve PDF'te göster** — ekran önizlemesinde gizler:
 
 ```css
 @media screen {
-    #watermark { display: none !important; }
+    #xslt-watermark { display: none !important; }
 }
 ```
 
@@ -228,7 +228,8 @@ Aşağıdaki kurallar `watermark.css`'e eklenir. Hepsi Chrome baskısıyla denen
 - **Dosyanın yeri:** asset dizininin kökü. Dosya izleyici alt dizinleri yalnız açılışta kaydettiği için kök dizin seçildi; sonradan açılan bir alt dizindeki dosyayı görmezdi.
 - **Görsel ve font:** yalnız `data:` URI kullanın. Dönüşüm yanıtının CSP'si dış fontları engeller. HTML'i doğrudan alan PDF motorlarında ise CSP hiç uygulanmaz; dış adresler belge her işlendiğinde çağrılır.
 - **Boyut:** filigran HTML'i varsayılan ayarlarla "TASLAK" için yaklaşık 17 KB, 17 karakterlik bir metin için yaklaşık 25 KB büyütür. Artış satır ve metin sayısıyla doğru orantılıdır; `watermark.css` de her filigranlı yanıta eklenir.
-- **Yerleşim:** katman için `html` öğesine `position: relative` verilir. Tasarımında ilk kapsayıcı bloğa göre konumlanan öğe (örneğin `position: absolute; bottom: 0`) olan şablonlarda bu öğe belgenin sonuna göre konumlanır.
+- **Yerleşim:** katman ekranda belgeyle birlikte kaysın diye `html` öğesine yalnız ekran ortamında (`@media screen`) `position: relative` verilir. Tasarımında ilk kapsayıcı bloğa göre konumlanan öğe (örneğin `position: absolute; bottom: 0`) olan şablonlarda bu öğe ekranda belgenin sonuna göre konumlanır. Bu yalnız ekran ortamında işlenen çıktıyı etkiler: tarayıcı önizlemesi ya da HTML'i ekran ortamıyla işleyen bir PDF dönüştürücü. Yazdırmada ve baskı ortamıyla üretilen PDF'te `html` konumlandırılmaz; yerleşim filigransız çıktıyla aynıdır.
+- **Katman id'si:** katman `id="xslt-watermark"` taşır. Şablonun kendi `id="watermark"` öğesi (örneğin kendi "iptal" damgası) filigran kurallarından etkilenmez.
 
 ## Sorun giderme
 
