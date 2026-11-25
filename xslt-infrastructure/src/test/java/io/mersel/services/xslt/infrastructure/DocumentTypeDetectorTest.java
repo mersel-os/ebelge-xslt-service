@@ -150,6 +150,32 @@ class DocumentTypeDetectorTest {
         }
 
         @Test
+        @DisplayName("eArsivVeri kökü → EARCHIVE_DATA (rapor ailesi değil)")
+        void detect_earchiveData() throws Exception {
+            byte[] xml = xml("""
+                    <eArsivVeri xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <serbestMeslekMakbuz/>
+                    </eArsivVeri>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_DATA);
+        }
+
+        @Test
+        @DisplayName("eArsivRaporu içinde serbestMeslekMakbuz → genel EARCHIVE_REPORT")
+        void detect_freelanceReceiptReportStaysGenericReport() throws Exception {
+            byte[] xml = xml("""
+                    <eArsivRaporu xmlns="http://earsiv.efatura.gov.tr">
+                        <baslik/>
+                        <serbestMeslekMakbuz/>
+                    </eArsivRaporu>
+                    """);
+
+            assertThat(detector.detect(xml)).isEqualTo(DocumentType.EARCHIVE_REPORT);
+        }
+
+        @Test
         @DisplayName("İptal içerikleri de kendi rapor ailesine yönlenir")
         void detect_cancellationContentRoutesToSameFamily() throws Exception {
             assertThat(detector.detect(xml("""
@@ -439,6 +465,34 @@ class DocumentTypeDetectorTest {
             assertThatThrownBy(() -> detector.detect(xml))
                     .isInstanceOf(DocumentTypeDetectionException.class)
                     .hasMessageContaining("tespit edilemedi");
+        }
+
+        @Test
+        @DisplayName("Tanınmayan kök → istisna, özel tür eşleşmesi için namespace ve yerel adı taşır")
+        void detect_unknownRoot_carriesRootForCustomTypes() {
+            byte[] xml = xml("""
+                    <s:Voucher xmlns:s="urn:example:sample:voucher-1">
+                        <s:ID>1</s:ID>
+                    </s:Voucher>
+                    """);
+
+            assertThatThrownBy(() -> detector.detect(xml))
+                    .isInstanceOfSatisfying(DocumentTypeDetectionException.class, e -> {
+                        assertThat(e.getRootNamespace()).isEqualTo("urn:example:sample:voucher-1");
+                        assertThat(e.getRootLocalName()).isEqualTo("Voucher");
+                    });
+        }
+
+        @Test
+        @DisplayName("Geçersiz XML → istisnada kök bilgisi yok")
+        void detect_invalidXml_hasNoRootInfo() {
+            byte[] invalidXml = "bu xml değil".getBytes(StandardCharsets.UTF_8);
+
+            assertThatThrownBy(() -> detector.detect(invalidXml))
+                    .isInstanceOfSatisfying(DocumentTypeDetectionException.class, e -> {
+                        assertThat(e.getRootNamespace()).isNull();
+                        assertThat(e.getRootLocalName()).isNull();
+                    });
         }
 
         @Test

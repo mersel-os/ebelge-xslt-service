@@ -333,6 +333,49 @@ class GibPackageSyncServiceTest {
     }
 
     @Test
+    @DisplayName("ilk_kurulum_sync_mevcut_sablonu_korur — otomatik sync sabit adlı dosyanın üzerine yazmaz")
+    void ilk_kurulum_sync_mevcut_sablonu_korur() throws Exception {
+        byte[] archiveBytes = createValidZipWithContents(Map.of(
+                "alim.xslt", "gib-alim".getBytes(),
+                "satim.xslt", "gib-satim".getBytes(),
+                "eArsiv.xsd", "<xs:schema/>".getBytes(),
+                "earsiv_schematron.xsl", "<xsl:stylesheet/>".getBytes()));
+        wireMock.stubFor(get(urlPathEqualTo(EDOVIZ_PATH))
+                .willReturn(aResponse().withStatus(200).withBody(archiveBytes)));
+
+        Path customTemplate = tempDir.resolve("target/default_transformers/eDovizAlim_Base.xslt");
+        Files.createDirectories(customTemplate.getParent());
+        Files.writeString(customTemplate, "ozel-sablon");
+
+        List<PackageSyncResult> results = createService().syncAllPreservingExistingFiles();
+
+        assertThat(results).filteredOn(r -> r.packageId().equals("edoviz"))
+                .singleElement().satisfies(r -> assertThat(r.success()).isTrue());
+        assertThat(customTemplate).hasContent("ozel-sablon");
+        assertThat(tempDir.resolve("target/default_transformers/eDovizSatim_Base.xslt")).hasContent("gib-satim");
+        assertThat(tempDir.resolve("target/validator/earchive-edoviz/schema/eArsiv.xsd")).exists();
+    }
+
+    @Test
+    @DisplayName("elle_sync_sabit_adli_dosyayi_yeniler — istenen sync GİB kopyasını yazar")
+    void elle_sync_sabit_adli_dosyayi_yeniler() throws Exception {
+        byte[] archiveBytes = createValidZipWithContents(Map.of(
+                "alim.xslt", "gib-alim".getBytes(),
+                "satim.xslt", "gib-satim".getBytes(),
+                "eArsiv.xsd", "<xs:schema/>".getBytes(),
+                "earsiv_schematron.xsl", "<xsl:stylesheet/>".getBytes()));
+        wireMock.stubFor(get(urlPathEqualTo(EDOVIZ_PATH))
+                .willReturn(aResponse().withStatus(200).withBody(archiveBytes)));
+
+        Path template = tempDir.resolve("target/default_transformers/eDovizAlim_Base.xslt");
+        Files.createDirectories(template.getParent());
+        Files.writeString(template, "eski");
+
+        assertThat(createService().syncPackage("edoviz").success()).isTrue();
+        assertThat(template).hasContent("gib-alim");
+    }
+
+    @Test
     @DisplayName("edekont_gomulu_xslt_cikarilir — Placeholder atlanıp geçerli şablon hedefe yazılmalı")
     void edekont_gomulu_xslt_cikarilir() throws Exception {
         String validXslt = """

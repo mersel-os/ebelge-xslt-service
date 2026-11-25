@@ -831,37 +831,85 @@ public class SaxonSchematronValidator implements ISchematronValidator, Reloadabl
      * Pipeline'a eklenen {@code ruleId} ve {@code test} attribute'larını parse eder.
      * Bu attribute'lar runtime'da derlenen Schematron'larda mevcuttur;
      * pre-compiled XSL'lerde bulunmayabilir (bu durumda {@code null} döner).
+     * <p>
+     * GİB'in ön-derlenmiş XSL'leri (ör. e-Arşiv {@code earsiv_schematron.xsl}) hataları
+     * {@code <Error>} elemanı yerine düz metin yazar. Serializer'ın eklediği XML bildirimi hata
+     * değildir: yalnızca bildirimden oluşan çıktı "hiç kural tetiklenmedi" demektir. XML olarak
+     * okunamayan çıktıda her dolu satır ayrı bir hata sayılır. Ayrım satır sonuna dayanır:
+     * XSL'in satır sonu yazmadan bıraktığı mesajlar (e-Döviz paketinde bazı kurallar böyledir)
+     * bir sonraki mesajla tek hata olarak gelir.
      */
     private List<SchematronError> extractSchematronErrors(String schematronOutput) {
-        List<SchematronError> errors = new ArrayList<>();
-        try {
-            var factory = DocumentBuilderFactory.newInstance();
-            factory.setNamespaceAware(true);
-            // XXE koruma
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-            factory.setExpandEntityReferences(false);
-            var builder = factory.newDocumentBuilder();
-            Document doc = builder.parse(new InputSource(new StringReader(schematronOutput)));
-
-            NodeList errorNodes = doc.getElementsByTagName("Error");
-            for (int i = 0; i < errorNodes.getLength(); i++) {
-                Element errorElement = (Element) errorNodes.item(i);
-                String errorText = errorElement.getTextContent();
-                if (errorText != null && !errorText.isBlank()) {
-                    String ruleId = getAttributeOrNull(errorElement, "ruleId");
-                    String test = getAttributeOrNull(errorElement, "test");
-                    errors.add(new SchematronError(ruleId, test, errorText.strip()));
-                }
+        String content = stripXmlDeclaration(schematronOutput);
+        if (content.isEmpty()) {
+            return List.of();
+        }
+        if (content.startsWith("<")) {
+            try {
+                return errorElements(content);
+            } catch (Exception e) {
+                log.debug("Schematron çıktısı XML olarak parse edilemedi, düz metin olarak okunuyor: {}",
+                        e.getMessage());
             }
-        } catch (Exception e) {
-            log.debug("Schematron çıktısı XML olarak parse edilemedi: {}", e.getMessage());
-            if (!schematronOutput.isBlank()) {
-                errors.add(new SchematronError(null, null, schematronOutput.strip()));
+        }
+        return plainTextErrors(content);
+    }
+
+    private List<SchematronError> errorElements(String xml) throws Exception {
+        var factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        // XXE koruma
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setExpandEntityReferences(false);
+        var builder = factory.newDocumentBuilder();
+        Document doc = builder.parse(new InputSource(new StringReader(xml)));
+
+        List<SchematronError> errors = new ArrayList<>();
+        NodeList errorNodes = doc.getElementsByTagName("Error");
+        for (int i = 0; i < errorNodes.getLength(); i++) {
+            Element errorElement = (Element) errorNodes.item(i);
+            String errorText = errorElement.getTextContent();
+            if (errorText != null && !errorText.isBlank()) {
+                String ruleId = getAttributeOrNull(errorElement, "ruleId");
+                String test = getAttributeOrNull(errorElement, "test");
+                errors.add(new SchematronError(ruleId, test, errorText.strip()));
             }
         }
         return errors;
+    }
+
+    /**
+     * Düz metin Schematron çıktısında her dolu satırı ayrı bir hata olarak döndürür;
+     * satır içindeki boşluk dizilerini tek boşluğa indirir. Aralarında satır sonu olmayan
+     * mesajlar ayrılamaz, tek hata olarak döner; {@code text} bastırma kuralı bu durumda
+     * birleşik metinle eşleşir.
+     */
+    static List<SchematronError> plainTextErrors(String content) {
+        return content.lines()
+                .map(line -> line.strip().replaceAll("\\s+", " "))
+                .filter(line -> !line.isEmpty())
+                .map(line -> new SchematronError(null, null, line))
+                .toList();
+    }
+
+    /**
+     * Baştaki BOM'u, boşlukları ve {@code <?xml ...?>} bildirimini atar.
+     */
+    static String stripXmlDeclaration(String output) {
+        if (output == null) {
+            return "";
+        }
+        String content = output.strip();
+        if (content.startsWith("﻿")) {
+            content = content.substring(1).strip();
+        }
+        if (content.startsWith("<?xml")) {
+            int end = content.indexOf("?>");
+            content = end >= 0 ? content.substring(end + 2).strip() : "";
+        }
+        return content;
     }
 
     /**

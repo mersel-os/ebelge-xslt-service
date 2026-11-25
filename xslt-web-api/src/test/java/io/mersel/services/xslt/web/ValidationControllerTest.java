@@ -5,6 +5,7 @@ import io.mersel.services.xslt.application.enums.SchemaValidationType;
 import io.mersel.services.xslt.application.enums.SchematronValidationType;
 import io.mersel.services.xslt.application.interfaces.DocumentTypeDetectionException;
 import io.mersel.services.xslt.application.interfaces.IDocumentTypeDetector;
+import io.mersel.services.xslt.application.interfaces.ICustomDocumentTypeRegistry;
 import io.mersel.services.xslt.application.interfaces.ISchemaValidator;
 import io.mersel.services.xslt.application.interfaces.ISchematronValidator;
 import io.mersel.services.xslt.application.interfaces.IValidationProfileService;
@@ -61,6 +62,9 @@ class ValidationControllerTest {
     private IValidationProfileService profileService;
 
     @Mock
+    private ICustomDocumentTypeRegistry customDocumentTypes;
+
+    @Mock
     private XsltMetrics xsltMetrics;
 
     private ValidationController validationController;
@@ -69,7 +73,7 @@ class ValidationControllerTest {
     void setUp() throws Exception {
         validationController = new ValidationController(
                 documentTypeDetector, schemaValidator, schematronValidator,
-                profileService, xsltMetrics, new ObjectMapper());
+                profileService, customDocumentTypes, xsltMetrics, new ObjectMapper());
 
         var sizeField = ValidationController.class.getDeclaredField("maxValidationSizeMb");
         sizeField.setAccessible(true);

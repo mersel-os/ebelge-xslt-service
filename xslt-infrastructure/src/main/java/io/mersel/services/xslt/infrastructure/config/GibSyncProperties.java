@@ -14,7 +14,7 @@ import java.util.Map;
  * {@code validation-assets.gib.sync} prefix'i altındaki değerleri okur.
  * <ul>
  *   <li>{@code enabled} — Sync özelliğini aç/kapa</li>
- *   <li>{@code auto-sync-on-startup} — İlk kurulumda (asset dizini boşken) otomatik sync (varsayılan: true)</li>
+ *   <li>{@code auto-sync-on-startup} — İlk kurulumda (GİB paket dizini {@code validator/} boşken) otomatik sync (varsayılan: true)</li>
  *   <li>{@code target-path} — İndirilen dosyaların yazılacağı dizin (boşsa xslt.assets.external-path kullanılır)</li>
  *   <li>{@code package-urls} — Paket bazlı kalıcı indirme URL override'ı.
  *       GİB arşiv linkleri değiştiğinde kod değiştirmeden yeni link verilebilir

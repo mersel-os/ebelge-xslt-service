@@ -9,9 +9,16 @@ import jakarta.annotation.PostConstruct;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.FileVisitOption;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +49,9 @@ public class AssetManager {
     @Value("${xslt.assets.external-path:}")
     private String externalPath;
 
+    @Value("${xslt.assets.seed-path:}")
+    private String seedPath;
+
     private Path externalDir;
 
     @PostConstruct
@@ -50,7 +60,6 @@ public class AssetManager {
             externalDir = Path.of(externalPath);
             if (Files.isDirectory(externalDir)) {
                 log.info("AssetManager başlatıldı. Asset dizini: {}", externalDir);
-                logContents();
             } else {
                 // Dizin henüz yoksa oluşturmayı dene (GIB sync sonrası dolacak)
                 try {
@@ -61,11 +70,121 @@ public class AssetManager {
                     externalDir = null;
                 }
             }
+            if (externalDir != null && seedPath != null && !seedPath.isBlank()) {
+                seedFrom(Path.of(seedPath));
+            }
+            if (externalDir != null) {
+                logContents();
+            }
         } else {
             externalDir = null;
             log.warn("AssetManager: xslt.assets.external-path yapılandırılmamış! " +
                     "Asset'ler kullanılamaz. GIB sync veya external-path ayarlayın.");
         }
+    }
+
+    /**
+     * Seed dizinindeki dosyaları aynı göreli yollarla asset dizinine kopyalar (üzerine yazar).
+     * <p>
+     * Kendi imajına gömdüğü ya da salt-okunur bağladığı (ConfigMap, Secret, read-only volume)
+     * asset'leri — özel belge türleri, varsayılan XSLT şablonları, doğrulama profilleri — her
+     * açılışta yazılabilir asset dizinine taşımak isteyen dağıtımlar içindir. Seed'de olmayan
+     * dosyalara (GİB sync çıktıları, admin API ile yazılanlar) dokunulmaz. Nokta ile başlayan
+     * yollar (Kubernetes ConfigMap'in {@code ..data} bağlantıları) ve {@code auto-generated/} atlanır.
+     * <p>
+     * Seed dosyası kaynak kabul edilir: asset dizinindeki kopya (örneğin admin API/UI ile
+     * düzenlenmiş) farklıysa üzerine yazılır ve bu bir uyarıyla loglanır.
+     *
+     * @return kopyalanan dosya sayısı
+     */
+    int seedFrom(Path seedDir) {
+        if (!Files.isDirectory(seedDir)) {
+            log.error("Seed dizini bulunamadı: {} (xslt.assets.seed-path) — seed atlandı", seedDir);
+            return 0;
+        }
+        try {
+            if (externalDir.toRealPath().startsWith(seedDir.toRealPath())) {
+                // Asset dizini seed'in içindeyse her açılışta bir kat daha iç içe kopyalanırdı.
+                log.error("Seed dizini asset dizininin kendisi ya da üst dizini olamaz: {} (asset dizini: {}) "
+                        + "— seed atlandı", seedDir, externalDir);
+                return 0;
+            }
+        } catch (IOException e) {
+            log.error("Seed dizini çözümlenemedi: {} — {} — seed atlandı", seedDir, e.getMessage());
+            return 0;
+        }
+
+        int[] copied = {0};
+        int[] skipped = {0};
+        // Bağlantılar izlenir: ConfigMap/Secret'ta alt dizinler ..data üzerinden symlink olarak gelir.
+        // Okunamayan girdi (izin, bağlantı döngüsü) atlanır; açılışı durdurmaz.
+        var visitor = new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                return isHiddenOrGenerated(seedDir.relativize(dir))
+                        ? FileVisitResult.SKIP_SUBTREE
+                        : FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path source, BasicFileAttributes attrs) {
+                Path relative = seedDir.relativize(source);
+                if (!attrs.isRegularFile() || isHiddenOrGenerated(relative)) {
+                    return FileVisitResult.CONTINUE;
+                }
+                Path target = externalDir.resolve(relative.toString()).normalize();
+                if (!target.startsWith(externalDir)) {
+                    log.warn("Seed dosyası asset dizininin dışına çıkıyor, atlandı: {}", relative);
+                    return FileVisitResult.CONTINUE;
+                }
+                try {
+                    Files.createDirectories(target.getParent());
+                    if (Files.isRegularFile(target) && Files.mismatch(source, target) != -1) {
+                        // Admin API/UI ile yapılan düzenleme her açılışta sessizce geri alınmasın: görünür olsun.
+                        log.warn("Asset dizinindeki {} seed'deki sürümden farklıydı; yerel sürüm seed ile "
+                                + "değiştirildi. Seed ile gelen dosyaları seed kaynağında değiştirin.", relative);
+                    }
+                    Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+                    copied[0]++;
+                } catch (IOException e) {
+                    skipped[0]++;
+                    log.warn("Seed dosyası kopyalanamadı, atlandı: {} — {}", relative, e.getMessage());
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException e) {
+                skipped[0]++;
+                log.warn("Seed girdisi okunamadı, atlandı: {} — {}", seedDir.relativize(file), e.toString());
+                return FileVisitResult.CONTINUE;
+            }
+        };
+        try {
+            Files.walkFileTree(seedDir, EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE, visitor);
+        } catch (IOException e) {
+            log.error("Seed kopyalama yarıda kaldı ({} dosya kopyalandı): {} — {}", copied[0], seedDir, e.getMessage());
+            return copied[0];
+        }
+        if (skipped[0] > 0) {
+            log.warn("Seed dizininden {} dosya kopyalandı, {} girdi atlandı: {} → {}",
+                    copied[0], skipped[0], seedDir, externalDir);
+        } else {
+            log.info("Seed dizininden {} dosya asset dizinine kopyalandı: {} → {}", copied[0], seedDir, externalDir);
+        }
+        return copied[0];
+    }
+
+    private static boolean isHiddenOrGenerated(Path relative) {
+        if (relative.getNameCount() > 0 && relative.getName(0).toString().equals("auto-generated")) {
+            return true;
+        }
+        for (Path part : relative) {
+            if (part.toString().startsWith(".")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -438,6 +557,33 @@ public class AssetManager {
             return stream.noneMatch(Files::isRegularFile);
         } catch (IOException e) {
             return true;
+        }
+    }
+
+    /**
+     * Asset dizinindeki alt dizinin dosya içerip içermediğini döndürür.
+     * <p>
+     * Dizin ya da altındaki dizinler sembolik bağlantı olabilir (paket dizinini başka bir diske
+     * bağlayan kurulumlar); bağlantılar izlenir. Dizin taranamazsa (izin, bağlantı döngüsü) dolu
+     * kabul edilir: bu yöntem GİB ilk sync kararını verir ve emin olunamayan durumda paketleri
+     * indirip dizinleri yeniden yazmak, sync'i atlamaktan daha zararlıdır.
+     *
+     * @param relativeDir asset dizinine göreli alt dizin (örn. {@code validator})
+     * @return alt dizin yoksa, dosya içermiyorsa veya asset dizini yapılandırılmamışsa {@code true}
+     */
+    public boolean isEmpty(String relativeDir) {
+        if (externalDir == null) {
+            return true;
+        }
+        Path dir = externalDir.resolve(relativeDir).normalize();
+        if (!dir.startsWith(externalDir) || !Files.isDirectory(dir)) {
+            return true;
+        }
+        try (var stream = Files.walk(dir, FileVisitOption.FOLLOW_LINKS)) {
+            return stream.noneMatch(Files::isRegularFile);
+        } catch (IOException | UncheckedIOException e) {
+            log.warn("Dizin taranamadı, dolu kabul ediliyor: {} — {}", dir, e.getMessage());
+            return false;
         }
     }
 

@@ -54,7 +54,8 @@ class JaxpSchemaValidatorOverrideTest {
      * Spring context kullanmadığımız için reflection ile çağırıyoruz.
      */
     private JaxpSchemaValidator createValidator() {
-        JaxpSchemaValidator validator = new JaxpSchemaValidator(assetManager, metrics);
+        JaxpSchemaValidator validator = new JaxpSchemaValidator(assetManager, metrics,
+                mock(io.mersel.services.xslt.application.interfaces.ICustomDocumentTypeRegistry.class));
         try {
             // @Value alanlarını set et
             var maxSizeField = JaxpSchemaValidator.class.getDeclaredField("xsdOverrideCacheMaxSize");
