@@ -11,6 +11,8 @@ import net.sf.saxon.lib.ActiveSource;
 import net.sf.saxon.lib.AugmentedSource;
 import net.sf.saxon.lib.EnvironmentVariableResolver;
 import net.sf.saxon.lib.Feature;
+import net.sf.saxon.lib.IDynamicLoader;
+import net.sf.saxon.lib.Logger;
 import net.sf.saxon.lib.ParseOptions;
 import net.sf.saxon.lib.ResourceRequest;
 import net.sf.saxon.lib.ResourceResolver;
@@ -77,6 +79,12 @@ import java.util.concurrent.ConcurrentHashMap;
  *       {@code static} parametreler de onu bulamaz. Diğer Saxon fonksiyonları çalışır.</li>
  *   <li>Saxon'un bir URI'den kendisi açacağı kaynaklar (akışı olmayan, yalnızca system id taşıyan
  *       {@link StreamSource}/{@link SAXSource}) source resolver düzeyinde aynı kapıdan geçer.</li>
+ *   <li>Saxon adıyla Java sınıfı yükleyemez ({@link SandboxDynamicLoader}): collation adresindeki
+ *       {@code class=} parametresi ({@code compare()}, {@code xsl:sort}, {@code default-collation}) ve
+ *       {@code serialize()} parametrelerindeki kullanıcı tanımlı çıktı yöntemi, sınıfın yapıcısını ve
+ *       statik başlatıcısını çalıştırmadan reddedilir. Standart collation'lar çalışır.
+ *       {@code Q{http://saxon.sf.net/java-type}} tipleri de çözülemez: bu tipleri kullanan ifadeler
+ *       derlenmez, {@code type-available()} {@code false} döner.</li>
  * </ul>
  * Bu ayarların kapsamı yalnızca {@link #newProcessor()} ile oluşturulan {@link Processor}'dür;
  * diğer Saxon kullanıcılarını etkilemez. Schematron pipeline adımları ({@code sch:include} için dosya
@@ -181,6 +189,7 @@ final class XsltSandbox {
         config.setCollectionFinder((context, collectionUri) -> {
             throw blocked(String.valueOf(collectionUri));
         });
+        config.setDynamicLoader(new SandboxDynamicLoader(config.getDynamicLoader()));
 
         ParseOptions parseOptions = config.getParseOptions();
         for (var feature : SECURE_PARSER_FEATURES.entrySet()) {
@@ -480,6 +489,50 @@ final class XsltSandbox {
         public String getConventionalPrefix() {
             return base.getConventionalPrefix();
         }
+    }
+
+    /**
+     * Saxon'un bir addan Java sınıfı yüklemesini ve örneklemesini reddeden yükleyici.
+     * <p>
+     * Saxon, stylesheet'ten gelen bazı adları sınıf adı olarak kullanır: collation adresindeki
+     * {@code class=} parametresi ve {@code serialize()} parametrelerindeki kullanıcı tanımlı çıktı
+     * yöntemi. Varsayılan yükleyici sınıfı türünü denetlemeden önce örnekler; classpath'teki herhangi
+     * bir sınıfın statik başlatıcısı ve argümansız yapıcısı çalışır ({@code java.util.Timer} her
+     * çağrıda kapanmayan bir thread bırakır). Sandbox'taki işlemcide bu yollar başka bir sınıf
+     * yüklemesine ihtiyaç duymadığı için tamamen kapatılır; yan etkisi olarak
+     * {@code Q{http://saxon.sf.net/java-type}} tipleri de çözülemez. Saxon'un kendi kaynak dosyaları
+     * ({@link #getResourceAsStream}) önceki yükleyiciden okunmaya devam eder.
+     */
+    private record SandboxDynamicLoader(IDynamicLoader next) implements IDynamicLoader {
+        @Override
+        public void setClassLoader(ClassLoader loader) {
+            // Sınıf yüklenmediği için yükleyici değiştirilemez.
+        }
+
+        @Override
+        public Class<?> getClass(String className, Logger traceOut, ClassLoader classLoader) throws XPathException {
+            throw classLoadingBlocked(className);
+        }
+
+        @Override
+        public Object getInstance(String className, ClassLoader classLoader) throws XPathException {
+            throw classLoadingBlocked(className);
+        }
+
+        @Override
+        public Object getInstance(String className, Logger traceOut, ClassLoader classLoader) throws XPathException {
+            throw classLoadingBlocked(className);
+        }
+
+        @Override
+        public InputStream getResourceAsStream(String name) {
+            return next.getResourceAsStream(name);
+        }
+    }
+
+    /** Mesajın sabit kısmı {@link #blocked} ile aynı nedenle ISO-8859-1 dışı karakter içermez. */
+    private static XPathException classLoadingBlocked(String className) {
+        return new XPathException("Güvenlik: Java class yükleme engellendi (XSLT sandbox): " + className);
     }
 
     /**

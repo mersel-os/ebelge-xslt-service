@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -54,6 +55,9 @@ class SchematronCustomRuleSandboxTest {
     private static final String BLOCKED_PREFIX = "Schematron doğrulama hatası";
     /** Gizli XML dosyasını doğrudan {@code saxon:doc()} çağrısıyla okumaya çalışan kural mesajı. */
     private static final String SAXON_DOC_MESSAGE = "OUT=[{{string(Q{http://saxon.sf.net/}doc('{XML}', map{}))}}]";
+    /** Saxon'a {@link SandboxInstantiationProbe} sınıfını collation olarak veren kural mesajı. */
+    private static final String CLASS_COLLATION_MESSAGE = "OUT=[{{compare('a', 'b', 'http://saxon.sf.net/collation?class="
+            + SandboxInstantiationProbe.class.getName() + "')}}]";
     /** Aynı okuma, fonksiyonu çalışma zamanında {@code function-lookup()} ile bularak. */
     private static final String SAXON_DOC_LOOKUP_MESSAGE =
             "OUT=[{{string(function-lookup(QName('http://saxon.sf.net/', 'doc'), 2)('{XML}', map{}))}}]";
@@ -351,6 +355,18 @@ class SchematronCustomRuleSandboxTest {
         assertBlocked(errors, SECRET);
     }
 
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(RulePath.class)
+    @DisplayName("Mesajdaki collation adresi Java sınıfı örneklemez")
+    void collationClassIsNotInstantiated(RulePath path) {
+        int before = SandboxInstantiationProbe.CREATED.get();
+
+        var errors = validate(path, rule("/Invoice", "false()", CLASS_COLLATION_MESSAGE));
+
+        assertBlocked(errors, "OUT=[");
+        assertThat(SandboxInstantiationProbe.CREATED.get()).as("sınıf örneklenmemeli").isEqualTo(before);
+    }
+
     // ── Kontrol: sandbox olmadan aynı kurallar gerçekten sızdırıyor ──
 
     /**
@@ -395,6 +411,16 @@ class SchematronCustomRuleSandboxTest {
                     SAXON_DOC_LOOKUP_MESSAGE.replace("{XML}", secretXmlUri)));
 
             assertThat(output).contains(SECRET);
+        }
+
+        @Test
+        @DisplayName("Mesajdaki collation adresi Java sınıfı örnekler")
+        void collationClassIsInstantiated() {
+            int before = SandboxInstantiationProbe.CREATED.get();
+
+            catchThrowable(() -> runWithoutSandbox(rule("/Invoice", "false()", CLASS_COLLATION_MESSAGE)));
+
+            assertThat(SandboxInstantiationProbe.CREATED.get()).isGreaterThan(before);
         }
 
         @Test
