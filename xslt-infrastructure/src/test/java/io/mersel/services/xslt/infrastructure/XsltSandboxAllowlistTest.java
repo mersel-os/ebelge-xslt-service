@@ -372,7 +372,7 @@ class XsltSandboxAllowlistTest {
     }
 
     private SaxonXsltTransformer newTransformer(XsltSandboxPolicy sandboxPolicy) {
-        return new SaxonXsltTransformer(assetManager, new WatermarkService(), new HtmlSanitizer(),
+        return new SaxonXsltTransformer(assetManager, new WatermarkService(assetManager), new HtmlSanitizer(),
                 new EmbeddedXsltExtractor(), new XsltMetrics(new SimpleMeterRegistry()), sandboxPolicy);
     }
 

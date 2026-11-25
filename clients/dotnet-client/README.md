@@ -65,6 +65,23 @@ public sealed class InvoiceService(IXsltServiceClient xsltClient)
 }
 ```
 
+## Watermark
+
+`WatermarkText` verilirse servis HTML'e belgenin tamamını kaplayan, yazdırmada ve PDF'te her sayfaya basılan bir filigran ekler. Metin en çok 200 karakter olabilir.
+
+```csharp
+var result = await xsltClient.TransformAsync(new TransformRequest
+{
+    Document = xml,
+    TransformType = TransformType.INVOICE,
+    WatermarkText = "TASLAK"
+}, ct);
+
+// result.WatermarkApplied == true
+```
+
+Filigranın görünümü istemciden değil, servisi çalıştıran tarafın asset dizinindeki `watermark.css` ile değiştirilir. Ayrıntılar: [Filigran Kullanım Kılavuzu](https://github.com/mersel-os/ebelge-xslt-service/blob/main/docs/filigran.md).
+
 ## Security Violation Detection
 
 Transform yanıtlarında sunucu tarafında otomatik HTML sanitization uygulanır. Exfiltration riski taşıyan scriptler kaldırılır ve detayları response header'larından okunur.
@@ -93,6 +110,8 @@ if (result.HasSecurityViolations)
 | `HasSecurityViolations` | `bool` | `SecurityViolations.Count > 0` |
 
 Olası violation mesajları: `cookie access`, `domain manipulation`, `localStorage access`, `sessionStorage access`, `redirect/exfiltration via location`, `window.open exfiltration`, `XHR network call`, `fetch API network call`, `sendBeacon exfiltration`, `WebSocket connection`, `cross-origin messaging`, `dynamic code execution (eval)`, `dynamic code execution (Function constructor)`, `dynamic module import`, `UI blocking dialog (alert)`, `UI blocking dialog (confirm)`, `UI blocking dialog (prompt)`.
+
+`CustomXsltError` ve `SecurityViolations` HTTP header'larından okunduğu için sunucu bu metinleri ISO-8859-1'e indirir: ü/ç/ö korunur, ı/ş/ğ/İ `i`/`s`/`g`/`I`, uzun tire `-` olarak gelir (örn. `Gömülü XSLT ile dönüsüm basarisiz: ...`).
 
 ## Targets
 

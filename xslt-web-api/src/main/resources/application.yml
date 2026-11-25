@@ -80,8 +80,10 @@ xslt:
   sandbox:
     resource-dirs: ${XSLT_SANDBOX_RESOURCE_DIRS:}
   # ── Filigran (Watermark) ─────────────────────────────────────────
+  # Görünüm, asset dizinine konan watermark.css ile özelleştirilebilir (README → Filigran).
   watermark:
     count: ${XSLT_WATERMARK_COUNT:3}
+    rows: ${XSLT_WATERMARK_ROWS:200}
   # ── Boyut Limitleri ──────────────────────────────────────────────
   limits:
     max-document-size-mb: ${XSLT_MAX_DOCUMENT_SIZE_MB:100}

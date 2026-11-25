@@ -540,7 +540,7 @@ class SaxonXsltTransformerSandboxTest {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
-        var transformer = new SaxonXsltTransformer(assetManager, new WatermarkService(), new HtmlSanitizer(),
+        var transformer = new SaxonXsltTransformer(assetManager, new WatermarkService(assetManager), new HtmlSanitizer(),
                 new EmbeddedXsltExtractor(), new XsltMetrics(new SimpleMeterRegistry()));
         transformer.reload();
         return transformer;

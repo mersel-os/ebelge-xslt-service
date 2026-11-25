@@ -29,7 +29,7 @@ E-Fatura, E-İrsaliye, E-Arşiv ve diğer e-dönüşüm belgeleri için XML doğ
 - **Monitoring** — Prometheus metrikleri + Grafana dashboard (30+ panel)
 - **Kimlik Doğrulama** — Token tabanlı admin auth, env'den yapılandırılabilir
 - **Güvenlik Başlıkları** — CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
-- **Filigran** — Dönüştürülmüş HTML'e otomatik filigran ekleme
+- **Filigran** — Dönüştürülmüş HTML'e her basılan sayfada görünen filigran; görünüm `watermark.css` ile özelleştirilebilir ([kılavuz](docs/filigran.md))
 
 ### Teknoloji
 
@@ -229,16 +229,20 @@ curl -v -X POST http://localhost:8080/v1/transform \
   -F "watermarkText=TASLAK"
 ```
 
+Filigranın görünümü ve ayarları için [Filigran](#filigran) bölümüne bakın.
+
 **Response Header'ları:**
 
 | Header | Tip | Açıklama |
 |--------|-----|----------|
 | `X-Xslt-Default-Used` | boolean | Varsayılan XSLT şablonu kullanıldı mı |
 | `X-Xslt-Embedded-Used` | boolean | Belgeden çıkarılan gömülü XSLT kullanıldı mı |
-| `X-Xslt-Custom-Error` | string | Özel/gömülü XSLT hata mesajı (sadece fallback durumunda) |
+| `X-Xslt-Custom-Error` | string | Özel/gömülü XSLT hata mesajı (sadece fallback durumunda). En fazla 500 karakter, ISO-8859-1: ü/ç/ö korunur; ı, ş, ğ, İ `i`, `s`, `g`, `I`; uzun tire `-` olur, karşılığı olmayan karakter `?` olur |
 | `X-Xslt-Duration-Ms` | integer | İşlem süresi (milisaniye) |
 | `X-Xslt-Watermark-Applied` | boolean | Filigran uygulandı mı |
 | `X-Xslt-Output-Size` | integer | Çıktı boyutu (byte) |
+| `X-Xslt-Scripts-Removed` | integer | Güvenlik nedeniyle kaldırılan script sayısı |
+| `X-Xslt-Security-Violations` | string | Tespit edilen güvenlik ihlalleri (virgülle ayrılmış). Header yoksa ihlal yok. En fazla 1000 karakter, `X-Xslt-Custom-Error` ile aynı ISO-8859-1 kuralları geçerli |
 
 **Hata Yanıtı (422 — RFC 7807):**
 ```json
@@ -530,10 +534,32 @@ custom-assets/
 │   │   └── schema/                    # UBL-TR XSD dosyaları
 │   ├── earchive/                      # e-Arşiv dosyaları
 │   └── eledger/                       # e-Defter dosyaları
-└── validation-profiles.yml            # Özel doğrulama profilleri
+├── validation-profiles.yml            # Özel doğrulama profilleri
+└── watermark.css                      # Filigran görünümü (opsiyonel, bkz. Filigran)
 ```
 
 Örnek yapı için `custom-assets.example/` dizinine bakın.
+
+## Filigran
+
+`watermarkText` verilen dönüşümlerde HTML'e belgenin tamamını kaplayan bir filigran katmanı eklenir. Katman ekranda belgeyle birlikte kayar; yazdırmada ve Chromium tabanlı PDF motorlarında her sayfaya basılır.
+
+| Parametre | Env Variable | Varsayılan | Açıklama |
+|-----------|-------------|------------|----------|
+| `xslt.watermark.count` | `XSLT_WATERMARK_COUNT` | `3` | Satır başına filigran metni |
+| `xslt.watermark.rows` | `XSLT_WATERMARK_ROWS` | `200` | Satır sayısı (1–1000, 300 px arayla) |
+
+**Görünümü özelleştirme:** asset dizininin köküne `watermark.css` koyun. Dosya dahili stilden sonra eklenir; aynı seçicileri `!important` ile yazarak renk, boyut, açı ve aralığı değiştirirsiniz. Dosya açılışta okunur. Servis çalışırken eklenen ya da değiştirilen dosya; dosya izleyiciyle, yönetim panelindeki *Asset Reload* kartıyla veya `POST /v1/admin/assets/reload` ile uygulanır.
+
+```css
+/* custom-assets/watermark.css */
+#watermark > div > div {
+    color: rgba(0, 0, 160, 0.25) !important;
+    font-size: 40px !important;
+}
+```
+
+Seçiciler, tarifler, kurallar ve sorun giderme için: **[Filigran Kullanım Kılavuzu](docs/filigran.md)**. Yorumlu örnek dosya: [`custom-assets.example/watermark.css.example`](custom-assets.example/watermark.css.example).
 
 ## Konfigürasyon
 
@@ -748,6 +774,7 @@ MERSEL.Services.XsltService/
 ├── xslt-web-ui/                   # React + TailwindCSS + shadcn/ui
 ├── clients/dotnet-client/         # .NET İstemci SDK (NuGet)
 ├── custom-assets.example/         # External override örnek yapısı
+├── docs/                          # Kılavuzlar (filigran) ve ekran görüntüleri
 ├── monitoring/                    # Prometheus + Grafana
 ├── .github/workflows/             # CI/CD
 ├── Dockerfile
